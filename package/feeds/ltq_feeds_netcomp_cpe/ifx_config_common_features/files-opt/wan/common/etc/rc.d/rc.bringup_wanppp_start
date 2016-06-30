@@ -1,0 +1,342 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. rewrite all of the qos scirpts
+#509022:linmars 2005/09/02 vlan configuration for each interfaces
+OUTPUT="/tmp/ppp_start${1}"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+remove_output()
+{
+	rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+. /etc/rc.d/ltq_switch_functions.sh 2>/dev/null
+
+RESOLV_CONF="/etc/resolv.conf"
+
+eval link_type='$'wanppp_${1}_linkType
+eval wan_mode='$'wanppp_${1}_wanMode
+eval wan_iface='$'wanppp_${1}_iface
+eval wanppp_pcpeId='$'wanppp_${1}_pcpeId
+eval wan_mac='$'wanppp_${1}_macAddr
+
+eval g_wan_phy_mode='$'wanphy_phymode
+eval g_wan_tc_mode='$'wanphy_tc
+
+startFlag=1
+cwan_started=0
+#if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+#	if [ "$wan_mode" = "0" ]; then # ADSL ATM mode connection
+#		startFlag=1
+#	fi
+#elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL
+#	if [ "$g_wan_tc_mode" = "1" ]; then # PTM
+#		if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM mode connection
+#			startFlag=1
+#		fi
+#	fi
+#elif [ "$g_wan_phy_mode" = "1" ]; then
+#	if [ "$wan_mode" = "1" ]; then # Eth on MII0
+#		startFlag=1
+#	fi
+#elif [ "$g_wan_phy_mode" = "2" ]; then # Eth on MII1
+#	if [ "$wan_mode" = "2" ]; then # Eth on MII1
+#		startFlag=1
+#	fi
+#elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode.
+	if [ "$wan_mode" = "6" ]; then
+		. /etc/init.d/wwan_pppd.sh start
+		cwan_started=1
+	fi
+#fi
+
+if [ "$CONFIG_FEATURE_DUAL_WAN_SUPPORT" = "1" -a "$dw_failover_state" = "1" ]; then
+	startFlag=0
+	if [ "$wan_mode" = "6" ]; then
+		if [ "$cwan_started" = "0" ]; then
+			. /etc/init.d/wwan_pppd.sh start
+		fi
+	else
+		startFlag=1
+	fi
+fi
+
+WAN_STATUS="`/usr/sbin/status_oper GET "WanPPP${1}_IF_Info" STATUS`"
+if [ -z "$WAN_STATUS" ] || [ -n "$WAN_STATUS" -a "$WAN_STATUS" != "CONNECTING" -a "$WAN_STATUS" != "CONNECTED" ]; then
+	startFlag=1
+else
+	startFlag=0
+fi
+
+if [ "$startFlag" = "1" ]; then
+
+	echo "Bringup started for wan ppp index $1 !!" > /dev/console
+	if [ "$link_type" = "3" ]; then #PPPOA 
+		wan_type="PPPOA"
+	elif [ "$link_type" = "4" ]; then # CLIP
+		wan_type="PPPOE"
+	else
+		wan_type="UNKNOWN"
+	fi
+
+	if [ "$wan_mode" != "1" -a "$wan_mode" != "2" ]; then # WANMode is ADSL/VDSL ATM/PTM
+		i=0
+		while [ $i -lt $adsl_vcchannel_Count ]; do
+			eval adsl_ch_pcpeId='$'VCChannel_${i}_pcpeId
+			if [ "A$adsl_ch_pcpeId" = "A$wanppp_pcpeId" ]; then
+				eval encap='$'VCChannel_${i}_encap
+				eval qos_mode='$'VCChannel_${i}_qos
+				eval VCC_SETTING='$'VCChannel_${i}_vcc
+	
+				if [ "$qos_mode" = "1" ]; then
+					maxpcr=0
+					minpcr=0
+				else
+					eval maxpcr='$'VCChannel_${i}_maxpcr
+					eval minpcr='$'VCChannel_${i}_minpcr
+				fi
+	
+				eval cdv='$'VCChannel_${i}_cdv
+				eval mbs='$'VCChannel_${i}_mbs
+				eval scr='$'VCChannel_${i}_scr
+				eval VCC_SETTING='$encap\_'$VCC_SETTING'_$qos_mode'
+				if [ "$max_pcr" != "0" ]; then
+					eval VCC_SETTING=$VCC_SETTING',max_pcr='$maxpcr
+				fi
+				if [ "$min_pcr" != "0" ]; then
+					eval VCC_SETTING=$VCC_SETTING',min_pcr='$minpcr
+				fi
+				if [ "$scr" != "0" ]; then
+					eval VCC_SETTING=$VCC_SETTING',scr='$scr
+				fi
+				if [ "$mbs" != "0" ]; then
+					eval VCC_SETTING=$VCC_SETTING',mbs='$mbs
+				fi
+				if [ "$cdv" != "0" ]; then
+					eval VCC_SETTING=$VCC_SETTING',cdv='$cdv
+				fi
+				break
+			fi
+			i=`expr $i + 1`
+		done
+	fi
+	eval wan_conn_vcc='$'VCChannel_${i}_vcc
+
+	/usr/sbin/status_oper SET WanPPP${1}_IF_Info STATUS CONNECTING
+	flush_output
+
+	eval nat_enable='$'wanppp_${1}_NATEnable
+
+	case "$wan_type" in
+	[Pp][Pp][Pp][Oo][Ee])
+		if [ -r /etc/rc.d/init.d/pppoe ]; then
+					if [ "$wan_mode" = "0" ]; then
+						if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+							. /etc/rc.d/ipqos_lcp_prio_defaults $1 $VCC_SETTING #Call for LCP Prio Map script
+						fi
+					fi
+			. /etc/rc.d/init.d/pppoe start $1
+
+			if [ -n "`[ -f /tmp/adsl_status ] && /bin/cat /tmp/adsl_status | grep "7"`"  -o "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then
+				if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+					[ -f /sys/class/leds/internet_red_led/trigger ] && echo none > /sys/class/leds/internet_red_led/trigger
+					[ -f /sys/class/leds/internet_red_led/brightness ] && echo 1 > /sys/class/leds/internet_red_led/brightness
+				fi	
+				if [ "$CONFIG_FEATURE_LED" = "1" ]; then
+					[ -f /sys/class/leds/internet_led/trigger ] && echo none > /sys/class/leds/internet_led/trigger
+					[ -f /sys/class/leds/internet_led/brightness ] && echo 0 > /sys/class/leds/internet_led/brightness
+				fi	
+
+			else
+				if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+					[ -f /sys/class/leds/internet_red_led/trigger ] && echo none > /sys/class/leds/internet_red_led/trigger
+					[ -f /sys/class/leds/internet_red_led/brightness ] && echo 0 > /sys/class/leds/internet_red_led/brightness
+				fi	
+				if [ "$CONFIG_FEATURE_LED" = "1" ]; then
+					[ -f /sys/class/leds/internet_led/trigger ] && echo none > /sys/class/leds/internet_led/trigger
+					[ -f /sys/class/leds/internet_led/brightness ] && echo 0 > /sys/class/leds/internet_led/brightness
+				fi	
+
+			fi
+		fi
+		;;
+	[Pp][Pp][Pp][Oo][Aa])
+		if [ -r /etc/rc.d/init.d/pppoa ]; then
+			# To enable PPPoA switch configuration
+			enable_pppoa_conf
+			. /etc/rc.d/init.d/pppoa start $1
+			if [ -n "`[ -f /tmp/adsl_status ] && /bin/cat /tmp/adsl_status | grep "7"`"  -o "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then
+				if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+					[ -f /sys/class/leds/internet_red_led/trigger ] && echo none > /sys/class/leds/internet_red_led/trigger
+					[ -f /sys/class/leds/internet_red_led/brightness ] && echo 1 > /sys/class/leds/internet_red_led/brightness
+				fi	
+				if [ "$CONFIG_FEATURE_LED" = "1" ]; then
+					[ -f /sys/class/leds/internet_led/trigger ] && echo none > /sys/class/leds/internet_led/trigger
+					[ -f /sys/class/leds/internet_led/brightness ] && echo 0 > /sys/class/leds/internet_led/brightness
+				fi	
+
+			else
+				if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+					[ -f /sys/class/leds/internet_red_led/trigger ] && echo none > /sys/class/leds/internet_red_led/trigger
+					[ -f /sys/class/leds/internet_red_led/brightness ] && echo 0 > /sys/class/leds/internet_red_led/brightness
+				fi	
+				if [ "$CONFIG_FEATURE_LED" = "1" ]; then
+					[ -f /sys/class/leds/internet_led/trigger ] && echo none > /sys/class/leds/internet_led/trigger
+					[ -f /sys/class/leds/internet_led/brightness ] && echo 0 > /sys/class/leds/internet_led/brightness
+				fi
+
+			fi
+		fi
+		;;
+	*)
+		WAN_TYPE="unknown"
+		;;
+	esac
+
+	if [ "$WAN_TYPE" != "unknown" ]; then
+		/usr/sbin/status_oper SET bringup_wanppp$1_if status start	
+	    if [ "$CONFIG_PACKAGE_IFX_OAM" = "1" ]; then
+				 . /etc/init.d/oam stop
+ 	       . /etc/init.d/oam start "PPP" $1
+   		fi
+	else
+		/usr/sbin/status_oper SET WanPPP${1}_IF_Info STATUS DISCONNECT
+	fi
+
+	if [  "$PR_STATUS" = "1" ]; then
+		. /etc/rc.d/init.d/policy_routing start
+	fi
+
+	remove_output
+	#/usr/sbin/status_oper SET "http_wan_vcc_select" "WAN_VCC" "1"
+
+else
+
+	echo "WAN IP connection $1 is already UP !!" > /dev/console
+fi
+
+#IPQOS part:
+#add vconfig rules to enable cos map and add iptable rules for software path when ever a new eth.x interface is added
+
+if [ $qm_enable -eq "1" ]; then
+
+# Add Interface classification Rule
+. /etc/rc.d/get_wan_if $1 "ppp"
+eval iface=${WAN_IFNAME}
+ebtables -t broute -L INPUT_INTF_CHECK | grep ${iface}
+if [ $? -ne 0 ]; then
+	ebtables -t broute -I INPUT_INTF_CHECK 1 -i ${iface} -j ACCEPT
+fi
+
+QUEUE_METHOD=`/usr/sbin/status_oper GET qos_bk queue_method`
+eval wanmode='$'wanppp_$1_wanMode
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				if [ $QUEUE_METHOD -eq 1 -o $QUEUE_METHOD -eq 5 ]; then
+					eval iftype='$'wanppp_$1_ifType
+                			. /etc/rc.d/get_wan_if $1 "ppp"
+			               	eval iface=${WAN_IFNAME}
+        					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       					 			iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+				fi
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				if [ $QUEUE_METHOD -eq 1 -o $QUEUE_METHOD -eq 5 ]; then
+					eval iftype='$'wanppp_$1_ifType
+                   				. /etc/rc.d/get_wan_if $1 "ppp"
+			                   	eval iface=${WAN_IFNAME}
+        					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       					 		iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+				fi
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ $QUEUE_METHOD -eq 1 -o $QUEUE_METHOD -eq 5 ]; then
+			eval iftype='$'wanppp_$1_ifType
+               	. /etc/rc.d/get_wan_if $1 "ppp"
+	           	eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+		fi
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		if [ $QUEUE_METHOD -eq 1 -o $QUEUE_METHOD -eq 5 ]; then
+			eval iftype='$'wanppp_$1_ifType
+               	. /etc/rc.d/get_wan_if $1 "ppp"
+	            eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+		fi
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		if [ $QUEUE_METHOD -eq 1 -o $QUEUE_METHOD -eq 5 ]; then
+			eval iftype='$'wanppp_$1_ifType
+               	. /etc/rc.d/get_wan_if $1 "ppp"
+	          	eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+		fi
+		;;
+esac
+
+
+fi
+
+if [ "$g_wan_phy_mode" = "0" ]; then
+if [ $qm_enable -eq "1" ]; then
+
+	#$1 has wan index. parse for wan_$1_mode and if mii0 mode, add vconfig rule for eth0.x
+	wan_index=$1
+	eval qActive='$'qm_qIf
+	#eval wan_conn_vcc='$'wanip_${wan_index}_vcc
+	if [ "$wan_conn_vcc" = "$qActive" ]; then
+		queuecfg -f $wan_conn_vcc
+		queuecfg -i $wan_conn_vcc
+	fi
+fi
+fi
+
+# start script to capture wan packet counters continously
+eval any_wan=`/usr/sbin/status_oper GET AnyWan status`
+if [ "A$any_wan" == "A1" ]; then
+	/flash/get_wan_pkt_cnt.sh &
+fi

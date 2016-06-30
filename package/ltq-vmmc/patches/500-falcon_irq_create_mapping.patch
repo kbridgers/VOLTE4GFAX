@@ -1,0 +1,57 @@
+--- a/src/mps/drv_mps_vmmc_linux.c
++++ b/src/mps/drv_mps_vmmc_linux.c
+@@ -68,6 +68,10 @@
+ #endif
+ #endif /* SYSTEM_FALCON */
+ 
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0))
++#define irq_create_mapping(DOMAIN, NUMBER) NUMBER
++#endif
++
+ /* lib_ifxos headers */
+ #include "ifx_types.h"
+ #include "ifxos_lock.h"
+@@ -2325,6 +2329,7 @@ IFX_int32_t __init ifx_mps_init_module (
+ {
+    IFX_int32_t result;
+    IFX_int32_t i;
++   unsigned int virt;
+ 
+    sprintf (ifx_mps_device_version, "%d.%d.%d.%d", MAJORSTEP, MINORSTEP,
+             VERSIONSTEP, VERS_TYPE);
+@@ -2374,7 +2379,10 @@ IFX_int32_t __init ifx_mps_init_module (
+ 
+    /* reset the device before initializing the device driver */
+    ifx_mps_reset ();
+-   result = request_irq (INT_NUM_IM4_IRL18,
++   virt = irq_create_mapping(NULL, INT_NUM_IM4_IRL18);
++   if (!virt)
++      return -1;
++   result = request_irq (virt,
+ #ifdef LINUX_2_6
+                          ifx_mps_ad0_irq, IRQF_DISABLED
+ #else /* */
+@@ -2384,7 +2392,10 @@ IFX_int32_t __init ifx_mps_init_module (
+                          , "mps_mbx ad0", &ifx_mps_dev);
+    if (result)
+       return result;
+-   result = request_irq (INT_NUM_IM4_IRL19,
++   virt = irq_create_mapping(NULL, INT_NUM_IM4_IRL19);
++   if (!virt)
++      return -1;
++   result = request_irq (virt,
+ #ifdef LINUX_2_6
+                          ifx_mps_ad1_irq, IRQF_DISABLED
+ #else /* */
+@@ -2399,7 +2410,10 @@ IFX_int32_t __init ifx_mps_init_module (
+    for (i = 0; i < 4; ++i)
+    {
+       sprintf (&voice_channel_int_name[i][0], "mps_mbx vc%d", i);
+-      result = request_irq (INT_NUM_IM4_IRL14 + i,
++      virt = irq_create_mapping(NULL, INT_NUM_IM4_IRL14 + i);
++      if (!virt)
++         return -1;
++      result = request_irq (virt,
+ #ifdef LINUX_2_6
+                             ifx_mps_vc_irq, IRQF_DISABLED
+ #else /* */

@@ -1,0 +1,56 @@
+#!/bin/sh
+
+#508104:tc.chen 2005/08/10 fix ppp dial on demand set wrong dns server ip to wan ip 
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+eval PPP_DEMAND='$'wanppp_${1}_connTrigger
+eval IPV6_STATUS='$'ipv6_status
+
+if [ "`/usr/sbin/status_oper GET bringup_wanppp${1}_pppoa status`" != "start" ]; then 
+	. /etc/rc.d/init.d/create_ppp_cfg $1 "OA"
+	# The create_ppp_cfg creates a config file used by ppp's calloption() function ONLY.
+	# Aims to solve the problem of pppd disappearing after 12 hrs of inactivity
+	# (and trying to connect over a valid VPI/VCI)
+	OP_FILE="/etc/ppp/options"
+	echo "maxfail 0" > $OP_FILE
+	if [ "$PPP_DEMAND" = "0" ]; then # Always ON Connection
+        echo "persist" >> $OP_FILE
+	fi
+#AMS
+if [ "$IPV6_STATUS" = "1" ]; then
+        echo "+ipv6" >> $OP_FILE
+fi
+
+	/usr/sbin/status_oper SET "WanPPP${1}_PPP_Info" SESSIONID "" REMOTE_IP "" LOCAL_IP ""
+
+	/usr/sbin/pppd file $OP_FILE call pppoatm$1
+
+	if [ "$CONFIG_FEATURE_NAPT" = "1" -a "$PPP_DEMAND" = "1" ]; then
+		#508104:tc.chen sleep 2
+		sleep 1
+		. /etc/rc.d/get_wan_if $1 "ppp"
+		WAN=$WAN_IFNAME
+		PTP_IP=`ifconfig $WAN 2> /dev/null`
+		if [ $? -eq 0 ]; then
+			PTP_IP=${PTP_IP%%Mask*}
+			PTP_IP=${PTP_IP##*:}
+			/usr/sbin/status_oper SET "WanPPP${1}_DNS_SERVER" DNS1 $PTP_IP
+			if  [ "$CONFIG_FEATURE_DNS_RELAY" = "1" ]; then
+				. /etc/rc.d/init.d/dns_relay restart $1
+			fi
+		fi
+	fi
+	/usr/sbin/status_oper SET bringup_wanppp$1_pppoa status start	
+fi

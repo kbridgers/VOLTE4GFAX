@@ -1,0 +1,97 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+SED="/bin/sed"
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+# apply_oam_settings oper(ENABLE/DISABLE) TR037(0/1) type(F4/F5) vpi vci
+# apply_oam_settings ENABLE 0 F4 0
+#apply_oam_setting(){
+	#echo "apply_oam_setting $1 $2 $3 $4 $5"
+	if [ "$OAM_ENABLE" = "1" ]; then
+		nFOUND=0;
+		if [ "$3" = "F4" ]; then
+			index="$adsl_oam_f4Count"
+		elif [ "$3" = "F5" ]; then
+			index="$adsl_oam_f5_Count"
+		fi
+		i=0
+		if [ "$2" = "1" ]; then
+			VPI="TR037"
+			VCI="TR037"
+		else
+			VPI="$4"
+			VCI="$5"
+		fi
+
+		if [ "$3" = "F4" ]; then
+			while [ "$i" -ge 0 -a "$i" -lt "$index" -a "$nFOUND" -eq "0" ]
+			do
+					eval OAM_VALUE='$adsl_oam_f4'${i}
+
+					echo $OAM_VALUE > "$OUTPUT"
+					OAM_VPI=`sed -n 's,_.*,,;p' "$OUTPUT"`
+					if [ "$OAM_VPI" = "$VPI" ]; then
+						nFOUND=1;
+						OAM_FREQ=`sed -n 's,^.*_,,;p' "$OUTPUT"`
+						OAM_LO=`sed -n "s,$OAM_VPI\_,,;s,_$OAM_FREQ,,;s,_.*,,;p" "$OUTPUT"`
+						OAM_CCOPT=`sed -n "s,$OAM_VPI\_,,;s,_$OAM_FREQ,,;s,^.*_,,;p" "$OUTPUT"`
+						OAM_CC=`sed -n "s,$OAM_VPI\_$OAM_LO\_,,;s,_.*,,;p" "$OUTPUT"`
+					fi
+				i=$(( $i + 1 ))
+			done
+		else
+			while [ "$i" -ge 0 -a "$i" -lt "$index" -a "$nFOUND" -eq "0" ]
+			do
+				eval OAM_VPI='$'adsl_oam_f5_${i}_vpi
+				eval OAM_VCI='$'adsl_oam_f5_${i}_vci
+				if [ "$OAM_VPI" = "$VPI" -a "$OAM_VCI" = "$VCI" ];then
+					eval OAM_LO='$'adsl_oam_f5_${i}_loopback
+					eval OAM_CC='$'adsl_oam_f5_${i}_contCheck
+					eval OAM_CCOPT='$'adsl_oam_f5_${i}_contCheckOpt
+					eval OAM_FREQ='$'adsl_oam_f5_${i}_timeout
+					nFOUND=1;
+				fi
+				i=$(( $i + 1 ))
+			done
+		fi
+	fi
+	if [ "$nFOUND" = "1" ]; then
+		if [ "$OAM_LO" = "1" ]; then 
+			if [ "$1" = "ENABLE" ] ;then
+				OAM_LO_S="--loopback"
+			else
+				OAM_LO_S="--no-loopback"
+			fi
+		else
+			OAM_LO_S="--no-loopback"
+		fi
+		if [ "$OAM_CC" = "1" ]; then
+			if [ "$1" = "ENABLE" ] ;then
+				OAM_CC_S="--continuity-check"
+			else
+				OAM_CC_S="--no-continuity-check"
+			fi
+		else
+			OAM_CC_S="--no-continuity-check"
+		fi
+
+#		if [ "$3" = "F4" ]; then
+#			if [ "$OAM_LO" = "1" -o "$OAM_CC" = "1" ]; then
+#				/usr/bin/oamctl --f4 --vpi $4 $OAM_CC_S $OAM_CCOPT $OAM_LO_S $OAM_FREQ
+#			fi
+#		elif [ "$3" = "F5" ]; then
+#			if [ "$OAM_LO" = "1" -o "$OAM_CC" = "1" ]; then
+#				/usr/bin/oamctl --f5 --vpi $4 --vci $5 $OAM_CC_S $OAM_CCOPT $OAM_LO_S $OAM_FREQ
+#			fi
+#		fi
+	fi
+#}

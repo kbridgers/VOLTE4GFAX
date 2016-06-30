@@ -1,0 +1,27 @@
+#!/bin/sh
+#509025:linmars 2005/09/02 move original vlan related script (vlan/vlan_start/vlan_start) to pif (pif/pif_start/pif_stop)
+#509142:linmars fix typo
+
+case "$1" in
+	start)
+		ifconfig br0 down
+		. /etc/rc.d/init.d/pif_start $@
+		#sleep 2
+		ifconfig br0 up
+		;;
+	stop)
+		ifconfig br0 down
+		. /etc/rc.d/init.d/pif_stop $@
+		ifconfig br0 up
+		;;
+	restart)
+		ifconfig br0 down
+		. /etc/rc.d/init.d/pif_stop $@
+		. /etc/rc.d/init.d/pif_start $@
+		#sleep 2
+		ifconfig br0 up
+		;;
+	*)
+		echo $"Usage $0 {start|stop|restart}"
+		#exit 1
+esac

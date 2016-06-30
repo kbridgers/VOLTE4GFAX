@@ -1,0 +1,53 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+if [ "$CONFIG_FEATURE_QOS" = "1" ]; then
+
+case "$1" in
+	init)
+		. /etc/rc.d/init.d/qos_init $@ 
+		;;
+	start)
+		. /etc/rc.d/init.d/qos_upstream_start $@ 
+		. /etc/rc.d/init.d/qos_downstream_start $@ 
+		if [ "$CONFIG_FEATURE_QOS_PRIORITY_QUEUE" = "1" ]; then
+			. /etc/rc.d/init.d/qos_apply_priority $@
+		fi
+		;;
+    start_wan)
+		shift
+		. /etc/rc.d/init.d/qos_start_wan $1
+		;;
+	stop)
+		. /etc/rc.d/init.d/qos_stop $@
+		;;
+    stop_wan)
+		shift
+		. /etc/rc.d/init.d/qos_stop_wan $1
+		;;
+	restart)
+		shift
+		#stop
+		. /etc/rc.d/init.d/qos stop $@
+		. /etc/init.d/algs_stop #510251:sumedh
+		#start
+		. /etc/init.d/algs_start #510251:sumedh
+		. /etc/rc.d/init.d/qos start $@
+		;;
+esac
+fi
+
+#exit $?

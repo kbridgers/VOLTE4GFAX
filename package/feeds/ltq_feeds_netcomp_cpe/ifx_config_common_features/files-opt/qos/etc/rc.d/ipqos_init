@@ -1,0 +1,594 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+		CONFIGLOADED="1"
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+        QOS_INTF_LAN_SPECIFIC=14
+
+case "$wanphy_phymode" in
+	0)
+      TC_ACTION=0  #TC rules ADD action input for TCP ACK Prio
+		ADSL_MODE_ON=1 #denotes ADSL Mode
+
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+		esac
+		;;
+	1)
+		TC_ACTION=2 #TC rules DELETE action input for TCP ACK Prio
+		ADSL_MODE_ON=0
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+                	DEF_UPSTREAM_RATE="1048576"
+	                DEF_DOWNSTREAM_RATE="1048576"
+		else
+       		        DEF_UPSTREAM_RATE="102400"
+                	DEF_DOWNSTREAM_RATE="102400"
+                fi
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	2)
+		TC_ACTION=2 #TC rules DELETE action input for TCP ACK Prio
+		ADSL_MODE_ON=0
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+               	DEF_UPSTREAM_RATE="1048576"
+	        DEF_DOWNSTREAM_RATE="1048576"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	3)
+		TC_ACTION=2 #TC rules DELETE action input for TCP ACK Prio
+		ADSL_MODE_ON=0
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="60000"
+                DEF_DOWNSTREAM_RATE="100000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="99800kbit"
+                RATE_UNIT=kbit
+		;;
+esac
+
+ACTUAL_UPSTREAM_RATE=$DEF_UPSTREAM_RATE
+ACTUAL_DOWNSTREAM_RATE=$DEF_DOWNSTREAM_RATE
+
+
+# read queue rates from file /tmp/ipqos_rates
+if [ -f /tmp/ipqos_rates ]; then
+	. /tmp/ipqos_rates
+	if [ ! -z $IPQOS_UP_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+		#fi
+	fi
+	if [ ! -z $IPQOS_DOWN_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+		#fi
+	fi
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+MAX_UPSTREAM_RATE_TMP=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+MAX_DOWNSTREAM_RATE_TMP=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+#/bin/sed -i -e "s,^up_link_rate=.*,up_link_rate=\"$MAX_UPSTREAM_RATE_TMP\",g" /tmp/system_status
+#/bin/sed -i -e "s,^down_link_rate=.*,down_link_rate=\"$MAX_DOWNSTREAM_RATE_TMP\",g" /tmp/system_status
+###/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "up_link_rate" "$MAX_UPSTREAM_RATE_TMP" "down_link_rate" "$MAX_DOWNSTREAM_RATE_TMP"
+#if [ $qm_portRateLimEnab -ne 1 ]; then
+#/bin/sed -i -e "s,^qm_upPortRateLim=.*,qm_upPortRateLim=\"$MAX_UPSTREAM_RATE_TMP\",g" /ramdisk/flash/rc.conf
+#/etc/rc.d/backup
+#	/usr/sbin/status_oper -u -f /etc/rc.conf SET "qos_queuemgmt" "qm_upPortRateLim" "$MAX_UPSTREAM_RATE_TMP"
+#fi
+MAX_UPSTREAM_RATE=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+MAX_DOWNSTREAM_RATE=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+
+##################LOADING IP6TABLES########################################
+
+if [ "$target" != "ARX1" ]; then
+	insmod /lib/modules/*/ip6_tables.ko
+	insmod /lib/modules/*/ip6t_ipv6header.ko
+	insmod /lib/modules/*/ip6table_mangle.ko
+fi
+
+#########################################Common##########################################
+	# get the path of the imq kernel module
+
+	# Insert the imq kernel module
+        insmod /lib/modules/*/imq.ko
+
+	#Insert all the bridge modules
+	#insmod /lib/modules/*/ebtables.ko
+	#insmod /lib/modules/*/ebtable_filter.ko
+	#insmod /lib/modules/*/ebtable_broute.ko
+	#insmod /lib/modules/*/ebt_vlan.ko
+	#insmod /lib/modules/*/ebt_pkttype.ko
+	#insmod /lib/modules/*/ebt_mark_m.ko
+	#insmod /lib/modules/*/ebt_mark.ko
+	#insmod /lib/modules/*/ebt_ip.ko
+	#insmod /lib/modules/*/ebt_redirect.ko
+
+	#Establish Link between Ebtables and Iptables
+	#echo 1 > /proc/sys/net/bridge/bridge-nf-forward-enable
+	#echo 1 > /proc/sys/net/bridge/bridge-nf-post-routing-enable
+	#echo 1 > /proc/sys/net/bridge/bridge-nf-pre-routing-enable
+	#echo 1 > /proc/sys/net/bridge/bridge-nf-local-out-enable
+	#echo 1 > /proc/sys/net/bridge/bridge-nf-local-in-enable
+	#echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
+
+	#Update QoS Flags
+	queuecfg -u 0/0
+
+	#Initialize Rates
+	queuecfg -r 0/0
+
+	#Set queuing method as none
+	#/usr/sbin/status_oper SET "qos_bk" "queue_method" "0"
+	#/bin/sed -i -e "s,^queue_method=.*,queue_method=\"0\",g" /tmp/system_status
+	/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "queue_method" "0"
+
+
+	############## Start Creating Chains ##############
+	#This section is common to both upstream and down stream 
+
+
+	# Creating chain IPQOS_QUEUE_MAP that will be used to add the Queue CpeId to Priority Mapping
+#if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ]; then
+if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ] || [ "$target" == "GRX3" ]; then
+   chain_selection=0
+else
+   chain_selection=1
+fi
+eval QOS_ACCEL_DISABLE='$'qm_AccelMngr
+#echo "Value of chain selection is $chain_selection"
+#if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+if [ "$target" != "GRX2" -o "$target" != "RT2" -o $chain_selection -eq 1 -o $QOS_ACCEL_DISABLE -eq 1 ]; then
+   	iptables -t mangle -N IPQOS_QUEUE_MAP
+	ebtables -t filter -N IPQOS_QUEUE_MAP
+
+	# Default policy is return
+	ebtables -t filter -P IPQOS_QUEUE_MAP RETURN
+	
+	if [ "$target" != "ARX1" ]; then
+   		ip6tables -t mangle -N IPQOS_QUEUE_MAP
+	fi
+fi
+
+	# Creating chain INPUT_INTF_CHECK
+	ebtables -t filter -N INPUT_INTF_CHECK
+	ebtables -t filter -P INPUT_INTF_CHECK RETURN
+	
+	# Creating chain INPUT_INTF_CHECK
+	iptables -t mangle -N INPUT_INTF_CHECK
+        #TBD: The INPUT_INTF_CHECK chain should be created by the system if it is to be used for purposes other than QOS.
+
+	# Add rules in INPUT_INTF_CHECK chain
+
+	# Add a rule to jump to INPUT_INTF_CHECK
+	iptables -t mangle -I PREROUTING 2 -j INPUT_INTF_CHECK
+	ebtables -t filter -I FORWARD 1 -j INPUT_INTF_CHECK
+
+	# Creating chain IPQOS_LAN_ING
+	iptables -t mangle -N IPQOS_LAN_ING
+	ebtables -t filter -N IPQOS_LAN_ING
+	ebtables -t filter -P IPQOS_LAN_ING RETURN
+
+	# TBD: current support only for taffic generated from LAN. Seperate mark required for WAN.
+
+	# Creating chain IPQOS_LAN_ING
+	iptables -t mangle -N IPQOS_WAN_ING
+	ebtables -t filter -N IPQOS_WAN_ING
+	ebtables -t filter -P IPQOS_WAN_ING RETURN
+
+
+	# Creating chain IPQOS_LAN_DSCP_ALL
+	iptables -t mangle -N IPQOS_LAN_DSCP_ALL
+	ebtables -t filter -N IPQOS_LAN_DSCP_ALL
+
+	iptables -t mangle -N IPQOS_WAN_DSCP_ALL
+	ebtables -t filter -N IPQOS_WAN_DSCP_ALL
+
+	
+	ebtables -t filter -P IPQOS_LAN_DSCP_ALL RETURN
+	ebtables -t filter -P IPQOS_WAN_DSCP_ALL RETURN
+	
+	# Creating chain IPQOS_LAN_8021P_ALL
+	iptables -t mangle -N IPQOS_LAN_8021P_ALL
+	ebtables -t filter -N IPQOS_LAN_8021P_ALL
+
+
+	iptables -t mangle -N IPQOS_WAN_8021P_ALL
+	ebtables -t filter -N IPQOS_WAN_8021P_ALL
+	
+	ebtables -t filter -P IPQOS_LAN_8021P_ALL RETURN
+	ebtables -t filter -P IPQOS_WAN_8021P_ALL RETURN
+	
+	# Creating chain IPQOS_OUTPUT
+	iptables -t mangle -N IPQOS_OUTPUT
+
+	# Creating chain IPQOS_OUTPUT_DSCP_ALL
+	iptables -t mangle -N IPQOS_OUTPUT_DSCP_ALL
+	iptables -t mangle -N IPQOS_OUTPUT_8021P_ALL
+
+	# Creating chain IPQOS_OUTPUT_MAP
+	iptables -t mangle -N IPQOS_OUTPUT_MAP
+	
+	# Create chain IPQOS_DS_TARGET
+	iptables -t mangle -N IPQOS_DS_TARGET
+	ebtables -t filter -N IPQOS_DS_TARGET
+	ebtables -t filter -P IPQOS_DS_TARGET RETURN
+
+# IPV6 START
+
+	if [ "$target" != "ARX1" ]; then
+		ip6tables -t mangle -N INPUT_INTF_CHECK
+		ip6tables -t mangle -N IPQOS_DS_TARGET
+		ip6tables -t mangle -I PREROUTING 1 -j IPQOS_DS_TARGET
+		ip6tables -t mangle -I PREROUTING 2 -j INPUT_INTF_CHECK
+		ip6tables -t mangle -N IPQOS_LAN_ING
+		ip6tables -t mangle -N IPQOS_LAN_DSCP_ALL
+		ip6tables -t mangle -N IPQOS_LAN_8021P_ALL
+#		ip6tables -t mangle -N IPQOS_OUTPUT
+#		ip6tables -t mangle -N IPQOS_OUTPUT_DSCP_ALL
+#		ip6tables -t mangle -N IPQOS_OUTPUT_8021P_ALL
+#		ip6tables -t mangle -N IPQOS_OUTPUT_MAP
+	fi
+# IPV6 END
+
+SYSTEM_OUTPUT_SIP_ADDED=0
+	if [ ! -z $CONFIG_PACKAGE_IFX_VOIP ]; then
+		if [ $CONFIG_PACKAGE_IFX_VOIP -eq 1 ]; then
+			# Creating chain IPQOS_OUTPUT_SYSTEM
+			iptables -t mangle -N IPQOS_OUTPUT_SYSTEM
+			# Create chain IPQOS_OUTPUT_RTP
+			iptables -t mangle -N IPQOS_OUTPUT_RTP
+			# Create chain IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -N IPQOS_OUTPUT_SIP_MGMT	
+
+#			if [ "$target" != "ARX1" ]; then
+#				ip6tables -t mangle -N IPQOS_OUTPUT_SYSTEM
+#				ip6tables -t mangle -N IPQOS_OUTPUT_RTP
+#				ip6tables -t mangle -N IPQOS_OUTPUT_SIP_MGMT	
+#			fi		
+SYSTEM_OUTPUT_SIP_ADDED=1
+		fi
+	fi
+
+	# Add chains for tr69 if they are not added already
+	if [ $SYSTEM_OUTPUT_SIP_ADDED -eq 0 ]; then
+		if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+			if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+
+				# Creating chain IPQOS_OUTPUT_SYSTEM
+				iptables -t mangle -N IPQOS_OUTPUT_SYSTEM
+				# Create chain IPQOS_OUTPUT_SIP_MGMT
+				iptables -t mangle -N IPQOS_OUTPUT_SIP_MGMT
+				
+#				if [ "$target" != "ARX1" ]; then
+#					ip6tables -t mangle -N IPQOS_OUTPUT_SYSTEM
+#					ip6tables -t mangle -N IPQOS_OUTPUT_SIP_MGMT
+#				fi
+			fi
+		fi
+	fi
+
+#########################################Upstream - Classification##########################################
+
+
+
+#########################################Downstream - Queuing##########################################
+
+	# Enable the imq device
+	ifconfig imq1 up
+
+	# create a root htb queue on imq1 device
+	tc qdisc add dev imq1 root handle 1: htb
+	tc class add dev imq1 parent 1: classid 1:2 htb rate $MAX_DOWNSTREAM_RATE
+	# traffic sub class for normal wan traffic
+	tc class add dev imq1 parent 1:2 classid 1:41 htb rate $RATE_FOR_DOWNSTREAM_OTHERS ceil $MAX_DOWNSTREAM_RATE prio 2
+	tc qdisc add dev imq1 parent 1:41 handle 41: bfifo limit 100k
+	tc filter add dev imq1 protocol ip parent 1:0 prio 2 handle 0xffffff5 fw classid 1:41
+
+
+Q2_ADDED=0
+        #Queue For Voice Traffic
+	if [ ! -z $CONFIG_PACKAGE_IFX_VOIP ]; then
+		if [ $CONFIG_PACKAGE_IFX_VOIP -eq 1 ]; then
+
+			# Following queues are creating for downstream direction traffic on imq1
+			# Queue for RTP traffic
+			tc class add dev imq1 parent 1:2 classid 1:21 htb rate 80kbit ceil $MAX_DOWNSTREAM_RATE prio 0
+			tc qdisc add dev imq1 parent 1:21 handle 21: bfifo limit 100k
+			tc filter add dev imq1 protocol ip parent 1:0 prio 2 handle 0xffffff3 fw classid 1:21
+
+			# Queue for SIP traffic
+			tc class add dev imq1 parent 1:2 classid 1:31 htb rate 80kbit ceil $MAX_DOWNSTREAM_RATE prio 1
+			tc qdisc add dev imq1 parent 1:31 handle 31: bfifo limit 100k
+			tc filter add dev imq1 protocol ip parent 1:0 prio 2 handle 0xffffff4 fw classid 1:31
+			
+Q2_ADDED=1
+		fi
+	fi
+
+	#Add a queue for management traffic if it is not added already
+	if [ $Q2_ADDED -eq 0 ]; then
+		if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+			if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+
+			# Queue on imq1 for tr69 management downstream traffic
+			tc class add dev imq1 parent 1:2 classid 1:31 htb rate 80kbit ceil $MAX_DOWNSTREAM_RATE prio 1
+			tc qdisc add dev imq1 parent 1:31 handle 31: bfifo limit 100k
+			tc filter add dev imq1 protocol ip parent 1:0 prio 2 handle 0xffffff4 fw classid 1:31
+			fi
+			
+		fi
+	fi
+
+#########################################Downstream - Queuing##########################################
+
+########################################Downstream - Classification##########################################
+
+# Creating chain IPQOS_PREROUTE_SYSTEM
+iptables -t mangle -N IPQOS_PREROUTE_SYSTEM
+#ebtables -t filter -N IPQOS_PREROUTE_SYSTEM
+# Add a rule to jump to IPQOS_PREROUTE_SYSTEM chain for wan traffic
+#iptables -t mangle -A PREROUTING -m mark ! --mark 0x80000000/0xE0003FFF -j IPQOS_PREROUTE_SYSTEM
+iptables -t mangle -A IPQOS_WAN_ING -j IPQOS_PREROUTE_SYSTEM
+#iptables -t mangle -A PREROUTING -m mark --mark 0x0/$INTF_SELECT_MUSK -j IPQOS_PREROUTE_SYSTEM
+#ebtables -t filter -A FORWARD -m mark --mark 0x0/0x80000000 -j IPQOS_PREROUTE_SYSTEM
+
+if [ "$target" != "ARX1" ]; then
+	ip6tables -t mangle -N IPQOS_PREROUTE_SYSTEM
+fi
+
+# Create chains for RTP, SIP and management only if these features are enabled
+
+SYSTEM_PREROUTE_SIP_ADDED=0
+	if [ ! -z $CONFIG_PACKAGE_IFX_VOIP ]; then
+		if [ $CONFIG_PACKAGE_IFX_VOIP -eq 1 ]; then
+			# Following chains are for downstream direction
+
+			# Create chain IPQOS_PREROUTE_RTP
+			iptables -t mangle -N IPQOS_PREROUTE_RTP
+			iptables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IPQOS_PREROUTE_RTP
+			# add one default rule to map packets to imq1
+			iptables -t mangle -A IPQOS_PREROUTE_RTP -m mark --mark 0xffffff3 -j IMQ --todev 1
+			iptables -t mangle -A IPQOS_PREROUTE_RTP -m mark --mark 0xffffff3 -j ACCEPT
+			
+			# Create  chain IPQOS_PREROUTE_SIP_MGMT
+			iptables -t mangle -N IPQOS_PREROUTE_SIP_MGMT
+			iptables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IPQOS_PREROUTE_SIP_MGMT
+			# Add one default rule to map packet to imq1
+			iptables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j IMQ --todev 1
+			iptables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j ACCEPT
+# IPV6 START
+#			if [ "$target" != "ARX1" ]; then
+#				ip6tables -t mangle -N IPQOS_PREROUTE_RTP
+#				ip6tables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IPQOS_PREROUTE_RTP
+#				ip6tables -t mangle -A IPQOS_PREROUTE_RTP -m mark --mark 0xffffff3 -j IMQ --todev 1
+#				ip6tables -t mangle -A IPQOS_PREROUTE_RTP -m mark --mark 0xffffff3 -j ACCEPT
+#				ip6tables -t mangle -N IPQOS_PREROUTE_SIP_MGMT
+#				ip6tables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IPQOS_PREROUTE_SIP_MGMT
+#				ip6tables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j IMQ --todev 1
+#				ip6tables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j ACCEPT
+#			fi
+# IPV6 END		
+SYSTEM_PREROUTE_SIP_ADDED=1
+		fi
+	fi
+
+	# Add chains for tr69 if they are not added already
+	if [ $SYSTEM_PREROUTE_SIP_ADDED -eq 0 ]; then
+		if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+			if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+
+				# Following chains are for downstream direction
+							
+				# Create  chain IPQOS_PREROUTE_SIP_MGMT
+				iptables -t mangle -N IPQOS_PREROUTE_SIP_MGMT
+				iptables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IPQOS_PREROUTE_SIP_MGMT
+				# Add one default rule to map to imq1 device
+	                        iptables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j IMQ --todev 1
+				iptables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j ACCEPT
+# IPV6 START				
+#				if [ "$target" != "ARX1" ]; then
+#					ip6tables -t mangle -N IPQOS_PREROUTE_SIP_MGMT
+#					ip6tables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IPQOS_PREROUTE_SIP_MGMT
+#	                        	ip6tables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j IMQ --todev 1
+#					ip6tables -t mangle -A IPQOS_PREROUTE_SIP_MGMT -m mark --mark 0xffffff4 -j ACCEPT
+#				fi
+# IPV6 END
+			fi
+		fi
+	fi
+
+
+	#This is not required as it is already handled in DS queues and classifiers
+	# map normal wan traffic to imq1
+	#iptables -t mangle -A IPQOS_PREROUTE_SYSTEM -j MARK --set-mark 0xffffff5
+	#iptables -t mangle -A IPQOS_PREROUTE_SYSTEM -j IMQ --todev 1
+	#iptables -t mangle -A IPQOS_PREROUTE_SYSTEM -j ACCEPT
+
+
+#########################################Downstream - Classification##########################################
+
+IPT_CMD="iptables -t mangle -I PREROUTING 1 -j IPQOS_DS_TARGET"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -I FORWARD 1 -j IPQOS_DS_TARGET"
+$EBT_CMD
+
+#########################################Default Rules - Classification##########################################
+# Following lines will create  default classifier rules for Local traffic
+
+
+#if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+if [ "$target" != "GRX2" -o "$target" != "RT2" -o $chain_selection -eq 1 -o $QOS_ACCEL_DISABLE -eq 1 ]; then
+# Create a default classifier chain for LAN traffic
+	IPT_CMD="iptables -t mangle -N PREROUTE_DEFAULT"
+	$IPT_CMD
+	IPT_CMD="iptables -t mangle -N PREROUTE_US_DEFAULT"
+	$IPT_CMD
+	IPT_CMD="iptables -t mangle -N PREROUTE_DS_DEFAULT"
+	$IPT_CMD
+	EBT_CMD="ebtables -t filter -N PREROUTE_DEFAULT"
+	$EBT_CMD
+	EBT_CMD="ebtables -t filter -N PREROUTE_DEFAULT_DS"
+	$EBT_CMD
+	EBT_CMD="ebtables -t filter -N PREROUTE_DEFAULT_US"
+	$EBT_CMD
+
+	# Make a jump to PREROUTE_DEFAULT chain from IPQOS_LAN_ING for unclassified LAN traffic
+	IPT_CMD="iptables -t mangle -A PREROUTING -j PREROUTE_DEFAULT"
+	$IPT_CMD
+	EBT_CMD="ebtables -t filter -A FORWARD -j PREROUTE_DEFAULT"
+	$EBT_CMD
+
+	#EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT -i eth0 -j PREROUTE_DEFAULT_US"
+	#$EBT_CMD
+	#EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT -i eth1+ -j PREROUTE_DEFAULT_DS"
+	#$EBT_CMD
+	# Create a default classifier chain for Local traffic
+	IPT_CMD="iptables -t mangle -N OUTPUT_DEFAULT"
+	$IPT_CMD
+
+	# Make a jump to OUTPUT_DEFAULT chain from IPQOS_OUTPUT for unclassified Local traffic
+	IPT_CMD="iptables -t mangle -A IPQOS_OUTPUT -j OUTPUT_DEFAULT"
+	$IPT_CMD
+
+	
+# IPV6 START
+
+	if [ "$target" != "ARX1" ]; then
+		IPT_CMD="ip6tables -t mangle -N PREROUTE_DEFAULT"
+		$IPT_CMD
+		IPT_CMD="ip6tables -t mangle -N PREROUTE_US_DEFAULT"
+		$IPT_CMD
+		IPT_CMD="ip6tables -t mangle -A PREROUTING -j PREROUTE_DEFAULT"
+		$IPT_CMD
+#		IPT_CMD="ip6tables -t mangle -N OUTPUT_DEFAULT"
+#		$IPT_CMD
+#		IPT_CMD="ip6tables -t mangle -A IPQOS_OUTPUT -j OUTPUT_DEFAULT"
+#		$IPT_CMD
+	fi
+
+# IPV6 END
+
+fi
+
+# Add the rules to DEFAULT chains
+	. /etc/rc.d/ipqos_mgmt
+	
+#########################################Default Rules Classification##########################################
+
+
+
+#########################################Post Initialization########################################
+
+
+# ipqos init is completed. Indicate this in file /tmp/ipqos/init_status
+echo "IPQOS_INIT_STATUS=\"1\"" > /tmp/ipqos_init_status
+
+    # call script to configure iptables rules for web management traffic
+    # remove iptables rules if already present and then configure
+    . /etc/rc.d/ipqos_mgmt_traffic_config web stop
+    . /etc/rc.d/ipqos_mgmt_traffic_config web start
+
+# Call ipqos_rate_change script if rates are changed
+# Nothing to do if rates are not changed
+#INVOKE_RATE_UPDATE=0
+#if [ -f /tmp/ipqos_rates ]; then
+#	. /tmp/ipqos_rates
+#	if [ ! -z $IPQOS_UP_RATE ]; then
+#		if [ $IPQOS_UP_RATE != $ACTUAL_UPSTREAM_RATE ]; then
+#			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+#			INVOKE_RATE_UPDATE=1
+#		fi
+#		if [ ! -z $IPQOS_DOWN_RATE ]; then
+#			if [ $IPQOS_DOWN_RATE != $ACTUAL_DOWNSTREAM_RATE ]; then
+#			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+#			INVOKE_RATE_UPDATE=1
+#			fi
+#fi
+#	fi
+#	if [ $INVOKE_RATE_UPDATE = 1 ]; then
+#		# rates are changed
+#		. /etc/rc.d/ipqos_rate_update $ACTUAL_UPSTREAM_RATE $ACTUAL_DOWNSTREAM_RATE
+#	fi
+#
+#fi
+
+/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_init" "qos_init_status" "1"
+
+if [ $qm_USenable -eq 1 ]; then
+	/etc/rc.d/ipqos_US_init
+fi
+if [ $qm_DSenable -eq 1 ]; then
+	/etc/rc.d/ipqos_DS_init
+fi
+
+#Added the tcpack prio initialization if qm_enable is 1
+if [ $ADSL_MODE_ON -eq 1 -a $qm_tcpackprio -eq 1 ]; then
+    echo "From ipqos_init Invoking ipqos_common with $TC_ACTION for tcpack prio"
+	. /etc/rc.d/ipqos_common 0 $TC_ACTION
+fi
+
+
+##########################################Post Initialization########################################

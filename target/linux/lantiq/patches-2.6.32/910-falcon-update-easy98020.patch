@@ -1,0 +1,88 @@
+add EASY98010 and EASY98020V18 machtypes as variants of EASY98020
+
+--- a/arch/mips/lantiq/falcon/mach-easy98020.c
++++ b/arch/mips/lantiq/falcon/mach-easy98020.c
+@@ -23,6 +23,12 @@
+ #define EASY98020_GPIO_LED_GE1_ACT 106
+ #define EASY98020_GPIO_LED_GE1_LINK 105
+ 
++#define EASY98020_V18_GPIO_LED_0 11
++#define EASY98020_V18_GPIO_LED_1 14
++#define EASY98020_V18_GPIO_LED_2 104
++#define EASY98020_V18_GPIO_LED_3 105
++#define EASY98020_V18_GPIO_LED_4 106
++
+ #ifdef CONFIG_MTD_PARTITIONS
+ static struct mtd_partition easy98020_spi_partitions[] =
+ {
+@@ -97,16 +103,57 @@ static struct gpio_led easy98020_leds_gp
+ 	}
+ };
+ 
++static struct gpio_led easy98020_v18_leds_gpio[] __initdata = {
++	{
++		.name		= "easy98020:green:0",
++		.gpio		= EASY98020_V18_GPIO_LED_0,
++		.active_low	= 0,
++	}, {
++		.name		= "easy98020:green:1",
++		.gpio		= EASY98020_V18_GPIO_LED_1,
++		.active_low	= 0,
++	}, {
++		.name		= "easy98020:green:2",
++		.gpio		= EASY98020_V18_GPIO_LED_2,
++		.active_low	= 0,
++	}, {
++		.name		= "easy98020:green:3",
++		.gpio		= EASY98020_V18_GPIO_LED_3,
++		.active_low	= 0,
++	}, {
++		.name		= "easy98020:green:4",
++		.gpio		= EASY98020_V18_GPIO_LED_4,
++		.active_low	= 0,
++	}
++};
++
+ static void __init easy98020_init(void)
+ {
+-	falcon_register_i2c();
+ 	falcon_register_spi_flash(&easy98020_spi_flash_data);
+ 	ltq_add_device_leds_gpio(-1, ARRAY_SIZE(easy98020_leds_gpio),
+ 					easy98020_leds_gpio);
+ 	falcon_register_crypto();
+ }
+ 
++static void __init easy98020_v18_init(void)
++{
++	falcon_register_spi_flash(&easy98020_spi_flash_data);
++	ltq_add_device_leds_gpio(-1, ARRAY_SIZE(easy98020_v18_leds_gpio),
++					easy98020_v18_leds_gpio);
++	falcon_register_crypto();
++}
++
+ MIPS_MACHINE(LANTIQ_MACH_EASY98020,
+ 			"EASY98020",
+-			"EASY98020 Eval Board",
++			"EASY98020 Reference Board",
++			easy98020_init);
++
++MIPS_MACHINE(LANTIQ_MACH_EASY98020_V18,
++			"EASY98020V18",
++			"EASY98020 V1.8 Reference Board",
++			easy98020_v18_init);
++
++MIPS_MACHINE(LANTIQ_MACH_EASY98010,
++			"EASY98010",
++			"EASY98010 Reference Board",
+ 			easy98020_init);
+--- a/arch/mips/lantiq/machtypes.h
++++ b/arch/mips/lantiq/machtypes.h
+@@ -21,6 +21,8 @@ enum lantiq_mach_type {
+ 	LANTIQ_MACH_EASY98000SF,	/* Falcon Eval Board, Serial Flash */
+ 	LANTIQ_MACH_EASY98000NAND,	/* Falcon Eval Board, NAND Flash */
+ 	LANTIQ_MACH_EASY98020,		/* Falcon Reference Board */
++	LANTIQ_MACH_EASY98020_V18,	/* Falcon Reference Board, V1.8 or later */
++	LANTIQ_MACH_EASY98010,		/* Falcon Reference Board (subtype of EASY98020) */
+ 	LANTIQ_MACH_95C3AM1,		/* Board 95C3AM1 */
+ 
+ 	/* Arcadyan */

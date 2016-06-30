@@ -1,0 +1,61 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+	 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+	. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#if [ "$SIP_STATUS" = "1" ]; then
+	
+	count=0
+	mark=123
+	prio=200
+	while [ "$count" != "$SIP_Count" ]
+	do
+		iptable_rule1="iptables -D PREROUTING -t nat -i nas+ -p tcp "
+		iptable_rule2="iptables -D PREROUTING -t nat -i nas+ -p tcp "
+
+		#eval temp=\$"SIP_E"$count
+		#if [ "$temp" = "1" ]; then
+			
+			eval temp=\$"SIP_PROTOCOL"$count
+			if [ "$temp" = "17" ]; then
+				proto="udp"
+				#echo "Protocol = "$proto
+			fi
+			
+			if [ "$temp" = "6" ]; then
+				proto="tcp"
+				#echo "Protocol = "$proto
+
+				eval temp=\$"SIP_PORT"$count
+				if [ "$temp" != "*" ]; then
+					iptable_rule1="$iptable_rule1 --sport $temp "
+					iptable_rule2="$iptable_rule2 --dport $temp "
+				fi
+				
+				eval temp=\$"SIP_PHONE_IP"$count
+				if [ "$temp" != "*" ]; then
+					iptable_rule1=$iptable_rule1" -j DNAT --to-destination "$temp
+					iptable_rule2=$iptable_rule2" -j DNAT --to-destination "$temp
+				fi
+
+				#echo "About to add : "$iptable_rule
+				$iptable_rule1
+				$iptable_rule2
+
+			fi
+				eval port=\$"SIP_PORT"$count
+				/usr/sbin/nfappcfg sip disable -t$proto -p$port
+		#fi
+		count=`expr $count + 1`
+	done
+#fi

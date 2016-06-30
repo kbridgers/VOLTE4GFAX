@@ -1,0 +1,66 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then
+        . /tmp/mtlk_init_platform.sh
+fi
+
+apIndex=$1
+
+timestamp "wave_wlan_get_radio_dyn_info:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+# create new file
+radio_dyn_params=/tmp/radio_dyn_params.sh
+# Read all parameters into a temp file to hold all current values.
+host_api get_all $$ $apIndex 'wlan_phy|wlan_sta_cfg'> $radio_dyn_params
+	
+# Source the hostapd_params file
+. $radio_dyn_params
+
+# check if interface is ready.
+wlanInitIncomplete=`check_if_is_ready $wlan`
+ifconfig_status=`ifconfig | grep $wlan`
+
+if [ "$WLSEnabled" = "$NO" ] || [ "$wlanInitIncomplete" = "$YES" ] || [ "$ifconfig_status" = "" ]
+then
+	status=0
+	channels=""
+	channelsInUse=""
+	channel=""
+else
+	status=1
+	# get channels
+	channels=`iwlist $wlan ch | awk '/GHz/ {print $2}' `
+	channelsInUse=""
+	for channel in $channels
+	do
+		if [ "$channelsInUse" = "" ]
+		then
+			channelsInUse=$channel
+		else
+			channelsInUse=$channelsInUse,$channel
+		fi
+	done
+	channel=`iwlist $wlan ch | awk '/Current/ {print $2}'  | cut -d "=" -f 2`
+fi
+
+echo "channelsInUse=\""$channelsInUse"\""
+echo "channel=\""$channel"\""
+
+echo "status=\""$status"\""
+
+# get channel bonding
+
+echo "chanWidth=\""$ChannelBonding"\""
+
+if [ "$ShortCyclicPrefix" = "$YES" ]
+then
+	echo "guardIntvl=\"0\""
+else
+	echo "guardIntvl=\"1\""
+fi
+
+timestamp "wave_wlan_get_radio_dyn_info:$apIndex:done"

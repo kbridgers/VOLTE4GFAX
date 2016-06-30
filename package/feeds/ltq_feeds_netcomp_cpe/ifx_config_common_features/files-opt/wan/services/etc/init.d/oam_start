@@ -1,0 +1,56 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+SED="/bin/sed"
+
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+# apply_oam_settings oper(ENABLE/DISABLE) TR037(0/1) type(F4/F5) vpi vci
+# apply_oam_settings ENABLE 0 F4 0
+
+#while [ -z `/bin/cat /tmp/adsl_status | grep "7"` ]; do
+#    sleep 1
+#done
+
+#TBD: how to know if $1 is IP or PPP connection
+if [ "$OAM_ENABLE" = "1" ]; then
+	if [ "$1" = "IP" ]; then
+		eval l2if='$'wanip_${2}_l2ifName	
+	else
+		eval l2if='$'wanppp_${2}_l2ifName	
+	fi
+
+	eval VCC_SETTING='$'wan_${2}_vcc
+	vcIdx=0
+	while [ $vcIdx -lt $adsl_vcchannel_Count ]
+	do
+		eval vcl2If='$'VCChannel_${2}_l2ifName
+		if [ "A${vcl2If}" = "$l2if" ]; then
+			eval VCC_SETTING='$'VCChannel_${2}_vcc
+			break
+		fi
+		vcIdx=$(($vcIdx + 1))
+	done
+
+#	VPI=`echo $VCC_SETTING | cut -f2 -d "_" | cut -f1 -d "/"`
+	VPI=${VCC_SETTING#*_}
+	VPI=${VPI%%\/*}
+#	VCI=`echo $VCC_SETTING | cut -f2 -d "_" | cut -f2 -d "/"`
+	VCI=${VCC_SETTING#*_}
+	VCI=${VCI#*\/}
+	VCI=${VCI%%_*}
+	. /etc/rc.d/init.d/oam_apply_setting ENABLE 0 F5 $VPI $VCI
+	. /etc/rc.d/init.d/oam_apply_setting ENABLE 0 F4 $VPI
+fi
+		echo $VCC_SETTING > "$OUTPUT"
+		VPI=`sed -n 's,_.*,,;s,/.*,,;p' "$OUTPUT"`
+		VCI=`sed -n 's,^.*_,,;s,^.*/,,;p' "$OUTPUT"`

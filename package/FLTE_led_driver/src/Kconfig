@@ -1,0 +1,8 @@
+config FLTE_led_driver
+	tristate "FLTE Led driver"
+	help
+	  This is an I2C driver to register 1 to 4 custom I2C buses using
+	  GPIO lines.
+
+	  This support is also available as a module.  If so, the module
+	  will be called i2c-gpio-custom.

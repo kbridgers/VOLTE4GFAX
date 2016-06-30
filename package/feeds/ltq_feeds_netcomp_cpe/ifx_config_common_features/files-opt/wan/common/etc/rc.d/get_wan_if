@@ -1,0 +1,32 @@
+#!/bin/sh
+
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+SED="/bin/sed"
+if [ -z "$lan_main_0_ipAddr" ]; then
+	if [ ! "$ENVLOADED" ]; then
+		if [ -r /etc/rc.conf ]; then
+        	 . /etc/rc.conf 2> /dev/null
+			ENVLOADED="1"
+		fi
+	fi
+
+	if [ ! "$CONFIGLOADED" ]; then
+		if [ -r /etc/rc.d/config.sh ]; then
+			. /etc/rc.d/config.sh 2>/dev/null
+			CONFIGLOADED="1"
+		fi
+	fi
+fi
+
+if [ "$2" = "ppp" ]; then # PPPoE
+	eval WAN='$'wanppp_${1}_ifppp
+elif [ "$2" = "ip" ];then
+	eval WAN='$'wanip_${1}_iface
+fi
+#echo $WAN
+WAN_IFNAME=$WAN
+

@@ -1,0 +1,106 @@
+
+/include/ "falcon.dtsi"
+
+/ {
+	model = "lantiq,easy98000";
+
+	chosen {
+		// don't set bootargs
+		// bootargs = "console=ttyLTQ0,115200 init=/etc/preinit";
+	};
+	
+	alias {
+		ethernet0 = &eth0;
+	};
+
+	memory@0 {
+		reg = <0x0 0x4000000>;  // 64M at 0x0
+	};
+
+	localbus@10000000 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "lantiq,localbus", "simple-bus";
+		reg = <0x10000000 0xC000000>;
+		ranges = <0x0 0x10000000 0xC000000>;
+
+		cfi@0 {
+			compatible = "lantiq,nor";
+			bank-width = <2>;
+			reg = <0x0 0x4000000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "uboot";
+				reg = <0x00000 0x40000>;
+			};
+
+			partition@10000 {
+				label = "uboot_env";
+				reg = <0x40000 0x40000>;
+			};
+
+			partition@20000 {
+				label = "linux";
+				reg = <0x80000 0x3d0000>;
+			};
+		};
+
+		eth0: ethernet@4000000 {
+			compatible = "davicom,dm9000";
+			device_type = "network";
+			reg = <0x4000003 0x1>, <0x4000001 0x1>;
+			reg-names = "addr", "data";
+			interrupt-parent = <&gpio1>;
+			// FIXME: this is the mapped irq number
+			// as irqdomain for gpio not working yet
+			interrupts = <210 0x8>; 
+			local-mac-address = [ 00 00 00 00 00 00 ];
+		};
+
+		cpld@7c00000 {
+			compatible = "lantiq,easy98000_addon";
+		};
+
+		cpld@7c0000c {
+			compatible = "lantiq,easy98000_cpld_led";
+		};
+
+	};
+
+	easy98000-leds {
+		compatible = "gpio-leds";
+
+		LED_0 {
+			label = "easy98000:green:0";
+			gpios = <&gpio0 9 0>;
+			default-state = "keep";
+		};
+		LED_1 {
+			label = "easy98000:green:1";
+			gpios = <&gpio0 10 0>;
+			default-state = "keep";
+		};
+		LED_2 {
+			label = "easy98000:green:2";
+			gpios = <&gpio0 11 0>;
+			default-state = "keep";
+		};
+		LED_3 {
+			label = "easy98000:green:3";
+			gpios = <&gpio0 12 0>;
+			default-state = "keep";
+		};
+		LED_4 {
+			label = "easy98000:green:4";
+			gpios = <&gpio0 13 0>;
+			default-state = "keep";
+		};
+		LED_5 {
+			label = "easy98000:green:5";
+			gpios = <&gpio0 14 0>;
+			linux,default-trigger = "heartbeat";
+		};
+	};
+};

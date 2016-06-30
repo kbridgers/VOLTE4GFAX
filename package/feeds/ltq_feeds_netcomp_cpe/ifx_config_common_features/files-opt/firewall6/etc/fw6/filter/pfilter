@@ -1,0 +1,257 @@
+#!/bin/sh
+
+if [ -r /etc/rc.d/config.sh ]; then
+  . /etc/rc.d/config.sh 2> /dev/null
+fi
+
+pfilter_windex=""
+pfilter_wantype=""
+
+get_type()                                                  
+{                                                           
+        echo $1 | grep -i PPP 2>&1 > /dev/null
+        if [ $? -eq 0 ]; then
+                pfilter_wantype="ppp"
+                pfilter_windex=$(echo $1 | sed 's/WANPPP//g')
+        else
+                pfilter_wantype="ip"
+                pfilter_windex=$(echo $1 | sed 's/WANIP//g')
+        fi
+}
+
+getifname()
+{
+	case $1 in
+	LAN*)
+if [ "A$CONFIG_FEATURE_LTQ_VLAN_SWITCH_PORT_ISOLATION" = "A1" ]; then
+		lan_ifname=""
+		lan_lindex=$(echo $1 | sed 's/LAN_PORT//g')
+		if [ "z$lan_lindex" != "LAN" -a "z$lan_lindex" != "z" ]; then
+			lan_lindex=`expr $lan_lindex - 1`
+			eval lan_ifname='$'lan_port_${lan_lindex}_interface
+			echo "$lan_ifname"
+		else
+			echo "br0"
+		fi
+else
+		echo "br0"
+fi
+		;;
+	Any)
+		echo ""
+		;;
+	*)
+		get_type $1
+		WAN_IFNAME=""
+		. /etc/rc.d/get_wan_if  $pfilter_windex $pfilter_wantype
+		echo "$WAN_IFNAME"
+		;;
+	esac
+}
+
+
+pfilter_resetvar()
+{
+	PFILTER_SRCIF=""
+	PFILTER_DSTIF=""
+	PFILTER_DSTIP=""
+	PFILTER_SRCIP=""
+	PFILTER_PROT=""
+	PFILTER_DPORT=""
+	PFILTER_SPORT=""
+	PFILTER_TARGET=""
+}
+
+
+populate_rule()
+{
+	
+
+	idx=$1
+	pfilter_resetvar
+
+	eval srcif='$'firewall_rule_${idx}_SourceInterface
+	eval srcifex='$'firewall_rule_${idx}_SourceInterfaceExclude
+
+# Checks if ANY is selected so skip 
+# Checks if srcif is not null then if it's eth0.X add physdev and if not like ppp/ip then add normal -i option 
+# if exclude is selected for eth0.X then replace PFILTER_SRCIF with that eth0.X bridge intf and for ppp/ip use normal processing
+
+	srcif=$(getifname $srcif)
+if [ "A$CONFIG_FEATURE_LTQ_VLAN_SWITCH_PORT_ISOLATION" = "A1" ]; then
+	if [ "z$srcif" != "z" ]; then
+		if [ "z$srcif" == "zeth0.2" -o "z$srcif" == "zeth0.3" -o "z$srcif" == "zeth0.4" -o "z$srcif" == "zeth0.5" ]; then
+			PFILTER_SRCIF="-m physdev --physdev-in $srcif"
+			if [ $srcifex -ne 0 -a "z$PFILTER_SRCIF" != "z" ]; then
+				PFILTER_SRCIF="-m physdev ! --physdev-in $srcif"
+			fi
+		else
+			PFILTER_SRCIF="-i $srcif"
+			if [ $srcifex -ne 0 -a "z$PFILTER_SRCIF" != "z" ]; then
+				PFILTER_SRCIF="! $PFILTER_SRCIF"
+			fi
+		fi
+	fi
+else
+	if [ "z$srcif" != "z" ]; then
+		PFILTER_SRCIF="-i $srcif"
+	fi
+
+	if [ $srcifex -ne 0 -a "z$PFILTER_SRCIF" != "z" ]; then
+		PFILTER_SRCIF="! $PFILTER_SRCIF"
+	fi
+fi
+	eval dstif='$'firewall_rule_${idx}_DestInterface
+	eval dstifex='$'firewall_rule_${idx}_DestInterfaceExclude
+	
+	dstif=$(getifname $dstif)
+if [ "A$CONFIG_FEATURE_LTQ_VLAN_SWITCH_PORT_ISOLATION" = "A1" ]; then
+	if [ "z$dstif" != "z" ]; then
+		if [ "z$dstif" == "zeth0.2" -o "z$dstif" == "zeth0.3" -o "z$dstif" == "zeth0.4" -o "z$dstif" == "zeth0.5" ]; then
+			# PFILTER_DSTIF="-m physdev --physdev-out $dstif"
+			PFILTER_DSTIF="-o br0"
+			if [ $dstifex -ne 0 -a "z$PFILTER_DSTIF" != "z" ]; then
+				# PFILTER_DSTIF="-m physdev ! --physdev-out $dstif"
+				PFILTER_DSTIF="! $PFILTER_DSTIF"
+			fi
+		else
+			PFILTER_DSTIF="-o $dstif"
+			if [ $dstifex -ne 0 -a "z$PFILTER_DSTIF" != "z" ]; then
+				PFILTER_DSTIF="! $PFILTER_DSTIF"
+			fi
+		fi
+	fi
+else
+	if [ "z$dstif" != "z" ]; then
+		PFILTER_DSTIF="-o $dstif"
+	fi
+	if [ $dstifex -ne 0 -a "z$PFILTER_DSTIF" != "z" ]; then
+		PFILTER_DSTIF="! $PFILTER_DSTIF"
+	fi
+fi
+
+	eval  destip='$'firewall_rule_${idx}_DestIP
+	if [ "z$destip" != "z" ]; then
+		PFILTER_DSTIP="-d $destip"
+	fi
+
+	eval  destip_prelen='$'firewall_rule_${idx}_DestMask
+	if [ $destip_prelen -gt 0 -a $destip_prelen -lt 128 2>/dev/null ]; then
+		PFILTER_DSTIP="$PFILTER_DSTIP/$destip_prelen"
+	fi
+	eval  destipex='$'firewall_rule_${idx}_DestIPExclude
+	if [ $destipex -ne 0 2>/dev/null ]; then
+		PFILTER_DSTIP="! $PFILTER_DSTIP"
+	fi
+
+	eval  srcip='$'firewall_rule_${idx}_SourceIP
+	if [ "z$srcip" != "z" ]; then
+		PFILTER_SRCIP="-s $srcip"
+	fi
+
+	eval  srcip_prelen='$'firewall_rule_${idx}_SourceMask
+	if [ $srcip_prelen -gt 0 -a $srcip_prelen -lt 128 2>/dev/null ]; then
+		PFILTER_SRCIP="$PFILTER_SRCIP/$srcip_prelen"
+	fi
+	eval  srcipex='$'firewall_rule_${idx}_SourceIPExclude
+	if [ $srcipex -ne 0 2>/dev/null ]; then
+		PFILTER_SRCIP="! $PFILTER_SRCIP"
+	fi
+	
+	eval protocol='$'firewall_rule_${idx}_Protocol
+	if [ $protocol -gt 0 2>/dev/null ]; then
+		PFILTER_PROT="-p $protocol"
+	fi
+	eval protocolex='$'firewall_rule_${idx}_ProtocolExclude
+	if [ $protocolex -ne 0 2>/dev/null ]; then
+		PFILTER_PROT="! $PFILTER_PROT"
+	fi
+
+	if [ $protocol -eq 6 -o $protocol -eq 17 2>/dev/null ]; then
+
+		eval dport_s='$'firewall_rule_${idx}_DestPort
+		eval dport_e='$'firewall_rule_${idx}_DestPortRangeMax
+		eval dportex='$'firewall_rule_${idx}_DestPortExclude
+		if [ $dport_s -gt 0 -a $dport_s -le 65535 2>/dev/null ]; then
+			PFILTER_DPORT="--dport $dport_s"
+		fi
+		if [ "z$PFILTER_DPORT" == "z" ]; then
+			PFILTER_DPORT="--dport 0"
+		fi
+
+		dsetflag=0
+		if [ $dport_e -gt 0 -a $dport_e -le 65535 2>/dev/null ]; then
+			PFILTER_DPORT="$PFILTER_DPORT:$dport_e"
+			dsetflag=1
+		fi
+		
+		if [ "$PFILTER_DPORT" == "--dport 0" -a $dsetflag -eq 0 ]; then
+			PFILTER_DPORT=""
+		fi	
+		
+		if [ $dportex -ne 0 -a "z$PFILTER_DPORT" != "z" 2>/dev/null ]; then
+			PFILTER_DPORT="! $PFILTER_DPORT"
+		fi
+
+		eval sport_s='$'firewall_rule_${idx}_SourcePort
+		eval sport_e='$'firewall_rule_${idx}_SourcePortRangeMax
+		eval sportex='$'firewall_rule_${idx}_SourcePortExclude
+		if [ $sport_s -gt 0 -a $sport_s -le 65535 2>/dev/null ]; then
+			PFILTER_SPORT="--sport $sport_s"
+		fi
+		if [ "z$PFILTER_SPORT" == "z" ]; then
+			PFILTER_SPORT="--sport 0"
+		fi
+		ssetflag=0
+		if [ $sport_e -gt 0 -a $sport_e -le 65535 2>/dev/null ]; then
+			PFILTER_SPORT="$PFILTER_SPORT:$sport_e"
+			ssetflag=1
+		fi
+		
+		if [ "$PFILTER_SPORT" == "--sport 0" -a $ssetflag -eq 0 ]; then
+			PFILTER_SPORT=""
+		fi	
+		if [ $sportex -ne 0 -a "z$PFILTER_SPORT" != "z" 2>/dev/null ]; then
+			PFILTER_SPORT="! $PFILTER_SPORT"
+		fi
+		
+		if [ $protocolex -ne 0 2>/dev/null ]; then
+			PFILTER_SPORT=""
+			PFILTER_DPORT=""
+		fi
+	fi
+	eval target='$'firewall_rule_${idx}_Target
+	if [ "$target" == "ACCEPT" -o "$target" == "REJECT" -o "$target" == "DROP" ]; then
+		PFILTER_TARGET="-j $target"
+	else
+		pfilter_resetvar
+	fi
+
+}
+
+
+rule_count=$firewall_rule_Count
+count=0
+pfilter_fw_init()
+{
+	while [ $count -lt $rule_count ]
+	do
+		idx=$count
+		count=$(($count + 1))
+	
+		eval enable='$'firewall_rule_${idx}_Enable
+		if [ $enable -ne 1 2>/dev/null ] ; then
+			continue;
+		else
+			populate_rule ${idx}
+			ipt -A FORWARD $PFILTER_SRCIF $PFILTER_DSTIF $PFILTER_DSTIP $PFILTER_SRCIP $PFILTER_PROT $PFILTER_DPORT $PFILTER_SPORT $PFILTER_TARGET
+		fi
+	done
+}	
+
+is_firewall_enabled
+if [ $? -eq 1 ]; then
+	FW_FILTER_FORWARD_INIT=pfilter_fw_init
+else
+	return 255	#exclude plugin
+fi

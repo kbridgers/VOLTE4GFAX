@@ -1,0 +1,155 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "start wlan_sta_wps_update_profile: args: $*"
+
+file_count=`ps | grep "\<wlan_sta_wps_update_profile\>" | grep -vc grep`
+if [ $file_count -gt 2 ]
+then
+	print2log INFO "exit wlan_sta_wps_update_profile - already run"
+	exit
+fi
+
+tmp_wps_folder=/tmp
+WPA_CLI="$tmp_wps_folder/wpa_cli"
+
+start_time=`date +%s`
+was_in_progress=0
+end_loop=0
+
+state=IDLE
+
+while [ $end_loop = 0 ]
+do
+	time_current=`date +%s`
+	time_elaps=`expr $time_current - $start_time`
+	echo "#<< WPS_Status" > /tmp/tmp_wps_2web_status
+	echo "STATE=\"$state\"" >> /tmp/tmp_wps_2web_status
+	echo "#>> WPS_Status" >> /tmp/tmp_wps_2web_status
+	#save the file for WEB:
+	mv /tmp/tmp_wps_2web_status /tmp/wps_2web_status
+
+	#in case no "IN_PROCESS" state found, make sure to break loop after timeout
+#if [ $time_elaps -gt 120 ]
+	if [ $time_elaps -gt 120 ] && [ $was_in_progress = 0 ]
+	then
+		#error, polling miss or overlap error. Error report outside the loop
+		echo "error: time_elaps=$time_elaps, but was_in_progress=$was_in_progress " > /dev/console
+		end_loop=1
+		break
+	fi
+	
+	Event=`/tmp/wpa_cli status | awk -F "=" '/wpa_state/ {print $2}'`
+
+	print2log DBG "Event=$Event, time_elaps=$time_elaps, end_loop=$end_loop"
+
+	if [ ! "$Event" ]
+	then
+		echo "error in wpa_supplicant! empty Event from wpa_cli status" > /dev/console
+		#error in wpa_supplicant, exit loop
+		#TODO: if we get empty param what does it mean? It happen one time before COMPLETED !
+		break
+	fi
+
+	#parse Event and set state:
+	if [ "$Event" = "SCANNING" ] || [ "$Event" = "ASSOCIATING" ] || [ "$Event" = "ASSOCIATED" ] || [ "$Event" = "DISCONNECTED" ]
+	then
+		print2log DBG "in IN_PROCESS"
+		state=IN_PROCESS
+		if [ $time_elaps -gt 120 ]
+		then
+			#Scenario - AP power off (observed)
+			state=TIMEOUT_ERR
+		fi
+	fi
+	if [ "$Event" = "COMPLETED" ] && [ $was_in_progress=1 ]
+	then
+		print2log DBG "set state SUCCESS"
+		state=SUCCESS
+	fi
+	if [ "$Event" = "INACTIVE" ] && [ $time_elaps -lt 120 ] && [ $was_in_progress = 1 ] 
+	then
+		print2log DBG "set state OVERLAP_ERR because time less than 120"
+		state=OVERLAP_ERR
+	fi
+	if [ "$Event" = "INACTIVE" ] && [ $time_elaps -gt 120 ] 
+	then
+		if [ ! "$was_in_progress" ]
+		then
+			print2log DBG "set state OVERLAP_ERR because never had in_progress"
+			state=OVERLAP_ERR
+		else
+			print2log DBG "set state OVERLAP_ERR because did not connected"
+			state=TIMEOUT_ERR
+		fi
+	fi
+
+	print2log DBG "before switch case, state=$state"
+
+	case $state in
+		"IDLE")
+			print2log DBG "in case IDLE"
+		;;
+
+		"IN_PROCESS")
+			print2log DBG "in case IN_PROCESS"
+			was_in_progress=1
+		;;
+		
+		"OVERLAP_ERR")
+			print2log DBG "in case OVERLAP_ERR"
+			killall -HUP wpa_supplicant
+			end_loop=1
+		;;
+		
+		"TIMEOUT_ERR")
+			print2log DBG "in case TIMEOUT_ERR"
+			killall -HUP wpa_supplicant
+			end_loop=1
+		;;
+		
+		"SUCCESS")
+			print2log DBG "in case SUCCESS"
+			end_loop=1
+			#update rc conf file with network parameters
+			$ETC_PATH/mtlk_wps_cmd.sh save_settings 0
+		;;
+	esac
+	
+	print2log DBG "update temp file"
+	#update temp file with current event:
+	echo "#<< WPS_Status" > /tmp/tmp_wps_2web_status
+	echo "STATE=\"$state\"" >> /tmp/tmp_wps_2web_status
+	echo "#>> WPS_Status" >> /tmp/tmp_wps_2web_status
+	sleep 5
+
+done
+
+if [ $was_in_progress = 0 ] || [ ! "$Event" ]
+then
+	echo "ERROR! Event=$Event" > /dev/console
+	#ERROR
+	if [ ! "$Event" ]
+	then
+		echo "! Event" > /dev/console
+		#WPA_SUPPLICANT_ERR
+		echo "#<< WPS_Status" > /tmp/tmp_wps_2web_status
+		echo "STATE=\"WPA_SUPPLICANT_ERR\"" >> /tmp/tmp_wps_2web_status
+		echo "#>> WPS_Status" >> /tmp/tmp_wps_2web_status
+		killall -HUP wpa_supplicant
+	else
+		echo "never was case in_progress" > /dev/console
+		#OVERLAP_ERR
+		echo "#<< WPS_Status" > /tmp/tmp_wps_2web_status
+		echo "STATE=\"OVERLAP_ERR\"" >> /tmp/tmp_wps_2web_status
+		echo "#>> WPS_Status" >> /tmp/tmp_wps_2web_status
+		killall -HUP wpa_supplicant
+	fi
+fi
+mv /tmp/tmp_wps_2web_status /tmp/wps_2web_status
+
+print2log DBG "end wlan_sta_wps_update_profile"
+

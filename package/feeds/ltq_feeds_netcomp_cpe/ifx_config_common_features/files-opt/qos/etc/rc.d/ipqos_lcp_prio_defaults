@@ -1,0 +1,71 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                . /etc/rc.conf 2> /dev/null
+                if [ -r /tmp/system_status ]; then
+                        . /tmp/system_status 2> /dev/null
+                fi
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+#Increment active_wan_pvc for every active pvc created
+pvc_cnt_get=`/usr/sbin/status_oper GET LCP_Wan_Info active_wan_pvc`
+pvc_cnt_set=`expr $pvc_cnt_get + 1`
+/usr/sbin/status_oper -u -f /tmp/system_status SET "LCP_Wan_Info" "active_wan_pvc" "$pvc_cnt_set"
+
+#Extract the VPI VCI value
+VPI=${2#*_}
+VPI=${VPI%%\/*}
+VCI=${2#*_}
+VCI=${VCI#*\/}
+VCI=${VCI%%_*}
+
+vcc_setting=$VPI.$VCI
+
+a=`expr $pvc_cnt_set \* 2`
+b=`expr $a - 1`
+
+#Lower Priority Queue Count
+low_q=1
+#Higher Priority Queue Count 
+hi_q=0
+
+i=`expr $1 - 1`
+
+eval vc_state='$'VCChannel_${i}_fEnable
+
+if [ "$target" = "VRX3" ]; then
+	proc_path=/proc/eth/vrx318/prio
+else
+	proc_path=/proc/eth/prio
+fi
+
+#pvc count greater than 3 will exceed the phy qid more than 14: This is a limitation
+if [ $pvc_cnt_set -le 3 -a $vc_state -eq 1 ]; then
+	while [ $low_q -le $b ]
+	do
+		hi_q=`expr $low_q - 1`
+
+		echo add queue$low_q to pvc $vcc_setting >> /dev/null
+		echo pvc $vcc_setting add > $proc_path
+		echo pvc $vcc_setting prio 0 queue $low_q prio 1 queue $low_q prio 2 queue $low_q prio 3 queue $low_q prio 4 queue $low_q prio 5 queue $low_q prio 6 queue $low_q prio 7 queue $hi_q > $proc_path
+
+		low_q=$((($low_q) + 1))
+	done
+fi
+

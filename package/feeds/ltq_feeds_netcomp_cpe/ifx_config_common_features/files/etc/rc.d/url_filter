@@ -1,0 +1,60 @@
+#!/bin/sh
+#$1=url
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+
+SED="/bin/sed"
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#Add iptables entry during bootup in order to block url entries already present in rc.conf
+eval fw_en='$'firewall_main_enable
+case $1 in
+"start")
+	if [ $fw_en -eq 1 ]; then
+	i=0
+	while [ $i -lt $url_filter_cfg_Count ]; do
+		. /etc/rc.d/url_filter add ${i}
+		i=`expr $i + 1`
+	done
+	fi
+	;;
+"add")
+	#add url entry
+	if [ $fw_en -eq 1 ]; then
+	eval url='$'url_${2}_URLName
+	/usr/sbin/iptables -I FORWARD -p tcp -m webstr --url  "${url}" -j DROP
+	fi
+	;;
+"delete")
+	#delete url entry
+	eval url='$'url_${2}_URLName
+	/usr/sbin/iptables -D FORWARD -p tcp -m webstr --url  "${url}" -j DROP
+	;;
+"stop")
+        #delete all url entry
+        if [ $fw_en -eq 0 ]; then
+        i=0
+        while [ $i -lt $url_filter_cfg_Count ]; do
+ 	       . /etc/rc.d/url_filter delete ${i}
+               i=`expr $i + 1`
+        done
+        fi
+        ;;
+"*")
+	;;
+esac

@@ -1,0 +1,180 @@
+#!/bin/sh
+#if [ $1 = "3" ] ; then
+#set -x
+#fi
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+SED="/bin/sed"
+# create mpoa interface when called from vlan mapi
+
+if [ $# = 2 ]; then
+	eval nas_iface='$'vlanch_${1}_l2ifName
+	iface_name=`echo $nas_iface | $SED -n "s,\..*,,;1p"`
+
+	eval vlanid='$'vlanch_${1}_vlanId
+
+	# TBD : MAC address for every VLAN interface
+	# OUTPUT="/tmp/cmd_output${1}"
+	# ifconfig eth0 > "$OUTPUT"
+	# MAC_ADDR_BEGIN=`"$SED" -n 's,^.*HWaddr,,;1p' "$OUTPUT"`
+	# WAN_MAC_ADDR=`echo $MAC_ADDR_BEGIN|/usr/sbin/next_macaddr $1`
+
+	/sbin/vconfig add $iface_name $vlanid
+	/sbin/ifconfig $iface_name.$vlanid up
+
+	# Add WAN interface to PPA
+	. /etc/rc.d/ppa_config.sh addwan $iface_name.$vlanid
+
+	# TBD : status update needs to happen
+else
+
+	eval vcLinkType='$'VCChannel_${1}_linkType
+	if [ "$vcLinkType" = "1" -o "$vcLinkType" = "2" ]; then
+	
+# create mopa interface
+# create_mpoa_if if_index VCC_VALUE MAC_ADDR IP_ADDR ATM_PROTOCOL
+
+	# TBD : references of VCChannel to be replaced by vlanch
+	eval nas_iface='$'VCChannel_${1}_l2ifName
+
+	eval ENC='$'VCChannel_${1}_encap
+	eval VCC_SETTING='$'VCChannel_${1}_vcc
+	VPI=${VCC_SETTING%%\/*}
+	VCI=${VCC_SETTING#*\/}
+
+				eval qos_mode='$'VCChannel_${1}_qos
+
+	
+	if [ "$qos_mode" = "1" ]; then
+		maxpcr=0
+		minpcr=0
+	else
+		eval maxpcr='$'VCChannel_${1}_maxpcr
+		eval minpcr='$'VCChannel_${1}_minpcr
+	fi
+	
+	eval cdv='$'VCChannel_${1}_cdv
+	eval mbs='$'VCChannel_${1}_mbs
+	eval scr='$'VCChannel_${1}_scr
+	eval QOS='$qos_mode'
+	if [ "$max_pcr" != "0" ]; then
+		eval QOS=$QOS',max_pcr='$maxpcr
+	fi
+	if [ "$min_pcr" != "0" ]; then
+		eval QOS=$QOS',min_pcr='$minpcr
+	fi
+	if [ "$scr" != "0" ]; then
+		eval QOS=$QOS',scr='$scr
+	fi
+	if [ "$mbs" != "0" ]; then
+		eval QOS=$QOS',mbs='$mbs
+	fi
+	if [ "$cdv" != "0" ]; then
+		eval QOS=$QOS',cdv='$cdv
+	fi
+
+
+	case "$QOS" in
+		?,*) 
+		QOSNAME=${QOS%%,*}
+		QOSNAME=`/usr/sbin/get_atmqos_name $QOSNAME`
+		qos2=${QOS#*,}
+		QOSNAME="$QOSNAME"",aal5:"$qos2
+		;;
+		*)
+		QOSNAME=`/usr/sbin/get_atmqos_name $QOS` ;;
+	esac
+
+	#i=0
+	#while [ $i -lt $adsl_vcchannel_Count ]; do
+	#	eval vc_l2ifname='$'VCChannel_${i}_l2ifName
+	#	if [ "A$vc_l2ifname" = "A$nas_iface" ]; then
+	#		break
+	#	fi
+	#	i=$(( $i + 1 ))
+	#done
+	#i=$(( $i + 1 ))
+	#/usr/sbin/status_oper SET VCChannel${1}_Info VCC "$adsl_vcc" STATUS CONNECTING
+	/usr/sbin/status_oper SET VCChannel${1}_Info STATUS CONNECTING
+
+	fail=0
+	/sbin/ifconfig $nas_iface > /dev/null 2> /dev/null
+	status=$?
+
+	if [ "$status" -ne 0 ]; then
+		nas_idx=${nas_iface##nas}
+		if [ "$vcLinkType" = "1" ]; then
+			/usr/sbin/br2684ctl -b -p 1 -c $nas_idx -e $ENC -q $QOSNAME -a $VPI.$VCI -s 65536
+		else
+			/usr/sbin/br2684ctl -b -p 0 -c $nas_idx -e $ENC -q $QOSNAME -a $VPI.$VCI -s 65536
+		fi
+		#echo "Created interface $nas_iface <---> WAN$1 !!"
+		if [ $? -ne 0 ]; then
+			fail=1
+		fi
+	fi
+
+	# Keep trying in case there is delay in "nas" interface creation
+	trial=0
+	usleep 100000
+	/sbin/ifconfig $nas_iface > /dev/null 2> /dev/null
+	status=$?
+	while [ "$status" -ne 0 -a $trial -lt 4 ]; do
+#		status=`/sbin/ifconfig -a | grep -i $nas_iface`
+		sleep 1
+		trial=$(( $trial + 1 ))
+		/sbin/ifconfig $nas_iface > /dev/null 2> /dev/null
+		status=$?
+		#echo "Tyring to create "$nas_iface" ... Trial $trial"
+	done
+
+	if [ "$fail" = "1" ]; then
+		#/usr/sbin/status_oper SET VCChannel${1}_Info VCC "$adsl_vcc" STATUS DISCONNECTED
+		/usr/sbin/status_oper SET VCChannel${1}_Info STATUS DISCONNECTED
+		#echo "Create interface $nas_iface failed!"
+	else
+		#/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS CONNECTED
+		/usr/sbin/status_oper SET VCChannel${1}_Info STATUS CONNECTED
+		i=0
+		while [ $i -lt $vlan_ch_cfg_Count ]; do
+			eval vlanch_l2ifname='$'vlanch_${i}_l2ifName
+			if [ "A$vlanch_l2ifname" = "A$nas_iface" ]; then
+				break
+			fi
+			i=$(( $i + 1 ))
+		done
+		#OUTPUT="/tmp/cmd_output${1}"
+		#ifconfig eth0 > "$OUTPUT"
+		#MAC_ADDR_BEGIN=`"$SED" -n 's,^.*HWaddr,,;1p' "$OUTPUT"`
+		if [ -z "$DEVICE_MAC_ADDR" ]; then
+			DEVICE_MAC_ADDR="`/usr/sbin/status_oper GET dev_info mac_addr`"
+		fi
+		MAC_ADDR_BEGIN=$DEVICE_MAC_ADDR
+		if [ "$CONFIG_FEATURE_PTM_WAN_SUPPORT" = "1" -a "$CONFIG_FEATURE_ETH_WAN_SUPPORT" = "1" ]; then
+			i=`expr $i + 3`
+		elif [ "$CONFIG_FEATURE_PTM_WAN_SUPPORT" = "1" -o "$CONFIG_FEATURE_ETH_WAN_SUPPORT" = "1" ]; then
+			i=`expr $i + 2`
+		fi
+		WAN_MAC_ADDR=`echo $MAC_ADDR_BEGIN|/usr/sbin/next_macaddr $i`
+		/sbin/ifconfig $nas_iface hw ether $WAN_MAC_ADDR
+		/sbin/ifconfig $nas_iface 0.0.0.0 up
+	fi
+
+	# Add WAN interface to PPA
+	. /etc/rc.d/ppa_config.sh addwan ${nas_iface}
+	fi
+
+fi

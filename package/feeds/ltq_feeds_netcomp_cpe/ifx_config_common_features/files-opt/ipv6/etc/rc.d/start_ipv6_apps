@@ -1,0 +1,74 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+ 
+if [ "z$4" = "zweb" ]; then
+# REQUEST FROM WEB; FIXME
+echo "$0 request from web"
+fi
+
+killall -9 inetd 2> /dev/null
+if [ "$1" = "telnetd" ]; then
+	/bin/sed -i  '2 s/\btcp\b/tcp6/' /ramdisk/etc/inetd.conf
+	/bin/sed -i  '6 s/\bunix\b/unix6/' /ramdisk/etc/inetd.conf
+	if [ "$5" != "1" ]; then
+		killall -9 cli_be 2>/dev/null
+		killall -9 telnetd 2>/dev/null
+	fi
+fi
+
+if [ "$2" = "ftpd" ]; then
+	/bin/sed -i  '3 s/\btcp\b/tcp6/' /ramdisk/etc/inetd.conf
+	if [ "$5" != "1" ]; then
+		killall -9 ftpd 2>/dev/null
+		killall -9 vsftpd 2>/dev/null
+	fi
+fi
+
+if [ "$3" = "httpd" ]; then
+	/bin/sed -i  '4 s/\btcp\b/tcp6/' /ramdisk/etc/inetd.conf
+	/bin/sed -i  '5 s/\bunix\b/unix6/' /ramdisk/etc/inetd.conf
+	if [ "$5" != "1" ]; then
+		killall -9 httpd 2>/dev/null
+	fi
+fi
+
+sleep 3
+/usr/sbin/inetd /etc/inetd.conf
+
+
+if [ "$5" != "1" ]; then
+	if [ $fwl_config_Enable -eq 1 2> /dev/null ]; then
+		/etc/rc.d/firewall6 start filter all
+	else
+		/etc/rc.d/firewall6 stop filter all
+	fi
+
+# Restart Multicast Daemon
+	if [ -f /var/run/mcastd.pid ]; then
+		IGMPPID=`cat /var/run/mcastd.pid`
+		echo "Stopping multicast daemon (PID = $IGMPPID)." > /tmp/mcastdebug
+		kill -2 $IGMPPID
+		sleep 2
+		if [ -f /var/run/mcastd.pid ]; then
+			echo "PID file is not deleted. Something is wrong." >> /tmp/mcastdebug
+		else
+			echo "Starting multicast daemon ...." >> /tmp/mcastdebug
+			/usr/sbin/mcastd -b -c /etc/rc.conf
+			echo "Done" >> /tmp/mcastdebug
+		fi
+	fi
+fi

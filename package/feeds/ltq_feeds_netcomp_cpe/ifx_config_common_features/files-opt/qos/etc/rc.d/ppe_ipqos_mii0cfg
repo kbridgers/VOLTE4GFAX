@@ -1,0 +1,341 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+# This script configures P4 register 1PPM on Tatos external switch according to a default COS to queue map
+# this MAP has to be changed if CoS-Queue Map has to be changed for any reason
+
+#CoS 7 = Q3
+#CoS 6 = Q3
+#CoS 5 = Q2
+#CoS 4 = Q2
+#CoS 3 = Q1
+#CoS 2 = Q1
+#CoS 1 = Q0
+#CoS 0 = Q0
+
+# STATIC COS - Queue map;
+# change the variable to required queue number
+
+cos7=3
+cos6=3
+cos5=2
+cos4=2
+cos3=1
+cos2=1
+cos1=0
+cos0=0
+
+# Get all VLANIDs  created on WAN Interface eth0
+	#cat /flash/rc.conf | grep default_wan_conn_iface | sed -n 's,default_wan_conn_iface="eth0.,,;1p' > /tmp/vtest
+	#defvlanid=`cat /tmp/vtest | sed -n 's,",,;1p'`
+	#echo "IPQOS on vlan interface = eth0.$defvlanid"
+	#echo "IPQOS on vlan interface = eth0.$defvlanid" >> /tmp/ipqos_log
+
+wan_index=`echo $wan_main_index | tr ',' ' '`	
+for i in $wan_index
+do
+	eval vlan='$'wan_${i}_vlanId
+
+	echo "IPQOS on vlan interface = eth0.$vlan"
+	echo "IPQOS on vlan interface = eth0.$vlan" >> /tmp/ipqos_log
+
+	#set egress cos map
+	#vconfig set_egress_map eth0.$vlan 802.1p skb-Prio
+	vconfig set_egress_map eth0.$vlan 0 0
+	vconfig set_egress_map eth0.$vlan 1 1
+	vconfig set_egress_map eth0.$vlan 2 2
+	vconfig set_egress_map eth0.$vlan 3 3
+	vconfig set_egress_map eth0.$vlan 4 4
+	vconfig set_egress_map eth0.$vlan 5 5
+	vconfig set_egress_map eth0.$vlan 6 6
+	vconfig set_egress_map eth0.$vlan 7 7
+
+done
+
+
+
+
+i=0
+max_q=4
+max_CoS_Count=8
+
+while [ $i -lt $max_CoS_Count ]
+do
+		case "$i" in
+			0)
+			
+				#CS0=>CoS0 = 000 ; reg 1PPQ0:1:0
+				if [ $cos0 -eq 0 ]; then
+					echo "COS0 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=0
+
+				elif [ $cos0 -eq 1 ]
+				then
+					echo "COS0 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000184E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=1
+				
+				elif [ $cos0 -eq 2 ]
+				then
+					echo "COS0 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000284E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=2
+
+				elif [ $cos0 -eq 3 ]
+				then
+					echo "COS0 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000384E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=3
+				else 
+					echo "CoS0 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			1)
+			
+				#CoS 1 =001; reg 1PPQ1:3:2
+				if [ $cos1 -eq 0 ]; then
+					echo "COS1 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=0
+
+				elif [ $cos1 -eq 1 ]
+				then
+					echo "COS1 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000484E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=1
+				
+				elif [ $cos1 -eq 2 ]
+				then
+					echo "COS1 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000884E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=2
+
+				elif [ $cos1 -eq 3 ]
+				then
+					echo "COS1 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000c84E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=3
+
+				else 
+					echo "CoS1 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			2)
+				#CoS2 = 010 ; reg 1PPQ2:5:4
+				if [ $cos2 -eq 0 ]; then
+					echo "COS2 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=0
+
+				elif [ $cos2 -eq 1 ]
+				then
+					echo "COS2 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x001084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=1
+				
+				elif [ $cos2 -eq 2 ]
+				then
+					echo "COS2 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x002084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=2
+
+				elif [ $cos2 -eq 3 ]
+				then
+					echo "COS2 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x003084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=3
+
+				else 
+					echo "CoS2 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			3)
+				#CoS3 = 011; reg 1PPQ3:7:6
+				if [ $cos3 -eq 0 ]; then
+					echo "COS3 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=0
+
+				elif [ $cos3 -eq 1 ]
+				then
+					echo "COS3 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x004084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=1
+				
+				elif [ $cos3 -eq 2 ]
+				then
+					echo "COS3 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x008084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=2
+
+				elif [ $cos3 -eq 3 ]
+				then
+					echo "COS3 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x00c084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=3
+
+				else 
+					echo "CoS3 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			4)
+				# CoS 4 = 100; reg 1PPQ4:9:8
+				if [ $cos4 -eq 0 ]; then
+					echo "COS4 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=0
+
+				elif [ $cos4 -eq 1 ]
+				then	
+					echo "COS4 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x010084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=1
+				
+				elif [ $cos4 -eq 2 ]
+				then
+					echo "COS4 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x020084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=2
+
+				elif [ $cos4 -eq 3 ]
+				then
+					echo "COS4 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x030084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=3
+
+				else 
+					echo "CoS4 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			5)
+				#CS5= 101; reg 1PPQ5:11:10
+				if [ $cos5 -eq 0 ]; then
+					echo "COS5 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=0
+
+				elif [ $cos5 -eq 1 ]
+				then
+					echo "COS5 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x040084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=1
+				
+				elif [ $cos5 -eq 2 ]
+				then
+					echo "COS5 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x080084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=2
+
+				elif [ $cos5 -eq 3 ]
+				then
+					echo "COS5 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x0c0084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=3
+
+				else 
+					echo "CoS5 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			6)
+				#CS6 = 110; reg: 1PPQ6:13:12
+				if [ $cos6 -eq 0 ]; then
+					echo "COS6 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=0
+
+				elif [ $cos6 -eq 1 ]
+				then
+					echo "COS6 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x100084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=1
+				
+				elif [ $cos6 -eq 2 ]
+				then
+					echo "COS6 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x200084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=2
+
+				elif [ $cos6 -eq 3 ]
+				then
+					echo "COS6 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x300084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=3
+ 
+				else 
+					echo "CoS6 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+			7)
+				#CS7= 111; reg: 1PPQ7:15:14
+				if [ $cos7 -eq 0 ]; then
+					echo "COS7 => Q0" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x000084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=0
+
+				elif [ $cos7 -eq 1 ]
+				then
+					echo "COS7 => Q1" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x400084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=1
+				
+				elif [ $cos7 -eq 2 ]
+				then
+					echo "COS7 => Q2" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0x800084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=2
+
+				elif [ $cos7 -eq 3 ]
+				then
+					echo "COS7 => Q3" >> /tmp/ipqos_log
+					#mem -s 0x1e108cc -w 0xc00084E8 -u
+					/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=3
+ 
+				else 
+					echo "CoS7 BAD Choice of Queue, select betwen 0-3"
+				fi	
+			;;
+		esac	
+
+i=`expr $i + 1`
+done
+
+#Disable WFQ on Port 4
+#Reg: P4ECWQ3 (89H)
+#Reg: P4ECWQ2 (8AH)
+#Reg: P4ECWQ1 (8BH)
+#Reg: P4ECWQ0 (8CH)
+
+
+mem -s 0x1e1080cc -w 0x00008489 -u
+mem -s 0x1e1080cc -w 0x0000848A -u
+mem -s 0x1e1080cc -w 0x0000848B -u
+mem -s 0x1e1080cc -w 0x0000848C -u
+
+
+#Set Rateshaping for Port 4 to max
+#Reg: P4ECSQ3 (85H)
+#Reg: P4ECSQ2 (86H)
+#Reg: P4ECSQ1 (87H)
+#Reg: P4ECSQ0 (88H)
+mem -s 0x1e1080cc -w 0x07ff8485 -u
+mem -s 0x1e1080cc -w 0x07ff8486 -u
+mem -s 0x1e1080cc -w 0x07ff8487 -u
+mem -s 0x1e1080cc -w 0x07ff8488 -u
+
+#Configure smart discard function in TANTOS -> discard packets from queue 0 earlier than other queues
+#Register 0xE0 = (Content of Register 0xE0 = 0x8800) | 0x0003, 
+#mem -s 0x1e1080cc -w 0x880384e0 -u
+

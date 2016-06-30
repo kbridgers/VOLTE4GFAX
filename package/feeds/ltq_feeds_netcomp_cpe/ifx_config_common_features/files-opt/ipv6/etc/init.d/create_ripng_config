@@ -1,0 +1,176 @@
+#!/bin/sh
+# To be invoked with create_rip_config <rip version (1|2)>
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+OUTPUT="/tmp/cmd_output"                                   
+flush_output()                                          
+{                                                      
+          echo "" > "$OUTPUT"                           
+}                                                    
+SED="/bin/sed"                                      
+                                                               
+echo '!' > /var/ripngd.conf
+echo "hostname ltqcpe" >> /var/ripngd.conf
+echo "password zebra" >> /var/ripngd.conf
+echo '!' >> /var/ripngd.conf
+echo "router ripng" >> /var/ripngd.conf
+echo '!' >> /var/ripngd.conf
+echo "network br0" >> /var/ripngd.conf
+
+# Pramod : Check if there is a wan index passed as $2 if so depending on the rip status on this wan interface add corresponding networks
+# TBD: need to know WAN type based on which appropriate section need to be referred
+#if [ -n "$2" ]; then
+#	eval wan_enable='$'wan_${2}_fEnable
+#	eval route_proto='$'wan_${2}_rxRouteProto
+#	if [ -n "$wan_enable" -a "$wan_enable" = "1" ]; then
+#		if [ "$route_proto" = "1" -o "$route_proto" = "2" ]; then
+#			. /etc/rc.d/get_wan_if $2
+#			wan_iface=$WAN_IFNAME
+#			if [ ! -z $wan_iface ] && [ "$wan_iface" != "br0" ]; then
+#				echo "network $wan_iface" >> /etc/ripd.conf
+#			fi
+#		fi
+#	fi
+#fi
+
+
+## Now depending upon the configured interfaces, add the corresponding networks ##
+
+wan_idx=0
+while [ $wan_idx -lt $wan_ip_Count ]
+do
+	eval wan_enable='$'wanip_${wan_idx}_fEnable
+	if [ -n "$wan_enable" -a "$wan_enable" = "1" ]; then
+			. /etc/rc.d/get_wan_if $wan_idx "ip"
+			wan_iface=$WAN_IFNAME
+			if [ ! -z $wan_iface ] && [ "$wan_iface" != "br0" ]; then
+				echo "network $wan_iface" >> /var/ripngd.conf
+			fi
+	fi
+	wan_idx=$(( $wan_idx + 1 ))
+done
+
+wan_idx=0
+while [ $wan_idx -lt $wan_ppp_Count ]
+do
+	eval wan_enable='$'wanppp_${wan_idx}_fEnable
+	if [ -n "$wan_enable" -a "$wan_enable" = "1" ]; then
+			. /etc/rc.d/get_wan_if $wan_idx "ppp"
+			wan_iface=$WAN_IFNAME
+			if [ ! -z $wan_iface ] && [ "$wan_iface" != "br0" ]; then
+				echo "network $wan_iface" >> /var/ripngd.conf
+			fi
+	fi
+	wan_idx=$(( $wan_idx + 1 ))
+done
+
+
+echo '!' >> /var/ripngd.conf
+
+echo "redistribute static" >> /var/ripngd.conf
+echo "redistribute kernel" >> /var/ripngd.conf
+echo "redistribute connected" >> /var/ripngd.conf
+echo '!' >> /var/ripngd.conf
+echo "log stdout" >> /var/ripngd.conf
+
+# Pramod : Check if there is a wan index passed as $2 if so depending on the rip status on this wan interface add corresponding interface
+#if [ -n "$2" ]; then
+#	eval wan_enable='$'wan_${2}_fEnable
+#	eval route_proto='$'wan_${2}_rxRouteProto
+#	if [ -n "$wan_enable" -a "$wan_enable" = "1" ]; then
+#		if [ "$route_proto" = "1" -o "$route_proto" = "2" ]; then
+#			. /etc/rc.d/get_wan_if $2
+#			wan_iface=$WAN_IFNAME
+#			if [ ! -z $wan_iface ] && [ "$wan_iface" != "br0" ]; then
+#				echo "interface $wan_iface" >> /etc/ripd.conf
+#				case $route_dynamic_listenMode in
+#					1) echo "ip rip receive version 1" >> /etc/ripd.conf ;;
+#					2) echo "ip rip receive version 2" >> /etc/ripd.conf ;;
+#					*) echo "ip rip receive version 1 2" >> /etc/ripd.conf ;;
+#				esac
+#				case $route_dynamic_supplyMode in
+#					1) echo "ip rip send version 1" >> /etc/ripd.conf ;;
+#					2) echo "ip rip send version 2" >> /etc/ripd.conf ;;
+#					*) echo "ip rip send version 1 2" >> /etc/ripd.conf ;;
+#				esac
+#				wan_conn_flag=1
+#			fi
+#		fi
+#	fi
+#fi
+
+## Now depending upon the configured interfaces, add the corresponding interfaces ##
+
+#wan_idx=0
+#while [ $wan_idx -lt $wan_ip_Count ]
+#do
+#	eval wan_enable='$'wanip_${wan_idx}_fEnable
+#	eval route_proto='$'wanip_${wan_idx}_rxRouteProto
+#	if [ -n "$wan_enable" -a "$wan_enable" = "1" ]; then
+#		if [ "$route_proto" = "1" -o "$route_proto" = "2" ]; then
+#			. /etc/rc.d/get_wan_if $wan_idx "ip"
+#			wan_iface=$WAN_IFNAME
+#			if [ ! -z $wan_iface ] && [ "$wan_iface" != "br0" ]; then
+#				echo "interface $wan_iface" >> /etc/ripd.conf
+#				case $route_dynamic_listenMode in
+#					1) echo "ip rip receive version 1" >> /etc/ripd.conf ;;
+#					2) echo "ip rip receive version 2" >> /etc/ripd.conf ;;
+#					*) echo "ip rip receive version 1 2" >> /etc/ripd.conf ;;
+#				esac
+#				case $route_dynamic_supplyMode in
+#					1) echo "ip rip send version 1" >> /etc/ripd.conf ;;
+#					2) echo "ip rip send version 2" >> /etc/ripd.conf ;;
+#					*) echo "ip rip send version 1 2" >> /etc/ripd.conf ;;
+#				esac
+#				wan_conn_flag=1
+#			fi
+#		fi
+#	fi
+#	wan_idx=$(( $wan_idx + 1 ))
+#done
+
+#wan_idx=0
+#while [ $wan_idx -lt $wan_ppp_Count ]
+#do
+#	eval wan_enable='$'wanppp_${wan_idx}_fEnable
+#	eval route_proto='$'wanppp_${wan_idx}_rxRouteProto
+#	if [ -n "$wan_enable" -a "$wan_enable" = "1" ]; then
+#		if [ "$route_proto" = "1" -o "$route_proto" = "2" ]; then
+#			. /etc/rc.d/get_wan_if $wan_idx "ppp"
+#			wan_iface=$WAN_IFNAME
+#			if [ ! -z $wan_iface ] && [ "$wan_iface" != "br0" ]; then
+#				echo "interface $wan_iface" >> /etc/ripd.conf
+#				case $route_dynamic_listenMode in
+#					1) echo "ip rip receive version 1" >> /etc/ripd.conf ;;
+#					2) echo "ip rip receive version 2" >> /etc/ripd.conf ;;
+#					*) echo "ip rip receive version 1 2" >> /etc/ripd.conf ;;
+#				esac
+#				case $route_dynamic_supplyMode in
+#					1) echo "ip rip send version 1" >> /etc/ripd.conf ;;
+#					2) echo "ip rip send version 2" >> /etc/ripd.conf ;;
+#					*) echo "ip rip send version 1 2" >> /etc/ripd.conf ;;
+#				esac
+#				wan_conn_flag=1
+#			fi
+#		fi
+#	fi
+#	wan_idx=$(( $wan_idx + 1 ))
+#done
+
+if [ "$wan_conn_flag" -a "$wan_conn_flag" = "1" ]; then
+	echo '!' >> /var/ripngd.conf
+fi
+

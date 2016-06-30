@@ -1,0 +1,315 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. rewrite all of the qos scirpts
+# 507221:tc.chen 2005/07/22 fix ddns bind with wrong interface
+# 508181:tc.chen 2005/08/18 add routing support for sip
+OUTPUT="/tmp/cmd_output${1}"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+remove_output()
+{
+	rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+eval wan_6rd='$'wan_${1}_tunnel
+echo $sixrd > /tmp/6rd_log.txt
+
+#WAN="`/etc/rc.d/get_wan_if $1`"
+. /etc/rc.d/get_wan_if $1
+WAN=$WAN_IFNAME
+
+eval link_type='$'wan_${1}_linkType
+eval addr_type='$'wanip_${1}_addrType
+eval wan_mode='$'wan_${1}_wanMode
+eval wan_conn='$'wan_${1}_connName
+eval nat_enable='$'wan_${1}_NATEnable
+
+if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+	if [ "$addr_type" = "1" ]; then # DHCP 
+		wan_type="DHCPC"
+	elif [ "$addr_type" = "2" ]; then # STATIC
+		wan_type="FIXED"
+	elif [ "$addr_type" = "0" ]; then # Bridge Mode
+		wan_type="BRIDGE"
+	fi
+elif [ "$link_type" = "3" ]; then # PPPoA
+	wan_type="PPPOA"
+elif [ "$link_type" = "4" ]; then # PPPoE
+	wan_type="PPPOE"
+elif [ "$link_type" = "5" ]; then # CLIP
+	wan_type="FIXED"
+else
+	wan_type="UNKNOWN"
+fi
+
+
+	/usr/sbin/status_oper SET "bringup_wan${1}_services" status start
+
+	flush_output
+	ifconfig $WAN > "$OUTPUT"
+	if [ "$wan_type" = "PPPOA" -o "$wan_type" = "PPPOE" ]; then
+		WAN_IP=`"$SED" -n 's,^.*inet addr:,,; s,P-t-P*.*,,;2p' "$OUTPUT"`
+	# For CLIP, there is no Bcast address
+        elif [ "$link_type" = "5" ]; then
+                  WAN_IP=`"$SED" -n 's,^.*inet addr:,,; s,Mask*.*,,;2p' "$OUTPUT"`
+        # For IPoA, there is P-t-P address
+        elif [ "$link_type" = "2" ]; then
+                  WAN_IP=`"$SED" -n 's,^.*inet addr:,,; s,P-t-P*.*,,;2p' "$OUTPUT"`
+
+	else
+		WAN_IP=`"$SED" -n 's,^.*inet addr:,,; s,Bcast*.*,,;2p' "$OUTPUT"`
+	fi
+
+	WAN_MASK=`"$SED" -n 's,^.*Mask:,,1p' "$OUTPUT"`
+	#WAN_MASK=`ifconfig $WAN | grep Mask: | cut -f4 -d:`
+	#WAN_IP=`ifconfig $WAN | grep 'inet addr:' | cut -f2 -d: | cut -f1 -d' '`
+
+	##### NOT NEEDED SINCE CLIP IS NOT SUPPORTED #####
+	#if [ "`echo "$WAN" | cut -b-3`" = "atm" ]; then
+		#WAN_MASK=`ifconfig $WAN | grep Mask: | cut -f3 -d:`
+	#else
+		#WAN_MASK=`ifconfig $WAN | grep Mask: | cut -f4 -d:`
+	#fi
+
+	# get the uptime of the system and store it as the bringup time of this wan connection
+	cat /proc/uptime > "$OUTPUT"
+	secs=`"$SED" -n 's,\..*,,;1p' "$OUTPUT"`
+	#hrs=`"$SED" -n 's,up.*,,;s,:..:..,,;1p' "$OUTPUT"`
+	#mins=`"$SED" -n 's,up.*,,;s,..:,,;s,:..,,;1p' "$OUTPUT"`
+	#secs=`"$SED" -n 's,up.*,,;s,..:..:,,;1p' "$OUTPUT"`
+	#hrs_in_secs=$(( $hrs \* 60 ))
+	#hrs_in_secs=$(( $hrs_in_secs \* 60 ))
+	#mins_in_secs=$(( $mins \* 60 ))
+	#secs=$(( $secs + $hrs_in_secs ))
+	#secs=$(( $secs + $mins_in_secs ))
+
+	/usr/sbin/status_oper SET "Wan${1}_IF_Info" STATUS CONNECTED IP "$WAN_IP" MASK "$WAN_MASK" bringup_time_secs "$secs"
+	# /usr/sbin/status_oper SET "Wan${1}_IF_Info" STATUS CONNECTED IP $WAN_IP MASK $WAN_MASK
+
+	#Sumedh-board dependent
+	if [ "1$CONFIG_FEATURE_IFX_CHINA_MKT_1" != "11" ]; then 
+		# Indicate the status of the IP Address Recevied  thru' LED
+		# Internet LED - start 
+		wanindex=`/usr/sbin/status_oper GET wan_con_index windex`
+		if [ ! -n "`echo $wanindex | grep $1`" ]; then
+			wanindex="${wanindex} ${1}" # ', at the end !!
+			/usr/sbin/status_oper SET wan_con_index windex "$wanindex"
+			if [ "$CONFIG_FEATURE_LED" = "1" ]; then
+
+           			if [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then
+                  			echo netdev > /sys/class/leds/internet_led/trigger
+                	  		echo "$WAN" > /sys/class/leds/internet_led/device_name
+                  			echo "link tx rx" > /sys/class/leds/internet_led/mode
+					echo 1 > /sys/class/leds/internet_led/brightness
+					[ -f /sys/class/leds/internet_led/delay_on ] && echo 125 > /sys/class/leds/internet_led/delay_on
+					[ -f /sys/class/leds/internet_led/delay_off ] && echo 125 > /sys/class/leds/internet_led/delay_off
+					[ -f /sys/class/leds/internet_led/timeout ] && echo 500 > /sys/class/leds/internet_led/timeout
+           			
+				else
+					echo dsl_data > /sys/class/leds/internet_led/trigger
+					echo 1 > /sys/class/leds/internet_led/brightness
+					[ -f /sys/class/leds/internet_led/delay_on ] && echo 125 > /sys/class/leds/internet_led/delay_on
+					[ -f /sys/class/leds/internet_led/delay_off ] && echo 125 > /sys/class/leds/internet_led/delay_off
+   					[ -f /sys/class/leds/internet_led/timeout ] && echo 500 > /sys/class/leds/internet_led/timeout
+                 
+				fi	
+			fi
+
+			if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+				echo none > /sys/class/leds/internet_red_led/trigger
+				echo 0 > /sys/class/leds/internet_red_led/brightness
+			fi	
+
+		fi
+		# Internet LED - end
+	fi
+
+	# Get the router (default gateway) ip address from system_status and add the default route with that ip address
+	if [ "$default_wan_conn_connName" = "$wan_conn" ]; then
+		def_gw=`/usr/sbin/status_oper GET WAN${1}_GATEWAY ROUTER1`
+		if [ -n "$def_gw" -a "$def_gw" != "0.0.0.0" ]; then
+			# delete the previous default route
+			route -n > "$OUTPUT"
+			pre_def_iface=`"$SED" -n 's,^.*[ ],,;$p' "$OUTPUT"`
+			#pre_def_iface=`route -n | grep ^0.0.0.0 | tr -s ' ' | cut -d ' ' -f 8`
+			route del default dev $pre_def_iface 2> /dev/null
+			# add the new default route
+			route add default gw $def_gw dev $WAN 2> /dev/null
+            # call mgmt.sh for web mgmt traffic prioritization
+            if [ -n "${WEB_WAN_ENABLE}" -a "${WEB_WAN_ENABLE}" = "1" ]; then
+               . /etc/rc.d/mgmt.sh start 0 ${WAN_IP} 80 tcp
+               . /etc/rc.d/mgmt.sh start 0 ${WAN_IP} 443 tcp
+            fi
+	fi
+		if  [ "$CONFIG_PACKAGE_IFX_DEVM" = "1" ]; then
+			killall -USR2 devmapp
+		fi
+	fi
+
+	# Setup NAT & Firewall
+	if [ $WAN -a -f /usr/sbin/naptcfg -a "$nat_enable" = "1" ]; then
+		/usr/sbin/naptcfg --ADDWANIP $WAN_IP
+		fi
+
+	if  [ ! $CONFIG_FEATURE_IFX_VOIP = "1" -a $CONFIG_FEATURE_NAPT = "1" -a "$CONFIG_FEATURE_ALGS" = "1" ]; then
+			iptables -t nat -I PREROUTING -i $WAN -p udp --dport $ALG_SIP_PORT -j DNAT --to $ALG_SIP_CLIENT
+			iptables -t nat -I PREROUTING -i $WAN -p udp --sport $ALG_SIP_PORT -j DNAT --to $ALG_SIP_CLIENT
+	fi
+
+
+	# Setup QOS
+	if  [ "$CONFIG_FEATURE_QOS" = "1" -a "$QOS_ENABLE" = "1" ]; then
+# 000001:tc.chen 	if [ "$QOS_ENABLE" = 1 -a "$DIFFSERV_DUT_VOIP" = "1" ]; then
+			. /etc/rc.d/init.d/qos start_wan $1
+# 000001:tc.chen 	fi
+	fi
+
+	# Start DNS Relay Daemon
+	if  [ "$CONFIG_FEATURE_DNS_RELAY" = "1" -a "$wan_type" != "BRIDGE" ]; then
+		. /etc/rc.d/init.d/dns_relay restart $1
+	fi
+
+	sleep 1
+
+	# Start Dnsmasq (DNSv6 Relay) Deamon
+	if [ "$CONFIG_PACKAGE_KMOD_IPV6" = "1"  -a  "$ipv6_status" = "1" ]; then
+			. /etc/rc.d/bringup_dnsmasq restart $1
+	fi
+	
+	# Setup DDNS
+	if  [ $CONFIG_FEATURE_DDNS = "1" ]; then
+# 507221:tc.chen
+		ddns_intf_idx="`echo $ddns_if | sed -n 's,WAN,,;1p'`"
+		if [ "$ddns_intf_idx" = "$1" ]; then
+			if [ "$ddns_enable" = "YES" ]; then
+				. /etc/rc.d/init.d/ddns start $1
+			fi
+		fi
+	fi
+
+	# Start VOIP Application
+	#if [ "$CONFIG_FEATURE_IFX_VOIP" = "1" ]; then
+	#	/etc/rc.d/rc.bringup_voip_start $1 &
+	#fi
+
+	# Setup Static Route
+	. /etc/rc.d/rc.bringup_staticRoutes
+
+	# handle the interface specific rip enable or disable
+	# Now handled from WAN API within
+	# . /etc/rc.d/init.d/ripd restart
+
+	# Start NTP Client
+	if  [ "$CONFIG_PACKAGE_NTPCLIENT" = "1" -a "$ntp_fEnable" = "1" ] ; then
+		if [ -r /etc/rc.d/init.d/ntpc ]; then
+			. /etc/rc.d/init.d/ntpc start $1> /dev/null 2>&1
+		fi
+	fi
+
+	if [ "$default_wan_conn_connName" = "$wan_conn" ]; then
+		i=0
+		while [ $i -lt $lan_main_Count ]
+		do
+			eval dhcp_mode='$'lan_main_${i}_dhcpMode
+		if [ "$dhcp_mode" = "relay" ]; then
+			echo "configuring lan dhcp relay !!"
+			. /etc/rc.d/init.d/udhcpd stop       | 
+			. /etc/rc.d/init.d/udhcpd start
+		fi
+		i=$(( $i + 1 ))
+		done
+	fi
+
+    # IGMP Proxy/Snooping
+    wan_intf_idx="`echo $IGMP_WAN_INTF | sed -n 's,WAN,,;1p'`"
+    #if [ "$IGMP_ENABLE" = "1" -a "$wan_intf_idx" = "$1" ]; then
+    #	    . /etc/rc.d/init.d/igmp start
+    #fi
+
+	#Sumedh: Applicaion Filtering: (we need DNS up by this time!)
+	if [ "$APP_FILTER" = "1" ]; then
+	. /etc/rc.d/rc.firewall_app_filter start
+	else
+	. /etc/rc.d/rc.firewall_app_filter stop
+	fi
+
+    # Start VOIP Application
+	if [ "$CONFIG_FEATURE_IFX_VOIP" = "1" ]; then
+		if [ "$CONFIG_IFX_MODEL_NAME" = "ARX182_GW_EL_FXS_DECT" ]; then
+			dect_fw_status=`/usr/sbin/status_oper GET "dect_fw" "status"`
+        		if [ -n "$dect_fw_status" -a "$dect_fw_status" = "init" ]; then
+         			/etc/rc.d/rc.bringup_voip_start $1 &
+        		fi
+		else
+			/etc/rc.d/rc.bringup_voip_start $1 &
+		fi 
+        fi
+
+	# PPA config
+	if [ "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A5_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D5_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A4_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A4_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D4_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D4_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_E5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_E5_MOD" = "11" ]; then
+		. /etc/rc.d/ppa_config.sh addwan $WAN_IFNAME
+	fi
+
+	if [ "$CONFIG_PACKAGE_LQ_IGMPD" = "1" ]; then
+		# Check for wan_conn interface in the upstream_wan variable of rc.conf
+		echo $mcast_upstream_wan | grep $wan_conn
+		if [ $? -eq 0 ]; then
+			. /etc/rc.d/init.d/igmpd wan_restart
+		fi
+	fi
+    /etc/rc.d/init.d/ipsec_bringup_tunnels $wan_conn
+	remove_output
+
+        eval wan_6rd='$'wan_${1}_tunnel
+        if [ "$ipv6_status" = "1" -a "$wan_6rd" = "1" -a "$wan_sixrdwanidx" = "$1" ]; then
+                if [ "$wan_sixrd_mode" = "0" ]; then
+                        if [ "$wan_type" = "PPPOE" ]; then # PPPoE
+                                /sbin/udhcpc -b -i $WAN -O sixrd -p /var/run/udhcpc$1.pid -s /etc/rc.d/udhcpc.script 2> /dev/null
+                        fi
+                        if [ ! -z "$sixrd" -a "$wan_type" = "PPPOE" ]; then # PPPoE
+				ISP6rdPREFIX=$(echo $sixrd | awk '{print $3}')
+				ISP6rdPREFIXLEN=$(echo $sixrd | awk '{print $2}')
+				ISPBRIP=$(echo $sixrd | awk '{print $4}')
+				IPv4MASKLEN=$(echo $sixrd | awk '{print $1}')
+                                if [ "$wan_sixrd_mtu" = "0" ]; then
+                                        /etc/rc.d/6rdtunnel.sh start $1 $WAN_IP $ISP6rdPREFIX $ISP6rdPREFIXLEN $ISPBRIP $IPv4MASKLEN
+                                else
+                                        /etc/rc.d/6rdtunnel.sh start $1 $WAN_IP $ISP6rdPREFIX $ISP6rdPREFIXLEN $ISPBRIP $IPv4MASKLEN $wan_sixrd_mtu
+                                fi
+                        fi
+                        if [ ! -z "$sixrd" -a "$wan_type" = "DHCPC" ]; then
+                                ISP6rdPREFIX=$(echo $sixrd | awk '{print $3}')
+                                ISP6rdPREFIXLEN=$(echo $sixrd | awk '{print $2}')
+                                ISPBRIP=$(echo $sixrd | awk '{print $4}')
+                                IPv4MASKLEN=$(echo $sixrd | awk '{print $1}')
+                                if [ "$wan_sixrd_mtu" = "0" ]; then
+                                        /etc/rc.d/6rdtunnel.sh start $1 $WAN_IP $ISP6rdPREFIX $ISP6rdPREFIXLEN $ISPBRIP $IPv4MASKLEN
+                                else
+                                        /etc/rc.d/6rdtunnel.sh start $1 $WAN_IP $ISP6rdPREFIX $ISP6rdPREFIXLEN $ISPBRIP $IPv4MASKLEN $wan_sixrd_mtu
+                                fi
+                        fi
+                elif [ "$wan_sixrd_mode" = "1" ]; then
+                        if [ "$wan_sixrd_mtu" = "0" ]; then
+                                /etc/rc.d/6rdtunnel.sh start $1 $WAN_IP $wan_sixrdprefix $wan_sixrdprefixlen $wan_sixrdbrip $wan_sixrdmasklen
+                        else
+                                /etc/rc.d/6rdtunnel.sh start $1 $WAN_IP $wan_sixrdprefix $wan_sixrdprefixlen $wan_sixrdbrip $wan_sixrdmasklen $wan_sixrd_mtu
+                        fi
+                fi
+        fi
+

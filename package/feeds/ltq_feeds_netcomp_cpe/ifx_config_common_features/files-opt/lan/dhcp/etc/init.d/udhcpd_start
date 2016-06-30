@@ -1,0 +1,191 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_output${1}"
+flush_output()
+{
+        echo "" > "$OUTPUT"
+}
+remove_output()
+{
+        rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# ip variable is being set automatically from environment in case of dhcp mode relay and cond pool server
+ip=
+rule=0
+iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p udp --dport 67 -j ACCEPT 2> /dev/NULL
+
+                                i=0
+				while [ $i -lt $lan_main_Count ]
+                                do
+                                        eval global_subnet='$'lan_main_${i}_VIPEnable
+                                if [ "$global_subnet" = "1" -a $i -ne 0 ]; then
+                                        eval gip='$'lan_main_${i}_ipAddr
+                                        eval gnetmask='$'lan_main_${i}_netmask
+                                        eval giface='$'lan_main_${i}_interface
+                                        /sbin/ifconfig $giface $gip netmask $gnetmask up > /dev/null
+                                        /usr/sbin/iptables -t nat -I POSTROUTING --source $gip/$gnetmask -j RETURN 2>/dev/null
+                                fi
+                                        i=$(( $i + 1 ))
+                                done
+
+
+		if [ -n "$CONFIG_FEATURE_DHCP_SERVER" -a "$CONFIG_FEATURE_DHCP_SERVER" = "1" ]; then
+
+				#echo "option dns `echo $lan_main_ipAddr |cut -f1 -d' '`"> /etc/udhcpd.conf
+				i=0
+				while [ $i -lt $lan_main_Count ]
+				do
+					eval mode='$'lan_main_${i}_dhcpMode
+					eval dhcp_mode='$'lan_dhcps_dhcpMode
+					if [ $i -eq 0 ]; then
+                                                eval iface='$'lan_main_${i}_interface
+                                        elif [ "$global_subnet" = "1" ]; then
+                                                eval iface='$'lan_main_${i}_interface
+                                        fi
+					if [ "$mode" = "server" -a "$dhcp_mode" = "1" ]; then
+						if [ $i -eq 0 ]; then
+                                                        eval ip='$'lan_main_${i}_ipAddr
+                                                elif [ "$global_subnet" = "1" ]; then
+                                                        eval ip='$'lan_main_${i}_ipAddr
+                                                fi
+					#	echo "option dns $ip"> /etc/udhcpd.conf
+                   			 elif [ "$mode" = "relay" ]; then
+                        			eval relay_ip='$'lan_dhcp_relay_server
+			                        eval relay_if='$'default_wan_conn_iface
+					fi
+					i=$(( $i + 1 ))
+				done
+
+				if [ -n "$lan_dhcps_startIp" ]; then
+					echo "start $lan_dhcps_startIp"> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$lan_dhcps_endIp" ]; then
+					echo "end $lan_dhcps_endIp">> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$iface" ]; then
+					echo "interface $iface" >> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$mode" -a "$mode" = "server" ]; then
+					echo "dhcpmode 0" >> /etc/udhcpd.conf
+				elif [ -n "$mode" -a "$mode" = "relay" ]; then
+					echo "dhcpmode 1" >> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$lan_dhcps_maxLeases" ]; then
+					echo "max_leases $lan_dhcps_maxLeases">> /etc/udhcpd.conf
+				fi
+
+				#echo "remaining yes" >> /etc/udhcpd.conf
+				echo "auto_time 300">> /etc/udhcpd.conf
+
+				if [ -n "$ip" ]; then
+					echo "option dns $ip" >>/etc/udhcpd.conf
+				fi
+
+				if [ -n "$lan_dhcps_netmask" ]; then
+					echo "option subnet $lan_dhcps_netmask">> /etc/udhcpd.conf
+				fi
+
+#				eval gw=`route -n | grep $ip | cut -d ' ' -f10`
+				if [ -n "$ip" ]; then
+					echo "option router $ip">> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$lan_dhcps_domainName" ]; then
+					echo "option domain $lan_dhcps_domainName">> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$lan_dhcps_leasetime" ]; then
+					echo "option lease $lan_dhcps_leasetime">> /etc/udhcpd.conf
+				else
+					echo "offer_time 3600" >> /etc/udhcpd.conf
+				fi
+		
+				#echo "option poolorder 32000">> /etc/udhcpd.conf
+
+				if [ -n "$relay_ip" ]; then
+					echo "dhcpserverIp $relay_ip">> /etc/udhcpd.conf
+				fi
+
+				if [ -n "$relay_if" ]; then
+					echo "relayif $relay_if">> /etc/udhcpd.conf
+				fi
+				
+		# default pool network and lan ip address network can be different
+                # so add route corresponding to the default pool network
+                echo "${lan_dhcps_startIp}" > "$OUTPUT"
+                dhcpNw=`"$SED" -n 's,.[1-9]*$,,;1p' "$OUTPUT"`
+                echo "${lan_main_0_ipAddr}" > "$OUTPUT"
+                lanNw=`"$SED" -n 's,.[1-9]*$,,;1p' "$OUTPUT"`
+                if [ "${dhcpNw}" != "${lanNw}" ]; then
+                   /usr/sbin/route_util ADD ${lan_dhcps_startIp} ${lan_dhcps_netmask} ${ip} ${iface}
+                fi
+
+				   i=0
+                                while [ $i -lt $lan_dhcps_static_lease_Count ]
+                                do
+                                        eval enable='$'ldhcp_${i}_enable
+                                        eval ip='$'ldhcp_${i}_ipAddr
+                                        eval mac='$'ldhcp_${i}_macAddr
+                                        if [ "$enable" = 1 ]; then
+                                        	echo "static_lease $mac $ip">> /etc/udhcpd.conf
+					else
+                                                 
+                                        	echo "static_lease 00:00:00:00:00:00 $ip">> /etc/udhcpd.conf
+					fi
+					i=`expr $i + 1`
+                                done
+			
+		if [ -n "$mode" -a "$mode" = "relay" ]; then
+			iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p udp --dport 67 -j ACCEPT
+			rule=1
+		fi 
+
+                # call script to configure conditional pools
+                . /etc/rc.d/init.d/udhcpd_pool_conf
+
+				# Setup Hostname
+				echo "127.0.0.1	localhost.localdomain localhost"> /etc/hosts
+				shorthost=${hostname%%.*}
+				echo "$lan_main_0_ipAddr ${hostname} $shorthost" >> /etc/hosts
+				hostname $shorthost
+				#/usr/sbin/udhcpd &		#By Nirav. udhcpd now runs from inetd
+			if [ "$ipv6_status" = "1" ]; then
+				eval hn=`uname -n`'6'
+				i=0
+        			while [ $i -lt $lan_main_Count ]
+        			do
+                			eval ip='$lan_main_ipv6_'$i'_ip6Addr'
+                			echo "$ip $hn.$lan_dhcpv6_dName $hn" >> /etc/hosts
+                			i=$(( $i + 1 ))
+        			done
+			fi
+				#Added by Nirav.
+				if [ -f /var/run/udhcpd.pid ];then
+					. /etc/rc.d/killproc udhcpd
+				fi
+				#. /etc/init.d/inetd_start
+				if [ "$lan_main_0_dhcpMode" = "server" -o "$lan_main_0_dhcpMode" = "relay" ]; then
+					if [ `dwatchctl show |grep udhcpd|grep -q RUNNING;echo $?` != 0 ];then
+						dwatchctl start udhcpd
+					fi
+				fi
+		fi

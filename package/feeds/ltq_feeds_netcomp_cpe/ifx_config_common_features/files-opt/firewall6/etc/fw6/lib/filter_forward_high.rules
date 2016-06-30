@@ -1,0 +1,20 @@
+#  Configuration: HIGH "Deny Inbound and minimally permit Outbound"
+#  Default policy is DROP
+-P FORWARD DROP
+#  User defined chain lan2wan_forward filters outbound traffic
+#  User defined chain wan2lan_forward filters inbound traffic
+#  Allow outbound tcp traffics - telnet(23), ftp(21) statefull, http(80), https(443), 
+#  smpt(25), dns(53), pop3(110), imaps(993), ntp(123) 
+-A lan2wan_forward -p tcp -m multiport --dports 23,21,80,443,25,53,110,993,123 -j ACCEPT 
+#  Allow outbound udp traffics - telnet(23), ftp(21) statefull, http(80), https(443), 
+#  smpt(25), dns(53), pop3(110), imaps(993), ntp(123) 
+-A lan2wan_forward -p udp -m multiport --dports 23,21,80,443,25,53,110,993,123 -j ACCEPT 
+# Allow outbound icmpv6 packets
+-A lan2wan_forward -p ipv6-icmp -j  ACCEPT
+-A lan2wan_forward -m state --state RELATED,ESTABLISHED -j ACCEPT 
+#  Rest all Drop
+-A lan2wan_forward  -j DROP
+# Allow Related & Established inbound traffic, initiated by above outbound traffic
+-A wan2lan_forward -m state --state RELATED,ESTABLISHED -j ACCEPT 
+#  Rest all Drop
+-A wan2lan_forward  -j DROP

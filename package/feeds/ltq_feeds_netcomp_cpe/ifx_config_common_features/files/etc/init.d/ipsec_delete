@@ -1,0 +1,43 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+#i is index
+i=$1
+wan_connection_name=$2
+wan_connection_index=`echo $wan_connection_name |sed -n 's|WAN\(.*\)|\1|p'`
+. /etc/rc.d/get_wan_if $wan_connection_index
+wan_interface=$WAN
+
+
+eval count='$'ipsec_tunnel_Count
+eval leftip=`cat /var/ipsec_wan_interface_"$i"_$wan_interface`
+eval rightip='$'ipsec_tunnel_${i}_rightip
+
+if [ $count -eq 1 ] ; then
+
+rm -f /var/ipsec_policies*
+rm -f /var/ipsec_wan_interface*
+
+fi
+
+eval leftsubnet='$'ipsec_tunnel_${i}_leftsubnet
+eval rightsubnet='$'ipsec_tunnel_${i}_rightsubnet
+
+iptables -t nat -D IFX_IPSEC_TERMINATION -s $leftsubnet -d $rightsubnet -m policy --dir out --pol ipsec --proto esp --mode tunnel -j ACCEPT 2>/dev/null
+iptables -D IFX_IPSEC_TERMINATION -s $rightip -d $leftip -j ACCEPT 2>/dev/null	
+
+/etc/init.d/ipsec_interface_add 2>/dev/null
+/etc/init.d/ipsec restart

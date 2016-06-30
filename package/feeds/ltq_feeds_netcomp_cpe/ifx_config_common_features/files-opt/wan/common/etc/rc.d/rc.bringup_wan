@@ -1,0 +1,970 @@
+#!/bin/sh
+#this script now will not support /etc/rc.d/rc.bringup_wan start $1 OR
+#																	/etc/rc.d/rc.bringup_wan stop $1 OR
+#																	/etc/rc.d/rc.bringup_wan restart $1
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+flush_output
+case "$1" in
+	start)
+		shift
+		# When the CPE reboots, we need to bring up all the configured
+		# WAN interfaces which are in the enabled state
+		# Find out the list of wan_index that have been configured
+		# in WAN MAIN Section under wan_main_index field
+
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wanip_idx=0
+		while [ $wanip_idx -lt $wan_ip_Count ]; do
+			eval link_type='$'wanip_${wanip_idx}_linkType
+			eval addr_type='$'wanip_${wanip_idx}_addrType
+			eval wan_mode='$'wanip_${wanip_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+				if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+					if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+						startFlag=1
+					fi
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+                        elif [ "$g_wan_phy_mode" = "6" ]; then
+                                if [ "$wan_mode" = "7" ]; then  #LTE 
+                                       startFlag=1
+                                fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+				if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+					if [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					elif [ "$addr_type" = "1" ]; then # DHCP
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+						wan_type="BRIDGE"
+					fi
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanip_${wanip_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup started for wan ip index $wanip_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanip_start $wanip_idx > /dev/console
+					fi
+				fi
+			fi
+			wanip_idx=`expr $wanip_idx + 1`
+		done
+
+		wanppp_idx=0
+		while [ $wanppp_idx -lt $wan_ppp_Count ]; do
+			eval link_type='$'wanppp_${wanppp_idx}_linkType
+			eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+				if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+					if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+						startFlag=1
+					fi
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode. Starts ppp.
+				if [ "$wan_mode" = "6" ]; then
+					startFlag=1
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+				if [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup started for wan ppp index $wanppp_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanppp_start $wanppp_idx > /dev/console
+					fi
+				fi
+			fi
+			wanppp_idx=`expr $wanppp_idx + 1`
+		done
+		;;
+	ip_start)
+		shift
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wanip_idx=$1
+		eval link_type='$'wanip_${wanip_idx}_linkType
+		eval addr_type='$'wanip_${wanip_idx}_addrType
+		eval wan_mode='$'wanip_${wanip_idx}_wanMode
+
+		startFlag=0
+		if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+			if [ "$wan_mode" = "0" ]; then # ATM
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+			if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+				if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+					startFlag=1
+				fi
+			fi
+		elif [ "$g_wan_phy_mode" = "1" ]; then
+			if [ "$wan_mode" = "1" ]; then # Eth on MII0
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "2" ]; then
+			if [ "$wan_mode" = "2" ]; then # Eth on MII1
+				startFlag=1
+			fi
+		fi
+
+		if [ "$startFlag" = "1" ]; then
+			if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+				if [ "$addr_type" = "2" ]; then # STATIC
+					wan_type="FIXED"
+				elif [ "$addr_type" = "1" ]; then # DHCP
+					wan_type="DHCPC"
+				elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+					wan_type="BRIDGE"
+				fi
+			elif [ "$link_type" = "5" ]; then # CLIP
+				wan_type="FIXED"
+			else
+				wan_type="UNKNOWN"
+			fi
+
+			if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+				eval wan_enable='$'wanip_${wanip_idx}_fEnable
+				if [ "$wan_enable" = "1" ]; then
+					#echo "Bringup started for wan ip index $1 !!" > /dev/console
+					. /etc/rc.d/rc.bringup_wanip_start $1 > /dev/console
+				fi
+			fi
+		fi
+		;;
+
+	ppp_start)
+		shift
+		# When the CPE reboots, we need to bring up all the configured
+		# WAN interfaces which are in the enabled state
+		# Find out the list of wan_index that have been configured
+		# in WAN MAIN Section under wan_main_index field
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wanppp_idx=$1
+		eval link_type='$'wanppp_${wanppp_idx}_linkType
+		eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+		startFlag=0
+		if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+			if [ "$wan_mode" = "0" ]; then # ATM
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+			if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+				if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+					startFlag=1
+				fi
+			fi
+		elif [ "$g_wan_phy_mode" = "1" ]; then
+			if [ "$wan_mode" = "1" ]; then # Eth on MII0
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "2" ]; then
+			if [ "$wan_mode" = "2" ]; then # Eth on MII1
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode. Starts ppp.
+			if [ "$wan_mode" = "6" ]; then
+				startFlag=1
+			fi
+		fi
+
+		if [ "$startFlag" = "1" ]; then
+			if [ "$link_type" = "3" ]; then # PPPoA
+				wan_type="PPPOA"
+			elif [ "$link_type" = "4" ]; then # PPPoE
+				wan_type="PPPOE"
+			else
+				wan_type="UNKNOWN"
+			fi
+
+			if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+				eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+				if [ "$wan_enable" = "1" ]; then
+					#echo "Bringup started for wan ppp index $wanppp_idx !!" > /dev/console
+					. /etc/rc.d/rc.bringup_wanppp_start $wanppp_idx > /dev/console
+				fi
+			fi
+		fi
+		;;
+	stop)
+		shift
+		# Stop all WAN interfaces which are in the enabled state
+		# Find out the list of wan_index that have been configured
+		# in WAN MAIN Section under wan_main_index field
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wan_idx=0
+		while [ $wan_idx -lt $wan_ppp_Count ]; do
+			eval link_type='$'wanppp_${wan_idx}_linkType
+			eval wan_mode='$'wanppp_${wan_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" -a "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+				if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode.
+				if [ "$wan_mode" = "6" ]; then
+					startFlag=1
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+				if [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+				   eval wan_enable='$'wanppp_${wan_idx}_fEnable
+				   if [ "$wan_enable" = "1" ]; then
+				   	echo "Stopping wan ppp index $wan_idx !!" > /dev/console
+				   	. /etc/rc.d/rc.bringup_wanppp_stop $wan_idx > /dev/console
+				   fi
+				fi
+
+			fi
+			wan_idx=`expr $wan_idx + 1`
+		done
+		wan_idx=0
+		while [ $wan_idx -lt $wan_ip_Count ]; do
+			eval link_type='$'wanip_${wan_idx}_linkType
+			eval wan_mode='$'wanip_${wan_idx}_wanMode
+			eval addr_type='$'wanip_${wan_idx}_addrType
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" -a "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+				if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+                        elif [ "$g_wan_phy_mode" = "6" ]; then 
+                                if [ "$wan_mode" = "7" ]; then # LTE 
+                                        startFlag=1
+                                fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+			
+				if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+					if [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					elif [ "$addr_type" = "1" ]; then # DHCP
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+						wan_type="BRIDGE"
+					fi
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+				   eval wan_enable='$'wanip_${wan_idx}_fEnable
+				   if [ "$wan_enable" = "1" ]; then
+				   	echo "Stopping wan ip index $wan_idx !!" > /dev/console
+				   	. /etc/rc.d/rc.bringup_wanip_stop $wan_idx > /dev/console
+				   fi
+				fi
+
+			fi
+			wan_idx=`expr $wan_idx + 1`
+		done
+		;;
+	ip_stop)
+		shift
+		# Stop all WAN interfaces which are in the enabled state
+		# Find out the list of wan_index that have been configured
+		# in WAN MAIN Section under wan_main_index field
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wan_idx=$1
+		eval link_type='$'wanip_${wan_idx}_linkType
+		eval wan_mode='$'wanip_${wan_idx}_wanMode
+		eval addr_type='$'wanip_${wan_idx}_addrType
+
+		startFlag=0
+		if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+			if [ "$wan_mode" = "0" ]; then # ATM
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" -a "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+			if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "1" ]; then
+			if [ "$wan_mode" = "1" ]; then # Eth on MII0
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "2" ]; then
+			if [ "$wan_mode" = "2" ]; then # Eth on MII1
+				startFlag=1
+			fi
+		fi
+
+		if [ "$startFlag" = "1" ]; then
+		
+			if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+				if [ "$addr_type" = "2" ]; then # STATIC
+					wan_type="FIXED"
+				elif [ "$addr_type" = "1" ]; then # DHCP
+					wan_type="DHCPC"
+				elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+					wan_type="BRIDGE"
+				fi
+			elif [ "$link_type" = "5" ]; then # CLIP
+				wan_type="FIXED"
+			else
+				wan_type="UNKNOWN"
+			fi
+
+			if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+			   eval wan_enable='$'wanip_${wan_idx}_fEnable
+			   if [ "$wan_enable" = "1" ]; then
+			   	echo "Stopping wan ip index $wan_idx !!" > /dev/console
+			   	. /etc/rc.d/rc.bringup_wanip_stop $wan_idx > /dev/console
+			   fi
+			fi
+
+		fi
+		;;
+	ppp_stop)
+		shift
+		# Stop all WAN interfaces which are in the enabled state
+		# Find out the list of wan_index that have been configured
+		# in WAN MAIN Section under wan_main_index field
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wan_idx=$1
+		eval link_type='$'wanppp_${wan_idx}_linkType
+		eval wan_mode='$'wanppp_${wan_idx}_wanMode
+
+		startFlag=0
+		if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+			if [ "$wan_mode" = "0" ]; then # ATM
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" -a "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+			if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "1" ]; then
+			if [ "$wan_mode" = "1" ]; then # Eth on MII0
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "2" ]; then
+			if [ "$wan_mode" = "2" ]; then # Eth on MII1
+				startFlag=1
+			fi
+		elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode.
+			if [ "$wan_mode" = "6" ]; then
+				startFlag=1
+			fi
+		fi
+
+		if [ "$startFlag" = "1" ]; then
+			if [ "$link_type" = "3" ]; then # PPPoA
+				wan_type="PPPOA"
+			elif [ "$link_type" = "4" ]; then # PPPoE
+				wan_type="PPPOE"
+			else
+				wan_type="UNKNOWN"
+			fi
+	
+			if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+			   eval wan_enable='$'wanppp_${wan_idx}_fEnable
+			   if [ "$wan_enable" = "1" ]; then
+			   	echo "Stopping wan ppp index $wan_idx !!" > /dev/console
+			   	. /etc/rc.d/rc.bringup_wanppp_stop $wan_idx > /dev/console
+			   fi
+			fi
+
+		fi
+		;;
+	start_except_default)
+		shift
+		echo $wan_main_index > "$OUTPUT"
+
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wanip_idx=0
+		while [ $wanip_idx -lt $wan_ip_Count ]; do
+			eval link_type='$'wanip_${wanip_idx}_linkType
+			eval addr_type='$'wanip_${wanip_idx}_addrType
+			eval wan_mode='$'wanip_${wanip_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+				if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+					if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+						startFlag=1
+					fi
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+
+				# check if this is the default WAN for this WAN PHY mode. if so, skip
+				eval defwanConnName='$'default_wan_conn_connName
+				eval wanConnName='$'wanip_${wanip_idx}_connName
+
+				if [ "$defwanConnName" = "$wanConnName" ]; then
+					wanip_idx=`expr $wanip_idx + 1`
+					continue
+				fi
+			
+				if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+					if [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					elif [ "$addr_type" = "1" ]; then # DHCP
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+						wan_type="BRIDGE"
+					fi
+				elif [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanip_${wanip_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan started for wan index $wanip_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanip_start $wanip_idx > /dev/console
+					fi
+				fi
+
+			fi
+
+			#idx=$(( $idx + 1 ))
+			#wan_idx=`echo $wan_main_index | cut -d ',' -f $idx`
+			wanip_idx=`expr $wanip_idx + 1`
+		done
+
+		wanppp_idx=0
+		while [ $wanppp_idx -lt $wan_ppp_Count ]; do
+			eval link_type='$'wanppp_${wanppp_idx}_linkType
+			eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+				if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+					if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+						startFlag=1
+					fi
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode.
+				if [ "$wan_mode" = "6" ]; then
+					startFlag=1
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+
+			# check if this is the default WAN for this WAN PHY mode. if so, skip
+			eval defwanConnName='$'default_wan_conn_connName
+			eval wanConnName='$'wanppp_${wanppp_idx}_connName
+
+			if [ "$defwanConnName" = "$wanConnName" ]; then
+				wanppp_idx=`expr $wanppp_idx + 1`
+				continue
+			fi
+		
+				if [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan started for wan index $wanppp_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanppp_start $wanppp_idx > /dev/console
+					fi
+				fi
+			fi
+			wanppp_idx=`expr $wanppp_idx + 1`
+		done
+
+		;;
+	stop_except_default)
+		shift
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+
+		wanip_idx=0
+		while [ $wanip_idx -lt $wan_ip_Count ]; do
+			eval link_type='$'wanip_${wanip_idx}_linkType
+			eval addr_type='$'wanip_${wanip_idx}_addrType
+			eval wan_mode='$'wanip_${wanip_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" -a "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+				if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+			
+				# check if this is the default WAN for this WAN PHY mode. if so, skip
+				eval defwanConnName='$'default_wan_conn_connName
+				eval wanConnName='$'wanip_${wanip_idx}_connName
+
+				if [ "$defwanConnName" = "$wanConnName" ]; then
+					wanip_idx=`expr $wanip_idx + 1`
+					continue
+				fi
+			
+				if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+					if [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					elif [ "$addr_type" = "1" ]; then # DHCP
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+						wan_type="BRIDGE"
+					fi
+				elif [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanip_${wanip_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan stop for wan index $wanip_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanip_stop $wanip_idx > /dev/console
+					fi
+				fi
+
+			fi
+
+			#idx=$(( $idx + 1 ))
+			#wan_idx=`echo $wan_main_index | cut -d ',' -f $idx`
+			wanip_idx=`expr $wanip_idx + 1`
+		done
+
+		wanppp_idx=0
+		while [ $wanppp_idx -lt $wan_ppp_Count ]; do
+			eval link_type='$'wanppp_${wanppp_idx}_linkType
+			eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+			startFlag=0
+			if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+				if [ "$wan_mode" = "0" ]; then # ATM
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+				if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+					if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+						startFlag=1
+					fi
+				fi
+			elif [ "$g_wan_phy_mode" = "1" ]; then
+				if [ "$wan_mode" = "1" ]; then # Eth on MII0
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "2" ]; then
+				if [ "$wan_mode" = "2" ]; then # Eth on MII1
+					startFlag=1
+				fi
+			elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode.
+				if [ "$wan_mode" = "6" ]; then
+					startFlag=1
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+
+			# check if this is the default WAN for this WAN PHY mode. if so, skip
+			eval defwanConnName='$'default_wan_conn_connName
+			eval wanConnName='$'wanppp_${wanppp_idx}_connName
+
+			if [ "$defwanConnName" = "$wanConnName" ]; then
+				wanppp_idx=`expr $wanppp_idx + 1`
+				continue
+			fi
+		
+				if [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan stop for wan index $wanppp_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanppp_stop $wanppp_idx > /dev/console
+					fi
+				fi
+			fi
+			wanppp_idx=`expr $wanppp_idx + 1`
+		done
+		;;
+	start_mode)
+		shift
+
+		wanip_idx=0
+		while [ $wanip_idx -lt $wan_ip_Count ]; do
+			eval link_type='$'wanip_${wanip_idx}_linkType
+			eval addr_type='$'wanip_${wanip_idx}_addrType
+			eval wan_mode='$'wanip_${wanip_idx}_wanMode
+
+			startFlag=0
+			if [ "$wan_mode" = "$1" ]; then
+					startFlag=1
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+
+				if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+					if [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					elif [ "$addr_type" = "1" ]; then # DHCP
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+						wan_type="BRIDGE"
+					fi
+				elif [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanip_${wanip_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan start for wan index $wanip_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanip_start $wanip_idx > /dev/console
+					fi
+				fi
+
+			fi
+
+			#idx=$(( $idx + 1 ))
+			#wan_idx=`echo $wan_main_index | cut -d ',' -f $idx`
+			wanip_idx=`expr $wanip_idx + 1`
+		done
+
+		wanppp_idx=0
+		while [ $wanppp_idx -lt $wan_ppp_Count ]; do
+			eval link_type='$'wanppp_${wanppp_idx}_linkType
+			eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+			startFlag=0
+		if [ "$wan_mode" = "$1" ]; then
+				startFlag=1
+		fi
+
+			if [ "$startFlag" = "1" ]; then
+				if [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan start for wan index $wanppp_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanppp_start $wanppp_idx > /dev/console
+					fi
+				fi
+			fi
+			wanppp_idx=`expr $wanppp_idx + 1`
+		done
+		;;
+	stop_mode)
+		shift
+
+		wanip_idx=0
+		while [ $wanip_idx -lt $wan_ip_Count ]; do
+			eval link_type='$'wanip_${wanip_idx}_linkType
+			eval addr_type='$'wanip_${wanip_idx}_addrType
+			eval wan_mode='$'wanip_${wanip_idx}_wanMode
+
+			startFlag=0
+			if [ "$wan_mode" = "$1" ]; then
+					startFlag=1
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+			
+				if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+					if [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					elif [ "$addr_type" = "1" ]; then # DHCP
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+						wan_type="BRIDGE"
+					fi
+				elif [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+	
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanip_${wanip_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan stop for wan index $wanip_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanip_stop $wanip_idx > /dev/console
+					fi
+				fi
+
+			fi
+
+			#idx=$(( $idx + 1 ))
+			#wan_idx=`echo $wan_main_index | cut -d ',' -f $idx`
+			wanip_idx=`expr $wanip_idx + 1`
+		done
+
+		wanppp_idx=0
+		while [ $wanppp_idx -lt $wan_ppp_Count ]; do
+			eval link_type='$'wanppp_${wanppp_idx}_linkType
+			eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+			startFlag=0
+		if [ "$wan_mode" = "$1" ]; then
+				startFlag=1
+		fi
+
+			if [ "$startFlag" = "1" ]; then
+				if [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+					if [ "$wan_enable" = "1" ]; then
+						#echo "Bringup wan stop for wan index $wanppp_idx !!" > /dev/console
+						. /etc/rc.d/rc.bringup_wanppp_stop $wanppp_idx > /dev/console
+					fi
+				fi
+			fi
+			wanppp_idx=`expr $wanppp_idx + 1`
+		done
+		;;
+	lte_start)
+		# currently not being used. Can be used in lte hotplug later
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+		# LTE WAN service start
+		if [ "$wanphy_phymode" = "6" ]; then
+			start_flag="1"
+		elif [ -n "$dw_failover_state" -a "$dw_failover_state" = "1" ]; then
+			if [ "$dw_pri_wanphy_phymode" = "6" -o "$dw_sec_wanphy_phymode" = "6" ] && [ "$dw_standby_type" = "2" ]; then
+				start_flag="2"
+			elif [ "$dw_pri_wanphy_phymode" = "6" -a "$dw_standby_type" = "1" ]; then
+				start_flag="2"
+			fi
+		fi
+		if [ "$start_flag" = "1" ]; then
+#			ifconfig lte0 down *This part is now moved into rc.bringup_l2if*
+			/etc/rc.d/rc.bringup_l2if start
+			/etc/rc.d/rc.bringup_wan start &
+		elif [ "$start_flag" = "2" ]; then
+			# in case of dual wan, the start flag is set by default for all wan modes.
+			# due to this, calling wan start would start the other wan as well.
+			# so, start only specific wan mode connections
+			ifconfig lte0 down
+			ifconfig lte0 up
+			/etc/rc.d/rc.bringup_wan start_mode 7 &
+		fi
+		;;
+	lte_stop)
+		eval g_wan_phy_mode='$'wanphy_phymode
+		# Handle the LTE stop here.
+		# if dual wan is enabled, then plugging out the modem should also stop the dual wan connections
+		stop_flag=0
+		if [ "$g_wan_phy_mode" = "6" ]; then
+			stop_flag="1"
+		elif [ -n "$dw_failover_state" -a "$dw_failover_state" = "1" ]; then
+			if [ "$dw_pri_wanphy_phymode" = "6" -o "$dw_sec_wanphy_phymode" = "6" ] && [ "$dw_standby_type" = "2" ]; then
+				stop_flag="2"
+			elif [ "$dw_pri_wanphy_phymode" = "6" -a "$dw_standby_type" = "1" ]; then
+				stop_flag="2"
+			fi
+		fi
+		if [ "$stop_flag" = "1" ]; then
+#			ifconfig lte0 down *This part is now moved into rc.bringup_l2if*
+			/etc/rc.d/rc.bringup_wan stop &
+			/etc/rc.d/rc.bringup_l2if stop
+		elif [ "$stop_flag" = "2" ]; then
+			# due to this, calling wan stop would stop the other wan as well.
+			# so, stop only specific wan mode connections
+			/etc/rc.d/rc.bringup_wan stop_mode 7 &
+			ifconfig lte0 down
+		fi
+
+		;;
+	restart)
+		shift
+		. /etc/rc.d/rc.bringup_wan stop > /dev/console
+		. /etc/rc.d/rc.bringup_wan start > /dev/console
+		;;
+	*)
+		echo $"Usage $0 {start|stop|restart}"
+		#exit 1
+esac
+# call entry point for PPE_IPQOS script to write wan_vcc info into /tmp/system_status
+#Manamohan:commneted on 4,July 2012
+#. /etc/rc.d/ppe_ipqos_start

@@ -1,0 +1,141 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_wanstatus"
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+#if [ ! "$RESOLVLOADED" ]; then
+#        if [ -r /var/resolv6.conf ]; then
+#                 . /var/resolv6.conf 2> /dev/null
+#                RESOLVLOADED="1"
+#        fi
+#fi
+
+get_ppp_index()
+{
+	ifname=$1
+	i=0
+	while [ $i -lt $wan_ppp_Count ]; do
+		. /etc/rc.d/get_wan_if  $i "ppp"
+		 if [ "${WAN_IFNAME}z" = "${ifname}z" ]; then
+			echo $i
+			break
+		fi
+	i=`expr $i + 1`
+	done
+}
+
+get_ip_index()
+{
+        ifname=$1
+        wanip_idx=0
+        while [ $wanip_idx -lt $wan_ip_Count ]; do
+                . /etc/rc.d/get_wan_if  $wanip_idx "ip"
+                if [ "${WAN_IFNAME}z" = "${ifname}z" ]; then
+                        echo $wanip_idx
+                        break
+                fi
+        wanip_idx=`expr $wanip_idx + 1`
+        done
+
+}
+
+if [ "zwanstatus" = "z$1" ];  then
+	WAN_IDX=$2
+        . /etc/rc.d/get_wan_if $WAN_IDX $3
+	iface=$WAN_IFNAME
+	#echo "***********Iface = $iface ***********"
+	ipv6_addr=`ip -6 addr show dev $iface | awk  /global/'{print $2}' F='/' | awk '{print $1}' FS='/' | awk 'NR == 1'`
+	. /etc/rc.d/bringup_wanstatus $iface $ipv6_addr $3
+	exit 0
+fi
+
+v_nas=""
+v_ppp=""
+v_br=""
+
+v_br=`echo "$1" | grep ^br`
+v_ppp=`echo "$1" | grep ^ppp`
+
+
+if [ -z "$v_br" ]; then
+
+	echo "$1" | grep "ppp" 2>&1 > /dev/null
+	if [ $? -eq 0 ]; then
+		route -A inet6 del default 2> /dev/null
+        	route -A inet6 add default dev $1
+	fi
+
+	k=1; for namesrv in `grep : /var/resolv6.conf | cut -d' ' -f2`; do
+		eval DNSV6_${k}=$namesrv; k=`expr $k + 1`;
+		[ $k -eq 3 ] && break
+	done
+	
+	v_wan=""
+	WAN_IDX=""
+	
+	if [ "$3" = "ppp" -o ! -z "$v_ppp" ]; then
+		WAN_IDX=$(get_ppp_index $1)
+		/usr/sbin/status_oper SET "WanPPP${WAN_IDX}_IF_IPv6_Info" STATUS CONNECTED IPv6 $2
+		v_wan="PPP"
+	else
+		WAN_IDX=$(get_ip_index $1)
+		/usr/sbin/status_oper SET "WanIP${WAN_IDX}_IF_IPv6_Info" STATUS CONNECTED IPv6 $2
+		v_wan="IP"
+	fi
+
+	if [ ! -z "$DNSV6_1" -o ! -z "$DNSV6_2" ]; then
+		/usr/sbin/status_oper SET "Wan$v_wan${WAN_IDX}_IF_IPv6_Dns" DNSv61 $DNSV6_1 DNSv62 $DNSV6_2 
+	fi
+	prev_dslite_base_intf_addr1=$(cat /tmp/dslite_tun${WAN_IDX})
+	if [ "$prev_dslite_base_intf_addr1" != "$2" ]; then
+		/etc/rc.d/ds-lite.sh update_stateful $WAN_IDX $1 $2 &
+	fi
+        . /etc/rc.d/rc.bringup_ipv6_staticRoutes
+else
+	wan_idx=0
+	while [ $wan_idx -lt $wan_ip_Count ]; do
+		eval addr_type='$'wanip_${wan_idx}_addrType
+		. /etc/rc.d/get_wan_if ${wan_idx} "ip"
+		if [ "$addr_type" = "0" ]; then #bridged
+			/usr/sbin/status_oper SET "WanIP${wan_idx}_IF_IPv6_Info" STATUS CONNECTED IPv6 $2	
+		else
+			k=1; for namesrv in `grep : /var/resolv6.conf | cut -d' ' -f2`; do
+				 eval DNSV6_${k}=$namesrv; k=`expr $k + 1`;
+				 [ $k -eq 3 ] && break
+			done
+			/usr/sbin/status_oper SET "WanIP${wan_idx}_IF_IPv6_Dns" DNSv61 $DNSV6_1 DNSv62 $DNSV6_2
+		fi
+	wan_idx=`expr $wan_idx + 1`
+	done
+
+	wan_idx=0
+	while [ $wan_idx -lt $wan_ppp_Count ]; do
+		eval addr_type='$'wanppp_${wan_idx}_addrType
+		. /etc/rc.d/get_wan_if ${wan_idx} "ppp"
+		if [ "$addr_type" = "0" ]; then #bridged
+			/usr/sbin/status_oper SET "WanPPP${wan_idx}_IF_IPv6_Info" STATUS CONNECTED IPv6 $2	
+		else
+			k=1; for namesrv in `grep : /var/resolv6.conf | cut -d' ' -f2`; do
+				 eval DNSV6_${k}=$namesrv; k=`expr $k + 1`;
+				 [ $k -eq 3 ] && break
+			done
+			/usr/sbin/status_oper SET "WanPPP${wan_idx}_IF_IPv6_Dns" DNSv61 $DNSV6_1 DNSv62 $DNSV6_2
+		fi
+	
+	wan_idx=`expr $wan_idx + 1`
+	done
+
+fi

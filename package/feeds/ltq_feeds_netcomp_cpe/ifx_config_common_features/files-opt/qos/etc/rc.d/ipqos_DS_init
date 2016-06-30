@@ -1,0 +1,191 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+#		. /etc/rc.d/model_config.sh 2>/dev/null
+		CONFIGLOADED="1"
+        fi
+fi
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+        QOS_INTF_LAN_SPECIFIC=14
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+                	DEF_UPSTREAM_RATE="1048576"
+	                DEF_DOWNSTREAM_RATE="1048576"
+		else
+       		        DEF_UPSTREAM_RATE="102400"
+                	DEF_DOWNSTREAM_RATE="102400"
+                fi
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+               	DEF_UPSTREAM_RATE="1048576"
+	        DEF_DOWNSTREAM_RATE="1048576"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="60000"
+                DEF_DOWNSTREAM_RATE="100000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="99800kbit"
+                RATE_UNIT=kbit
+		;;
+esac
+
+ACTUAL_UPSTREAM_RATE=$DEF_UPSTREAM_RATE
+ACTUAL_DOWNSTREAM_RATE=$DEF_DOWNSTREAM_RATE
+
+# read queue rates from file /tmp/ipqos_rates
+if [ -f /tmp/ipqos_rates ]; then
+	. /tmp/ipqos_rates
+	if [ ! -z $IPQOS_UP_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+		#fi
+	fi
+	if [ ! -z $IPQOS_DOWN_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+		#fi
+	fi
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+MAX_UPSTREAM_RATE_TMP=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+MAX_DOWNSTREAM_RATE_TMP=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+#/bin/sed -i -e "s,^up_link_rate=.*,up_link_rate=\"$MAX_UPSTREAM_RATE_TMP\",g" /tmp/system_status
+#/bin/sed -i -e "s,^down_link_rate=.*,down_link_rate=\"$MAX_DOWNSTREAM_RATE_TMP\",g" /tmp/system_status
+#/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "up_link_rate" "$MAX_UPSTREAM_RATE_TMP" "down_link_rate" "$MAX_DOWNSTREAM_RATE_TMP"
+#if [ $qm_portRateLimEnab -ne 1 ]; then
+#/bin/sed -i -e "s,^qm_upPortRateLim=.*,qm_upPortRateLim=\"$MAX_UPSTREAM_RATE_TMP\",g" /ramdisk/flash/rc.conf
+#/etc/rc.d/backup
+#	/usr/sbin/status_oper -u -f /etc/rc.conf SET "qos_queuemgmt" "qm_upPortRateLim" "$MAX_UPSTREAM_RATE_TMP"
+#fi
+MAX_UPSTREAM_RATE=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+MAX_DOWNSTREAM_RATE=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+
+#########################################Common##########################################
+	/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "queue_method" "0"
+
+#########################################Common##########################################
+	#Create Queues with required parameters
+	queuecfg -q 2/0
+        #TBD: The INPUT_INTF_CHECK chain should be created by the system if it is to be used for purposes other than QOS.
+
+
+
+	#all packets coming DS from WAN interface goes to IMQ1
+#	iptables -t mangle -I PREROUTING 1 -j IPQOS_DS_TARGET
+#	ebtables -t filter -I FORWARD 1 -j IPQOS_DS_TARGET
+	# Add rules in INPUT_INTF_CHECK chain to identify WAN traffic
+#	iptables -t mangle -A INPUT_INTF_CHECK -i nas+ -j MARK --or-mark 0x40000000
+#	iptables -t mangle -A INPUT_INTF_CHECK -i ppp+ -j MARK --or-mark 0x40000000
+#	iptables -t mangle -A INPUT_INTF_CHECK -i ptm+ -j MARK --or-mark 0x40000000
+
+	iptables -t mangle -A INPUT_INTF_CHECK -i nas+ -j MARK --or-mark 0x400
+	iptables -t mangle -A INPUT_INTF_CHECK -i ppp+ -j MARK --or-mark 0x400
+	iptables -t mangle -A INPUT_INTF_CHECK -i ptm+ -j MARK --or-mark 0x400
+	iptables -t mangle -A INPUT_INTF_CHECK -i eth1+ -j MARK --or-mark 0x400
+	
+	ebtables -t filter -A INPUT_INTF_CHECK -i nas+ -j mark --set-mark 0x400 --mark-target CONTINUE
+	ebtables -t filter -A INPUT_INTF_CHECK -i ppp+ -j mark --set-mark 0x400 --mark-target CONTINUE
+	ebtables -t filter -A INPUT_INTF_CHECK -i ptm+ -j mark --set-mark 0x400 --mark-target CONTINUE
+	ebtables -t filter -A INPUT_INTF_CHECK -i eth1+ -j mark --set-mark 0x400 --mark-target CONTINUE
+
+	#Add a rule to jump to IPQOS_WAN_ING if input interface is WAN
+#iptables -t mangle -I PREROUTING 4 -m mark --mark 0x40000000/0x40000000 -j IPQOS_WAN_ING
+	iptables -t mangle -I PREROUTING 4 -m mark --mark 0x400/0x400 -j IPQOS_WAN_ING
+	ebtables -t filter -I FORWARD 3 --mark 0x400/0x400 -j IPQOS_WAN_ING
+	# TBD: current support only for taffic generated from WAN. Seperate mark required for WAN.
+
+	#Add a rule to jump to IPQOS_WAN_DSCP_ALL after processing all the MFC
+	iptables -t mangle -A IPQOS_WAN_ING -j IPQOS_WAN_DSCP_ALL
+	ebtables -t filter -A IPQOS_WAN_ING -j IPQOS_WAN_DSCP_ALL
+
+	#Add a rule to jump to IPQOS_WAN_8021P_ALL after processing all the MFC
+	iptables -t mangle -A IPQOS_WAN_ING -j IPQOS_WAN_8021P_ALL
+	ebtables -t filter -A IPQOS_WAN_ING -j IPQOS_WAN_8021P_ALL
+	
+	iptables -t mangle -A PREROUTE_DEFAULT -i nas+ -j PREROUTE_DS_DEFAULT
+	iptables -t mangle -A PREROUTE_DEFAULT -i ppp+ -j PREROUTE_DS_DEFAULT
+	iptables -t mangle -A PREROUTE_DEFAULT -i ptm+ -j PREROUTE_DS_DEFAULT
+	iptables -t mangle -A PREROUTE_DEFAULT -i eth1+ -j PREROUTE_DS_DEFAULT
+
+
+	ebtables -t filter -A PREROUTE_DEFAULT -i nas+ -j PREROUTE_DEFAULT_DS
+	ebtables -t filter -A PREROUTE_DEFAULT -i ppp+ -j PREROUTE_DEFAULT_DS
+	ebtables -t filter -A PREROUTE_DEFAULT -i ptm+ -j PREROUTE_DEFAULT_DS
+	ebtables -t filter -A PREROUTE_DEFAULT -i eth1+ -j PREROUTE_DEFAULT_DS
+
+	# add the classifiers from rc.conf
+	i=0
+        from_init=1
+	while [ $i -lt $qosds_class_Count ] 
+	do
+		. /etc/rc.d/ipqos_DS_class_add $i $from_init
+
+		i=$(( $i + 1 ))
+	done
+	#moving to the end after queues are configured
+	#Initialize HW Classifiers
+	#queuecfg -s 0/0
+
+	# Creating chain IPQOS_OUTPUT_MAP
+

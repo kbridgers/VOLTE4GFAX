@@ -1,0 +1,6 @@
+config IFX_DECT_SS_CATIQ_2_0
+	bool "CATIQ 2.0 support"
+	default y
+	help
+	  Option to enable CATIQ 2.0 support in DECT SS.
+

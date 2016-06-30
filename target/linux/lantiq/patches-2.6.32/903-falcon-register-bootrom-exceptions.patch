@@ -1,0 +1,88 @@
+Make sure the NMI and EJTAG handlers of the kernel are called from BootROM
+
+--- a/arch/mips/lantiq/falcon/prom.c
++++ b/arch/mips/lantiq/falcon/prom.c
+@@ -32,6 +32,11 @@ static struct gpon_reg_status * const pS
+ 
+ #define SOC_FALCON		"Falcon"
+ 
++#define BOOT_REG_BASE	(KSEG1 | 0x1F200000)
++#define BOOT_RVEC	(BOOT_REG_BASE | 0x00)
++#define BOOT_NVEC	(BOOT_REG_BASE | 0x04)
++#define BOOT_EVEC	(BOOT_REG_BASE | 0x08)
++
+ static int config_dying_gasp = 0;
+ static int __init parse_dying_gasp(char *str)
+ {
+@@ -56,6 +61,22 @@ ltq_soc_setup(void)
+ }
+ 
+ void __init
++ltq_mips_nmi_setup(void)
++{
++	extern void (*nmi_handler)(void);
++
++	ltq_w32((unsigned long)&nmi_handler, (void *)BOOT_NVEC);
++}
++
++void __init
++ltq_mips_ejtag_setup(void)
++{
++	extern void (*ejtag_debug_handler)(void);
++
++	ltq_w32((unsigned long)&ejtag_debug_handler, (void *)BOOT_EVEC);
++}
++
++void __init
+ ltq_soc_detect(struct ltq_soc_info *i)
+ {
+ 	int subvers;
+--- a/arch/mips/lantiq/prom.c
++++ b/arch/mips/lantiq/prom.c
+@@ -10,6 +10,7 @@
+ #include <linux/clk.h>
+ #include <asm/bootinfo.h>
+ #include <asm/time.h>
++#include <asm/traps.h>
+ 
+ #include <lantiq.h>
+ 
+@@ -86,11 +87,28 @@ static void __init prom_init_cmdline(voi
+ 	prom_init_image_cmdline();
+ }
+ 
++__attribute__((weak))
++void __init ltq_mips_nmi_setup(void)
++{
++}
++
++__attribute__((weak))
++void __init ltq_mips_ejtag_setup(void)
++{
++}
++
++static void __init ltq_register_soc_rom_handler(void)
++{
++	board_nmi_handler_setup = ltq_mips_nmi_setup;
++	board_ejtag_handler_setup = ltq_mips_ejtag_setup;
++}
++
+ void __init prom_init(void)
+ {
+ 	struct clk *clk;
+ 
+ 	ltq_soc_detect(&soc_info);
++	ltq_register_soc_rom_handler();
+ 	clk_init();
+ 	clk = clk_get(0, "cpu");
+ 	snprintf(soc_info.sys_type, LTQ_SYS_TYPE_LEN - 1, "%s rev1.%d",
+--- a/arch/mips/lantiq/prom.h
++++ b/arch/mips/lantiq/prom.h
+@@ -21,5 +21,7 @@ struct ltq_soc_info {
+ 
+ extern void ltq_soc_detect(struct ltq_soc_info *i);
+ extern void ltq_soc_setup(void);
++extern void ltq_mips_nmi_setup(void);
++extern void ltq_mips_ejtag_setup(void);
+ 
+ #endif

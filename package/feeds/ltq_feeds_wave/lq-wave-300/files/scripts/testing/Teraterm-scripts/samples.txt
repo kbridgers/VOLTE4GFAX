@@ -1,0 +1,25 @@
+connect '/C=1'
+
+i = 1
+do while i>0
+   sendln 'reboot'
+   waitln 'Created ch'
+   mpause 1000
+   sendln 'root'
+   mpause 1000
+   sendln 'admin'
+   mpause 5000
+   sendln
+   sendln i
+loop
+
+
+connect '/C=1'
+for i 1 10000
+   sendln "root"
+   mpause 1000
+   sendln "admin"
+   mpause 5000
+   sendln "reboot"
+   mpause 180000
+next

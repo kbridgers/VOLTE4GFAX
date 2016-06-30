@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then		
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "wave_wlan_mac_ctrl_modify: args: $*"
+
+apIndex=$1
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+#Get all macs from the web. using eval to remove quotes from ACL.
+eval ACL=`host_api get $$ $apIndex ACL`
+
+#Get ACL mode from the web
+ACL_MODE=`host_api get $$ $apIndex AclMode`
+
+#Insert the mac into the driver
+iwpriv $wlan sACL $ACL
+
+#Insert the mode into the driver
+iwpriv $wlan sAclMode $ACL_MODE
+
+#Remove the gACL comment from the string
+CURRENT_MACS=`iwpriv $wlan gACL | sed 's/^.*gACL:*//'`
+
+#Compare the old mac list with the new mac list and delete the macs that are not present in the new list
+for mac in $CURRENT_MACS; do
+	i=`echo $ACL | grep $mac -c`
+	if [ $i -eq 0 ]; then
+		iwpriv $wlan sDelACL $mac
+	fi
+done
+
+print2log DBG "wave_wlan_mac_ctrl_modify done"	
+

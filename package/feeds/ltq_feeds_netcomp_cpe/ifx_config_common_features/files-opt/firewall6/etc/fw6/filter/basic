@@ -1,0 +1,47 @@
+#!/bin/sh
+
+FW_basic_PRIORITY=20
+FW_basic_ENABLED=1
+
+basic_fw_init()
+{
+	ipt -P INPUT DROP
+	ipt -P FORWARD DROP
+	ipt -P OUTPUT DROP
+}
+
+basic_laninput_allow()
+{
+	ipt -A INPUT -i lo -j ACCEPT
+	ipt -A INPUT -i $lan_if -j lan_input
+}
+basic_waninput_allow()
+{
+	ipt -A INPUT ! -i $lan_if -j wan_input
+	ipt -A INPUT -i $lan_if -s fc00::/7 -j ACCEPT
+}
+
+basic_wanoutput_allow()
+{
+	ipt -A OUTPUT -j ACCEPT
+}
+basic_forward_lan2wan_deny()
+{
+	ipt -A FORWARD ! -o ${lan_if} -j lan2wan_forward
+}
+basic_forward_wan2wan_allow()
+{
+	ipt -A FORWARD  -o ${lan_if} -j wan2lan_forward
+}
+
+
+
+
+
+FW_FILTER_LANINPUT_ALLOW=basic_laninput_allow
+FW_FILTER_WANINPUT_ALLOW=basic_waninput_allow
+FW_FILTER_INIT=basic_fw_init
+FW_FILTER_WANINPUT_ALLOW=basic_waninput_allow
+FW_FILTER_OUTPUT_ALLOW=basic_wanoutput_allow
+FW_FILTER_LAN2WAN_FWD_DENY=basic_forward_lan2wan_deny
+FW_FILTER_WAN2LAN_FWD_ALLOW=basic_forward_wan2wan_allow

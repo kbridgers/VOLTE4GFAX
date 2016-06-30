@@ -1,0 +1,182 @@
+#!/bin/sh
+DYN_DSLITE_AFTR_FILE="/tmp/dyn_dslite_info"
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		. /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+wantype6=$4
+dhcp6c_conf="/tmp/dhcp6c${wantype6}_${3}.conf"
+dhcp6c_pid="/var/run/dhcp6c${wantype6}_${3}.pid"
+
+mkdir /var/db 2> /dev/null
+
+echo 2 > /proc/sys/net/ipv6/conf/${2}/accept_dad
+echo 30 > /proc/sys/net/ipv6/conf/${2}/router_solicitations
+
+ipv6_intf_restart() 
+{
+	echo 1 > /proc/sys/net/ipv6/conf/${1}/disable_ipv6 2>/dev/null
+	echo 0 > /proc/sys/net/ipv6/conf/${1}/disable_ipv6 2>/dev/null
+}
+lan_dhcp6s_conf()
+{
+	dns1=${lan_dhcpv6_dnsv6Addr}
+	dns2=${lan_dhcpv6_dnsv6SecAddr}
+	dns3=""
+	domain_name6=""
+
+	if [ ! -z $DATABASE -a -f $DATABASE ]; then
+        	dns3=`grep "WAN.*UP" $DATABASE | while read l; do eval $l; echo $DNS1 ;echo $DNS2 ; done | sed '/^$/d' | tail -2`
+		eval "$(grep  "WAN.*UP.*" $DATABASE | grep -o "DOMAIN_NAME6=.*;" | tail -1 )" 2>&1 > /dev/null
+        	domain_name6=${DOMAIN_NAME6}
+	fi
+	
+        #if [ "$4" != "" ] ;then
+        #    dns3=$4
+        #else
+        #    dns3=`. /etc/rc.d/update_and_run_radvd.sh getdns | tail -2`	
+        #fi
+        
+	if [ $dns1 = "::" ] ;then
+		dns1=""
+	fi
+	if [ $dns2 = "::" ] ;then
+		dns2=""
+	fi
+	if [ "z${dns1}" != "z" -o "z${dns2}" != "z" ]; then
+		echo -en "option domain-name-servers $dns1 $dns2 $dns3;\n"
+	fi
+	if [ "z$domain_name6" != "z" ]; then
+		echo -en "option domain-name \"${domain_name6}\";\n"
+	elif [ "z$lan_dhcpv6_dName" != "z" ]; then
+		echo -en "option domain-name \"$lan_dhcpv6_dName\";\n"
+	fi
+# DHCP ONLY
+	if [ $lan_main_ipv6_0_lan_ipv6_mode = 2 ]; then 
+		echo -en "interface $lan_dhcpv6_interface {\n"
+		echo -en "\taddress-pool pool1 infinity;\n"
+		echo -en "};\n"
+		echo -en "pool pool1 {\n"
+		echo -en "range $lan_dhcpv6_sAddr to $lan_dhcpv6_eAddr;\n"
+		echo -en "};\n"
+	fi
+}
+
+
+case "$1" in
+	start)
+		echo -en "interface $2 {\n" > ${dhcp6c_conf}
+                eval ipv6state='$'wan${wantype6}_${3}_ipv6
+                eval dhcpv6state='$'wan${wantype6}_${3}_dhcpv6State
+                eval iana_id='$'wan${wantype6}_${3}_ianaID
+                eval iapd_id='$'wan${wantype6}_${3}_iapdID
+                eval sla_id='$'wan${wantype6}_${3}_slaID
+                eval rapid='$'wan${wantype6}_${3}_rapid
+                eval tunnel='$'wan${wantype6}_${3}_tunnel
+                
+
+		if [ "$ipv6state" = "1" ]; then
+                echo 1 > /proc/sys/net/ipv6/conf/${2}/disable_ipv6
+                else
+                echo 0 > /proc/sys/net/ipv6/conf/${2}/disable_ipv6
+		if [ "$dhcpv6state" = "1" -o "$dhcpv6state" = "0" ]; then
+                echo 2 > /proc/sys/net/ipv6/conf/${2}/accept_ra
+                echo 2 > /proc/sys/net/ipv6/conf/${2}/forwarding
+#		ipv6_intf_restart ${2}
+                fi
+		if [ "$tunnel" == "2" -a "$wan_dslite_mode" == "1" ]; then
+			dslite_opt="   request dslite-aftr-name;\n"
+			> ${DYN_DSLITE_AFTR_FILE} #reset old info
+		else
+			dslite_opt=""
+		fi
+
+		if [ "$dhcpv6state" = "0" ]; then
+		     if [ "$rapid" = "1" ]; then
+			echo -en "   send ia-na $iana_id;\n   send ia-pd $iapd_id;\n  send rapid-commit;\n  request domain-name-servers;\n   request domain-name;\n$dslite_opt   script \"/etc/rc.d/ipv6-dns-update\";\n" >> ${dhcp6c_conf}
+                     else
+			echo -en "   send ia-na $iana_id;\n   send ia-pd $iapd_id;\n   request domain-name-servers;\n   request domain-name;\n$dslite_opt    script \"/etc/rc.d/ipv6-dns-update\";\n" >> ${dhcp6c_conf}
+                     fi
+                else
+                     echo 2 > /proc/sys/net/ipv6/conf/${2}/forwarding
+		     if [ "$rapid" = "1" ]; then
+			echo -en "   send ia-pd $iapd_id;\n  send rapid-commit;\n  request domain-name-servers;\n   request domain-name;\n$dslite_opt   script \"/etc/rc.d/ipv6-dns-update\";\n" >> ${dhcp6c_conf}
+                     else
+			echo -en "   send ia-pd $iapd_id;\n   request domain-name-servers;\n   request domain-name;\n$dslite_opt   script \"/etc/rc.d/ipv6-dns-update\";\n" >> ${dhcp6c_conf}
+                     fi
+		fi
+
+		echo -en "}; \n\nid-assoc pd $iapd_id {\n   prefix-interface br0 {\n   sla-id $sla_id;\n   };\n};\n" >> ${dhcp6c_conf}
+		if [ "$dhcpv6state" = "0" ]; then
+		echo -en "id-assoc na $iana_id {\n};" >> ${dhcp6c_conf}
+                fi
+
+		echo "Starting DHCPv6 for WAN index $3 on interface $2"
+		eval duid_type='$'wan${wantype6}_${3}_duidt
+		if [ $duid_type -ne 1 -a $duid_type -ne 2 -a $duid_type -ne 3 2>/dev/null]; then
+			duid_type=3
+		fi
+		dhcp6c -c ${dhcp6c_conf} -p ${dhcp6c_pid} -t ${duid_type} $2 2>/dev/null
+                fi
+	;;
+	stop)
+		echo "Stopping DHCPv6 for WAN index $3 on interface $2"
+		if [ -f ${dhcp6c_pid} ]; then
+			line=`cat ${dhcp6c_pid} | cut -f1 -d' '`
+			if [ -n "$line" ]; then
+				kill -9 $line
+			fi
+		fi
+                if [ "$wantype6" = "ppp" ]; then
+#                /usr/sbin/status_oper SET "Wan${wantype6}${3}_IF_IPv6_Info" IPv6 0
+                /usr/sbin/status_oper SET "WanPPP${3}_IF_IPv6_Info" STATUS UNCONFIGURED IPv6 UNCONFIGURED
+                else
+                /usr/sbin/status_oper SET "WanIP${3}_IF_IPv6_Info" STATUS UNCONFIGURED IPv6 UNCONFIGURED
+                fi
+		EVENT_SRC="WAN"
+		SRC_INTF=$(grep "^interface.*" ${dhcp6c_conf}  | cut -d" " -f2 2>/dev/null)
+		EVENT_TYPE="DOWN"
+		. /etc/rc.d/update_and_run_radvd.sh update
+                ip -6 addr show dev $2 | grep global | awk '{print $2}' | while read ADDR6; do ip -6 addr delete ${ADDR6} dev $2 2> /dev/null ; done
+	;;
+        radvdstart)
+		    . /etc/rc.d/update_and_run_radvd.sh 
+        ;;
+        radvdstop)
+		#    . /etc/rc.d/update_and_run_radvd.sh  stop
+        ;;
+        serverstart)
+	
+                #echo $(cat /var/run/dhcp6s.pid) >> /tmp/qwer	
+		kill -9 $(cat /var/run/dhcp6s.pid 2> /dev/null) 2> /dev/null
+                sleep 3
+		if [ $lan_main_ipv6_0_lan_ipv6_mode != 0  ];then
+                	echo "$(lan_dhcp6s_conf)" > /tmp/dhcp6s.conf
+                	echo "Starting DHCPv6 Server for LAN on interface $2"
+                	dhcp6s -c /tmp/dhcp6s.conf -P /var/run/dhcp6s.pid  $2 2>/dev/null
+		fi
+        ;;
+        serverstop)
+                echo "Stopping DHCPv6 for LAN on interface $2"
+                if [ -f /var/run/dhcp6s.pid ]; then
+                        line=`cat /var/run/dhcp6s.pid | cut -f1 -d' '`
+                        if [ -n "$line" ]; then
+                                kill -9 $line
+                        fi
+                fi
+                rm -f /var/run/dhcp6s.pid
+                rm -f /tmp/dhcp6s.conf
+        ;;
+
+
+esac

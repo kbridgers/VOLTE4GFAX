@@ -1,0 +1,265 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+		if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		fi
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+#		. /etc/rc.d/model_config.sh 2>/dev/null
+		CONFIGLOADED="1"
+        fi
+fi
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+        QOS_INTF_LAN_SPECIFIC=14
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+                	DEF_UPSTREAM_RATE="1048576"
+	                DEF_DOWNSTREAM_RATE="1048576"
+		else
+       		        DEF_UPSTREAM_RATE="102400"
+                	DEF_DOWNSTREAM_RATE="102400"
+                fi
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+               	DEF_UPSTREAM_RATE="1048576"
+	        DEF_DOWNSTREAM_RATE="1048576"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="60000"
+                DEF_DOWNSTREAM_RATE="100000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="99800kbit"
+                RATE_UNIT=kbit
+		;;
+esac
+
+ACTUAL_UPSTREAM_RATE=$DEF_UPSTREAM_RATE
+ACTUAL_DOWNSTREAM_RATE=$DEF_DOWNSTREAM_RATE
+
+
+# read queue rates from file /tmp/ipqos_rates
+if [ -f /tmp/ipqos_rates ]; then
+	. /tmp/ipqos_rates
+	if [ ! -z $IPQOS_UP_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+		#fi
+	fi
+	if [ ! -z $IPQOS_DOWN_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+		#fi
+	fi
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+MAX_UPSTREAM_RATE_TMP=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+MAX_DOWNSTREAM_RATE_TMP=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+
+#/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "up_link_rate" "$MAX_UPSTREAM_RATE_TMP" "down_link_rate" "$MAX_DOWNSTREAM_RATE_TMP"
+
+#if [ $qm_portRateLimEnab -ne 1 ]; then
+#/bin/sed -i -e "s,^qm_upPortRateLim=.*,qm_upPortRateLim=\"$MAX_UPSTREAM_RATE_TMP\",g" /ramdisk/flash/rc.conf
+#/etc/rc.d/backup
+#	/usr/sbin/status_oper -u -f /etc/rc.conf SET "qos_queuemgmt" "qm_upPortRateLim" "$MAX_UPSTREAM_RATE_TMP"
+#fi
+
+MAX_UPSTREAM_RATE=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+MAX_DOWNSTREAM_RATE=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+
+	/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "queue_method" "0"
+	
+	queuecfg -q 1/0
+
+	# Add rules in INPUT_INTF_CHECK chain
+#	iptables -t mangle -A INPUT_INTF_CHECK -i br0 -j MARK --or-mark 0x80000000
+#	ebtables -t filter -A INPUT_INTF_CHECK -i eth0 -j mark --set-mark 0x80000000 --mark-target CONTINUE
+	iptables -t mangle -A INPUT_INTF_CHECK -i br0 -j MARK --or-mark 0x800
+	ebtables -t filter -A INPUT_INTF_CHECK -i eth0 -j mark --set-mark 0x800 --mark-target CONTINUE
+	# TBD: all bring up/down scripts should add/delete appropriate mark based on LAN and WAN 
+
+	#Add a rule to jump to IPQOS_LAN_ING if input interface is LAN
+#	iptables -t mangle -I PREROUTING 3 -m mark --mark 0x80000000/0x80000000 -j IPQOS_LAN_ING
+#	ebtables -t filter -A FORWARD --mark 0x80000000/0x80000000 -j IPQOS_LAN_ING
+	iptables -t mangle -I PREROUTING 4 -m mark --mark 0x800/0x800 -j IPQOS_LAN_ING
+	ebtables -t filter -I FORWARD 3 --mark 0x800/0x800 -j IPQOS_LAN_ING
+	# TBD: current support only for taffic generated from LAN. Seperate mark required for WAN.
+
+	#Add a rule to jump to IPQOS_LAN_DSCP_ALL after processing all the MFC
+	iptables -t mangle -A IPQOS_LAN_ING -j IPQOS_LAN_DSCP_ALL
+	ebtables -t filter -A IPQOS_LAN_ING -j IPQOS_LAN_DSCP_ALL
+
+	#Add a rule to jump to IPQOS_LAN_8021P_ALL after processing all the MFC
+	iptables -t mangle -A IPQOS_LAN_ING -j IPQOS_LAN_8021P_ALL
+	ebtables -t filter -A IPQOS_LAN_ING -j IPQOS_LAN_8021P_ALL
+	
+	#Add a rule to jump to IPQOS_OUTPUT_DSCP_ALL after processing all the MFC
+	iptables -t mangle -A IPQOS_OUTPUT -j IPQOS_OUTPUT_DSCP_ALL
+	iptables -t mangle -A IPQOS_OUTPUT -j IPQOS_OUTPUT_8021P_ALL
+
+	iptables -t mangle -A PREROUTE_DEFAULT -i br0 -j PREROUTE_US_DEFAULT
+	ebtables -t filter -A PREROUTE_DEFAULT -i eth0 -j PREROUTE_DEFAULT_US
+
+# IPV6 START
+
+	if [ "$target" != "ARX1" ]; then
+		ip6tables -t mangle -A INPUT_INTF_CHECK -i br0 -j MARK --or-mark 0x800
+		ip6tables -t mangle -I PREROUTING 3 -m mark --mark 0x800/0x800 -j IPQOS_LAN_ING
+		ip6tables -t mangle -A IPQOS_LAN_ING -j IPQOS_LAN_DSCP_ALL
+		ip6tables -t mangle -A IPQOS_LAN_ING -j IPQOS_LAN_8021P_ALL
+#		ip6tables -t mangle -A IPQOS_OUTPUT -j IPQOS_OUTPUT_DSCP_ALL
+#		ip6tables -t mangle -A IPQOS_OUTPUT -j IPQOS_OUTPUT_8021P_ALL
+		ip6tables -t mangle -A PREROUTE_DEFAULT -i br0 -j PREROUTE_US_DEFAULT
+	fi
+
+# IPV6 END
+
+
+	# add the classifiers from rc.conf
+	i=0
+        from_init=1
+	while [ $i -lt $qos_class_Count ] 
+	do
+		. /etc/rc.d/ipqos_US_class_add $i $from_init
+
+		i=$(( $i + 1 ))
+	done
+	#moving to the end after queues are configured
+	#Initialize HW Classifiers
+	#queuecfg -s 0/0
+
+SYSTEM_OUTPUT_SIP_ADDED=0
+	if [ ! -z $CONFIG_PACKAGE_IFX_VOIP ]; then
+		if [ $CONFIG_PACKAGE_IFX_VOIP -eq 1 ]; then
+			# Creating chain IPQOS_OUTPUT_SYSTEM
+			# Add a rule to jump to IPQOS_OUTPUT_SYSTEM chain for RTP, SIP, Mgmt traffic
+			iptables -t mangle -A OUTPUT -j IPQOS_OUTPUT_SYSTEM
+
+			# Create chain IPQOS_OUTPUT_RTP
+			iptables -t mangle -A IPQOS_OUTPUT_SYSTEM -j IPQOS_OUTPUT_RTP
+			# Add default rule to ACCEPT packets in IPQOS_OUTPUT_RTP
+			iptables -t mangle -A IPQOS_OUTPUT_RTP -m mark --mark 0xffffff1 -j IPQOS_OUTPUT_MAP
+
+			# Create chain IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -A IPQOS_OUTPUT_SYSTEM -j IPQOS_OUTPUT_SIP_MGMT
+			# Add default rule to ACCEPT packets in IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -A IPQOS_OUTPUT_SIP_MGMT -m mark --mark 0xffffff2 -j IPQOS_OUTPUT_MAP
+
+#IPV6 START
+#			if [ "$target" != "ARX1" ]; then
+#				ip6tables -t mangle -A OUTPUT -j IPQOS_OUTPUT_SYSTEM
+#				ip6tables -t mangle -A IPQOS_OUTPUT_SYSTEM -j IPQOS_OUTPUT_RTP
+#				ip6tables -t mangle -A IPQOS_OUTPUT_RTP -m mark --mark 0xffffff1 -j IPQOS_OUTPUT_MAP
+#				ip6tables -t mangle -A IPQOS_OUTPUT_SYSTEM -j IPQOS_OUTPUT_SIP_MGMT
+#				ip6tables -t mangle -A IPQOS_OUTPUT_SIP_MGMT -m mark --mark 0xffffff2 -j IPQOS_OUTPUT_MAP
+#			fi
+#IPV6 END
+
+SYSTEM_OUTPUT_SIP_ADDED=1
+		fi
+	fi
+
+	# Add chains for tr69 if they are not added already
+	if [ $SYSTEM_OUTPUT_SIP_ADDED -eq 0 ]; then
+		if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+			if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+
+				# Creating chain IPQOS_OUTPUT_SYSTEM
+				# Add a rule to jump to IPQOS_OUTPUT_SYSTEM chain for RTP, SIP, Mgmt traffic
+				iptables -t mangle -A OUTPUT -j IPQOS_OUTPUT_SYSTEM
+
+				# Create chain IPQOS_OUTPUT_SIP_MGMT
+				iptables -t mangle -A IPQOS_OUTPUT_SYSTEM -j IPQOS_OUTPUT_SIP_MGMT
+				# Add default rule to ACCEPT packets in IPQOS_OUTPUT_SIP_MGMT
+				iptables -t mangle -A IPQOS_OUTPUT_SIP_MGMT -m mark --mark 0xffffff2 -j IPQOS_OUTPUT_MAP
+
+# IPV6 START
+#				if [ "$target" != "ARX1" ]; then
+#					ip6tables -t mangle -A OUTPUT -j IPQOS_OUTPUT_SYSTEM
+#					ip6tables -t mangle -A IPQOS_OUTPUT_SYSTEM -j IPQOS_OUTPUT_SIP_MGMT
+#					ip6tables -t mangle -A IPQOS_OUTPUT_SIP_MGMT -m mark --mark 0xffffff2 -j IPQOS_OUTPUT_MAP
+#				fi
+# IPV6 END
+			fi
+		fi
+	fi
+
+	queuecfg -p 0/0
+
+	# Add rules to the OUTPUT chain
+	# Add a rule to jump to IPQOS_OUTPUT for locally generated traffic
+	iptables -t mangle -A OUTPUT -j IPQOS_OUTPUT
+# IPV6 START
+#	ip6tables -t mangle -A OUTPUT -j IPQOS_OUTPUT
+# IPV6 END
+
+#########################################Upstream - Classification##########################################
+
+
+

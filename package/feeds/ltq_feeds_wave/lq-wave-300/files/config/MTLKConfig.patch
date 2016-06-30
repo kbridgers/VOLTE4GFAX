@@ -1,0 +1,71 @@
+--- MTLKConfig	2012-09-02 15:19:16.076605000 +0200
++++ patch_MTLKConfig	2012-09-02 15:37:10.000000000 +0200
+@@ -104,6 +104,11 @@
+ 	help
+ 	  AMCC405 DECA platform.
+ 
++config PLATFORM_LQ_UGW
++	bool "UGW for all platforms"
++	help
++	  Lantiq UGW platform.
++
+ endchoice
+ 
+ config STAR4MB_NO_DSPAD
+@@ -149,6 +154,7 @@
+ 	default y if (PLATFORM_DONGLE || PLATFORM_PC_KERN26 || PLATFORM_VB300)
+ 	default y if (PLATFORM_UGW51_VRX288_NAND || PLATFORM_UGW51_VRX288 || PLATFORM_UGW51_ARX188 || PLATFORM_UGW51_GRX168 || PLATFORM_UGW51_GRX288_NAND || PLATFORM_UGW51_GW188 || PLATFORM_UGW52_GRX288_NAND || PLATFORM_UGW52_VRX288 || PLATFORM_UGW52_GW188 || PLATFORM_UGW52_ARX188 || PLATFORM_UGW52_GRX168)
+ 	default y if PLATFORM_LQ_UGW52_VB300
++	default y if PLATFORM_LQ_UGW
+ 	default n
+ 	help
+ 	  Enable support for Peripheral Component Interconnect bus (PCI)
+@@ -160,6 +166,9 @@
+ 	default y if (PLATFORM_UGW51_VRX288_NAND || PLATFORM_UGW51_VRX288 || PLATFORM_UGW51_ARX188 || PLATFORM_UGW51_GRX168 || PLATFORM_UGW51_GRX288_NAND || PLATFORM_UGW52_GRX288_NAND || PLATFORM_UGW52_VRX288 || PLATFORM_UGW52_GW188 || PLATFORM_UGW52_ARX188 || PLATFORM_UGW52_GRX168)
+ 	default y if (PLATFORM_LQ_UGW52_VB300 || PLATFORM_UGW52_ARX300)
+ 	default y if PLATFORM_AMCC405_DECA
++	default y if PLATFORM_LQ_UGW
++	default y if PLATFORM_GEN35FPGA
++	default y if PLATFORM_LQ_UGW_AR10_WAVE400
+ 	default n
+ 	help
+ 	  Enable support for Peripheral Component Interconnect Express bus (PCIE)
+@@ -448,6 +457,7 @@
+ 	default y if PLATFORM_UGW51_GW188
+ 	default y if PLATFORM_LQ_UGW52_VB300
+ 	default y if PLATFORM_LQ_UGW_AR10_WAVE400
++	default y if PLATFORM_LQ_UGW
+ 	default n
+ 	
+ config USE_GENL
+@@ -474,6 +484,8 @@
+ 	default y if PLATFORM_UGW52_ARX188
+ 	default y if PLATFORM_UGW52_GRX168
+ 	default y if PLATFORM_GEN35FPGA
++	default y if PLATFORM_LQ_UGW
++	default y if PLATFORM_LQ_UGW_AR10_WAVE400
+ 	default n
+ 
+ config ENVIRONMENT_NAME
+@@ -497,8 +509,9 @@
+ 	default "deca-linux26" if PLATFORM_AMCC405_DECA
+ 	default "vb300-linux26" if PLATFORM_VB300
+ 	default "ugw5.2-vb300-linux26" if PLATFORM_LQ_UGW52_VB300
+-	default "ugw-ar10-wave400-linux26" if PLATFORM_LQ_UGW_AR10_WAVE400
+-	default "gen35-fpga-linux26" if PLATFORM_GEN35FPGA
++	default "ugw-linux26" if PLATFORM_LQ_UGW_AR10_WAVE400
++	default "ugw-linux26" if PLATFORM_GEN35FPGA
++	default "ugw-linux26" if PLATFORM_LQ_UGW
+ 
+ config HOST_TYPE
+ 	string
+@@ -522,7 +535,8 @@
+ 	default "mips-linux" if PLATFORM_VB300
+ 	default "mips-linux" if PLATFORM_LQ_UGW52_VB300
+ 	default "mips-linux" if PLATFORM_LQ_UGW_AR10_WAVE400
+-	default "mips-linux" if PLATFORM_GEN35FPGA
++	default "mipsel-linux" if PLATFORM_GEN35FPGA
++	default "mips-linux" if PLATFORM_LQ_UGW
+ 
+ endmenu
+ 

@@ -1,0 +1,7 @@
+#!/bin/sh
+
+i=0
+while [ $i -lt $adsl_vcchannel_Count ]
+do
+	/etc/rc.d/create_mpoa_if $i
+done

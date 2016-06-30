@@ -1,0 +1,57 @@
+#!/bin/sh
+
+##########################################################################
+#
+# LAN Ports: Ports 0,1,2 are configured as Lan with VLAN ID 25
+# WAN Port:  Port4 as Wan with VLAN ID ${2}
+# CPU is attached to Port6 in ARx188
+#
+#########################################################################
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++##
+#	MODIY THE BELOW VARIABLES TO MATCH YOUR ISP SETTINGS 		##
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++##
+#
+#$1= iface_name, $2=vlanid, $3=wan_mode
+
+if [ "$2" != "-1" -a "$2" != "0" ]; then
+. /etc/rc.d/ltq_switch_functions.sh 2>/dev/null
+fi
+
+if [ $# -eq 1 ]; then
+	# TBD
+	echo
+	# /sbin/ifconfig ${1} down	
+	# /sbin/vconfig rem ${1}
+
+elif [ $# -ne 1 ]; then
+	# TBD
+	echo
+fi
+
+
+if [ "$2" != "-1" ]; then
+	
+	if [ "$2" != "0" ]; then
+		#WAN VLAN membership
+		# - 1: Tag base Number Egress enabled
+		for argument in $wan_port; do
+	 		reset_port_member ${2} $argument 1
+		done
+	
+		#CPU VLAN membership
+		# - 1: Tag base Number Egress enabled
+		for argument in $cpu_port; do
+   			reset_port_member ${2} $argument 1
+		done
+
+		# delete VLAN with id ${2}
+		delete_vlanid ${2}
+	fi
+
+	/sbin/vconfig rem ${1}.${2}
+
+	# Remove WAN interface from PPA
+	. /etc/rc.d/ppa_config.sh delwan ${1}.${2}
+fi
+

@@ -1,0 +1,47 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# delete_virtual_if <index> <PPP/IP>
+
+        # Vicky_Note: nas_vnd_index should be identified from rc.conf
+        if [ "$2" = "ppp" ]; then #PPP
+                eval embryo_iface='$'wanppp_${1}_iface
+		eval VCC_SETTING='$'wanppp_${1}_vcc
+        fi
+
+        if [ "$2" = "ip" ]; then #IP
+                eval embryo_iface='$'wanip_${1}_iface
+		eval VCC_SETTING='$'wanip_${1}_vcc
+        fi
+
+        eval nas_iface=${embryo_iface%_*}   # Virtual interface index
+        eval nas_vnd_index=${embryo_iface#*_}       # Real intreface
+	
+	/sbin/ifconfig $embryo_iface down
+
+        # Vicky_Note: Delete a virtual Interface
+        /usr/sbin/vnd del $nas_iface $nas_vnd_index > /dev/null 2> /dev/null
+
+	i=0
+	while [ $i -lt $adsl_vcchannel_Count ]; do
+		eval adsl_vcc='$'VCChannel_${i}_vcc
+		if [ "A$adsl_vcc" = "A$VCC_SETTING" ]; then
+			break
+		fi
+		i=$(( $i + 1 ))
+	done
+	i=$(( $i + 1 ))
+	/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS DISCONNECTED

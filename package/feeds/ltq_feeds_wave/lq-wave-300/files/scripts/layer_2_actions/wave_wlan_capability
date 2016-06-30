@@ -1,0 +1,139 @@
+#!/bin/sh
+
+# Defines
+wlanInitIncomplete=0
+if [ ! "$MTLK_INIT_PLATFORM" ]; then
+
+	if [ -e /tmp/mtlk_init_platform.sh ]
+	then 
+		. /tmp/mtlk_init_platform.sh
+	else
+		# If this script is called by the web before wireless init occurs, /tmp/mtlk_init_platform.sh will be missing.
+		# In this case notify the web that is must refresh its values
+		echo wave_wlan_capability: Wireless init incomplete. Refresh needed. > /dev/console
+		wlanInitIncomplete=1
+	fi
+fi
+print2log DBG "running wave_wlan_capability"	
+
+apIndex=$1
+
+timestamp "wave_wlan_capability:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+if [ "$wlanInitIncomplete" = "$NO" ]
+then
+	wlanInitIncomplete=`check_if_is_ready $wlan`
+fi
+
+get_freq()
+{
+	if [ $freq24G = 1 ] && [ $freq5G = 0 ]
+	then
+		freq="0"
+	elif [ $freq24G = 0 ] && [ $freq5G = 1 ]
+	then
+		freq="1"
+	else
+		freq="2"
+	fi
+}
+
+get_standard()
+{	
+	if [ $freq24G = 1 ] && [ $freq5G = 0 ]
+	then
+		standard="0,2,3,4,5,6"
+	elif [ $freq24G = 0 ] && [ $freq5G = 1 ]
+	then	
+		standard="1,4,7"
+	else
+		standard="0,1,2,3,4,5,6,7"
+	fi	
+}
+
+get_max_vaps()
+{
+	maxVAPs=`iwpriv $wlan gAPCapsMaxVAPs | cut -d ":" -f 2| cut -d " " -f 1`
+}
+
+get_max_sta()
+{
+	maxClientsPerVAP=`iwpriv $wlan gAPCapsMaxSTAs | cut -d ":" -f 2 | cut -d " " -f 1`
+}
+
+standard=""
+freq=""
+freq24G=""
+freq5G=""
+numTxAntenna=""
+maxVAPs=""
+maxClientsPerVAP=""
+
+if [ "$wlanInitIncomplete" = "$NO" ]
+then
+	freq24G=`host_api get $$ hw_$wlan HW_24G`
+	freq5G=`host_api get $$ hw_$wlan HW_52G`
+	get_standard
+	get_freq
+
+	Support_3TX=`host_api get $$ hw_$wlan Support_3TX`
+	if [ "$Support_3TX" = "1" ]
+	then
+		numTxAntenna=3
+	else
+		numTxAntenna=2
+	fi
+fi
+
+echo "vendor=\"wave300\""
+echo "standard=\"$standard\"" # PROBLEMATIC
+#echo "standard=\"0,2,3,4,5,6\""
+echo "freq=\"$freq\""
+echo "powerLvl=\"12,25,50,100\""
+echo "security=\"3\""
+echo "radius=\"1\""
+echo "WMM=\"1\""
+echo "UAPSD=\"0\""
+echo "WPS=\"1\""
+#For PIN it is required to list : Label, Display and Keypad (3,4,9). 8 = pbc
+echo "WPS_CfgMethods=\"3,4,8,9\""
+
+NETWORK_TYPE=`host_api get $$ $apIndex network_type`
+if [ "$NETWORK_TYPE" != "$STA" ]
+then
+	if [ "$wlanInitIncomplete" = "$NO" ]
+	then
+		get_max_vaps
+		get_max_sta
+	fi
+	echo "WDS=\"1\""
+	echo "WDS_RepCount=\"0\""
+	echo "maxVAP=\"$maxVAPs\""
+	echo "maxClientsPerVAP=\"$maxClientsPerVAP\""
+	echo "maxWlanClients=\"$maxClientsPerVAP\""
+	echo "macAddrCntrlPerVAP=\"1\""
+	echo "numMACCntrlEntries=\"$maxClientsPerVAP\""
+fi
+
+echo "numTxAntenna=\"$numTxAntenna\""
+# From wave300 onwards, number of RX and TX antennas is the same.
+echo "numRxAntenna=\"$numTxAntenna\""
+
+echo "wideChanSupport=\"1\""
+if [ "$NETWORK_TYPE" != "$STA" ]
+then
+	echo "MCSrange=\"15\""
+	echo "AMPDUsupport=\"1\""
+	echo "AMSDUsupport=\"0\""	  # NOT SURE
+fi
+
+if [ "$wlanInitIncomplete" = "$YES" ]
+then
+	echo "wlanInitIncomplete=\"$wlanInitIncomplete\""
+fi
+
+print2log DBG "wave_wlan_capability done"
+timestamp "wave_wlan_capability:$apIndex:done"

@@ -1,0 +1,211 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+        IPTABLES="iptables"
+	EBTABLES="ebtables"
+       
+	platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+       
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+QOS_INTF_WAN_ALL=4
+QOS_INTF_WAN=15
+QOS_INTF_SPECIFIC=8
+
+
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1
+QOS_TYPE_802_1P=2
+
+
+# Read the index passed as command line parameter passed as this script
+i=$1
+#Get the qId of the classifier
+eval cl_qId='$'qcl_${i}_qId
+	
+	
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		;;
+esac
+
+n=0
+while [ $n -lt $qos_queue_Count ]
+do
+	eval qCpeId='$'qq_${n}_cpeId
+	if [ $qCpeId -eq $cl_qId ]; then
+		eval qIfType='$'qq_${n}_qIfType	
+		eval queue_prio='$'qq_${n}_qPrio
+		vconfig_skb_prio=`expr -$queue_prio + 8`
+		#if [ $qIfType -eq $qIfTypeActive ]; then
+
+
+			eval QOS_ACCEL_DISABLE='$'qcl_${i}_disableAccel
+			# Read cpe ID from rc.conf
+			eval QOS_CPEID='$'qcl_${i}_cpeId
+			# Read order from rc.conf
+			eval QOS_ORDER='$'qcl_${i}_order
+			# Read classifier type
+			eval QOS_TYPE='$'qcl_${i}_type
+			# Read classification interface
+			#eval QOS_IFTYPE='$'qcl_${i}_ifType
+			eval QOS_IFTYPE='$'qcl_${i}_classifType
+			# Read QOS Queue ID
+			eval QOS_QID='$'qcl_${i}_qId
+			# Delete the corresponding queue for this class
+			eval QOS_RATELMT='$'qcl_${i}_rateLmt
+			eval QOS_RATECTRENBL='$'qcl_${i}_rateCtrlEnbl
+			eval QOS_802_1PMARK='$'qcl_${i}_PBitsMark
+			eval QOS_INDSCP='$'qcl_${i}_inDscp
+			eval QOS_DSCPMARK='$'qcl_${i}_dscpMark
+			
+			# Delete the 'vconfig egress mapping for 8021P remarking' 
+			#. /etc/rc.d/ipqos_common 1 1
+
+#Manamohan: Removed for GRx and RT288 on 9,April 2012	
+		if [ "$target" != "GRX2" -a "$target" != "RT2" -o $QOS_RATECTRENBL -eq 1  ]; then
+			# For MFC classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+				
+				# remove chain reference
+				eval CLASS_ACCEL_DISABLE_NAME="CLASS_ACCEL_DISABLE_$QOS_CPEID"
+				
+				# remove from CLASS_ACCEL_DISABLE
+				#IPTABLES_RULE="$IPTABLES -t mangle -D CLASS_ACCEL_DISABLE $QOS_ORDER"
+				#$IPTABLES_RULE
+				#echo $IPTABLES_RULE			
+				
+				# flush the chain that has to be deleted and then delete the chain
+				IPTABLES_RULE="$IPTABLES -t mangle -F $CLASS_ACCEL_DISABLE_NAME"
+				$IPTABLES_RULE
+				echo $IPTABLES_RULE			
+
+				# Delete the chains from the system
+				IPTABLES_RULE="$IPTABLES -t mangle -X $CLASS_ACCEL_DISABLE_NAME"
+				$IPTABLES_RULE
+				echo $IPTABLES_RULE			
+
+				# remove from CLASS_ACCEL_DISABLE
+				IPTABLES_RULE="$IPTABLES -t mangle -D CLASS_ACCEL_DISABLE -j $CLASS_ACCEL_DISABLE_NAME"
+				$IPTABLES_RULE
+				echo $IPTABLES_RULE			
+				
+				# Delete the chains from the system
+				IPTABLES_RULE="$IPTABLES -t mangle -X $CLASS_ACCEL_DISABLE_NAME"
+				$IPTABLES_RULE
+				echo $IPTABLES_RULE			
+				
+				#if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+				#	queuecfg -x $QOS_QID/$QOS_CPEID
+				#fi
+			fi
+
+			if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL -o $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+					# remove chain reference
+					eval CLASS_ACCEL_DISABLE_NAME="CLASS_ACCEL_DISABLE_DSCP_$QOS_CPEID"
+					
+					# remove from CLASS_ACCEL_DISABLE
+					#IPTABLES_RULE="$IPTABLES -t mangle -D CLASS_ACCEL_DISABLE $QOS_ORDER"
+					#$IPTABLES_RULE
+					#echo $IPTABLES_RULE			
+    					
+
+					# flush the chain that has to be deleted and then delete the chain
+					IPTABLES_RULE="$IPTABLES -t mangle -F $CLASS_ACCEL_DISABLE_NAME"
+					$IPTABLES_RULE
+					echo $IPTABLES_RULE			
+				
+					# Delete the chains from the system
+					IPTABLES_RULE="$IPTABLES -t mangle -X $CLASS_ACCEL_DISABLE_NAME"
+					$IPTABLES_RULE
+					echo $IPTABLES_RULE			
+					
+					# remove from CLASS_ACCEL_DISABLE
+					IPTABLES_RULE="$IPTABLES -t mangle -D CLASS_ACCEL_DISABLE -j $CLASS_ACCEL_DISABLE_NAME"
+					$IPTABLES_RULE
+					echo $IPTABLES_RULE			
+					
+    
+					# Delete the chains from the system
+					IPTABLES_RULE="$IPTABLES -t mangle -X $CLASS_ACCEL_DISABLE_NAME"
+					$IPTABLES_RULE
+					echo $IPTABLES_RULE			
+					#Delete MAP entries for rate limiting in /tmp/system_status
+					#if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+					#	queuecfg -x $QOS_QID/$QOS_CPEID
+					#fi
+				fi
+
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+				
+				#fi
+
+
+			fi
+
+			#if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+
+			#fi
+		fi
+#end of GRx288 check
+		#fi
+
+
+		# If platform is GRX288, hw classifiers are used, delete all classifier rules on switch	
+		#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL -o $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+			#echo "HW class delete for IFTYPE = $QOS_IFTYPE"	
+	
+ 		#fi
+	fi
+	
+	n=$(( $n + 1 ))
+done

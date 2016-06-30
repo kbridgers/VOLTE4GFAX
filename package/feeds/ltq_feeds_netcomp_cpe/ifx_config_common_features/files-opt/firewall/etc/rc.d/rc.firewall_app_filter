@@ -1,0 +1,39 @@
+#!/bin/sh
+
+OUTPUT="/tmp/cmd_output"
+SED="/bin/sed"
+
+if [ -f /etc/resolv.conf -a "`cat /etc/resolv.conf`" != "" ]; then
+	dns_reach=0
+	for i in `${SED} -n 's,nameserver ,,;p' /etc/resolv.conf`
+	do
+# comment for now..need to port ping -i
+#		ping -i 0.2 -c 4 $i > "$OUTPUT"
+		if [ "$?" = "0" ]; then
+			dns_reach=1
+			break
+		fi
+	done
+	dns_reach=0
+	if [ "$dns_reach" = "1" ]; then
+		case "$1" in
+			start)
+				. /etc/rc.d/rc.firewall_app_filter_stop
+				. /etc/rc.d/rc.firewall_app_filter_start
+				;;
+			stop)
+				. /etc/rc.d/rc.firewall_app_filter_stop
+				;;
+			restart)
+				. /etc/rc.d/rc.firewall_app_filter_stop
+				. /etc/rc.d/rc.firewall_app_filter_start
+				;;
+			*)
+				. /etc/rc.d/rc.firewall_app_filter_stop
+				. /etc/rc.d/rc.firewall_app_filter_start
+				;;
+		esac
+	fi
+else
+	echo "AppFilter: DNS not configured, so will not add/delete AppFilter Rules"
+fi

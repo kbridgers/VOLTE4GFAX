@@ -1,0 +1,95 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+
+        IPTABLES="iptables"
+# read rc.conf and add iptable rules in PORTTRIGGER chains
+
+ # Read the index passed as command line parameter passed as this script
+        i=$1
+	
+	# read each parameters from rc.conf
+        eval PORTTRIGGER_CPEID='$'porttrigger_${i}_cpeId
+	eval PORTTRIGGER_PCPEID='$'porttrigger_${i}_pcpeId
+	eval PORTTRIGGER_APP='$'porttrigger_${i}_Application
+	eval PORTTRIGGER_PROTOCOL='$'porttrigger_${i}_protocol
+	eval PORTTRIGGER_fENABLE='$'porttrigger_${i}_fEnable
+        eval PORTTRIGGER_TSPORT='$'porttrigger_${i}_tsPort
+	eval PORTTRIGGER_TEPORT='$'porttrigger_${i}_tePort
+	eval PORTTRIGGER_ESPORT='$'porttrigger_${i}_esPort
+	eval PORTTRIGGER_EEPORT='$'porttrigger_${i}_eePort
+        eval PORTTRIGGER_oPROTOCOL='$'porttrigger_${i}_oprotocol
+	eval LAN_IFACE='$'lan_main_0_interface
+
+#add rule in iptable -t nat
+	 flag1=0
+	 if [ $PORTTRIGGER_PROTOCOL -eq 1 ]; then
+                                PROTOCOL="-p tcp"
+	 elif [ $PORTTRIGGER_PROTOCOL -eq 2 ]; then	
+	  			PROTOCOL="-p udp"
+	 else
+        			flag1=1  
+				PROTOCOL="-p tcp"
+				PROTOCOL1="-p udp"
+	fi
+	
+
+
+	flag2=0
+ 	  if [ $PORTTRIGGER_oPROTOCOL -eq 1 ]; then
+                                oPROTOCOL="-p tcp"
+         elif [ $PORTTRIGGER_oPROTOCOL -eq 2 ]; then
+                                oPROTOCOL="-p udp"
+         else
+				 flag2=1
+                                oPROTOCOL="-p tcp"
+                                oPROTOCOL1="-p udp"   			
+      fi
+
+
+	if [ $flag1 -eq 1 -a $flag2 -eq 0 ]; then
+	 IPTABLES_NAT_RULE="$IPTABLES -t nat -A PORTTRIGGER $PROTOCOL1 -i ${LAN_IFACE} --dport $PORTTRIGGER_TSPORT:$PORTTRIGGER_TEPORT -j TRIGGER --trigger-type out --trigger-proto all --trigger-match $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT --trigger-relate $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT"
+        $IPTABLES_NAT_RULE
+        IPTABLES_RULE="$IPTABLES -A PORTTRIGGER_FORWARD $oPROTOCOL --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type in"
+        $IPTABLES_RULE
+        IPTABLES_NAT_RULES="$IPTABLES -t nat -A PORTTRIGGER $oPROTOCOL --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type dnat"
+        $IPTABLES_NAT_RULES
+	 elif [ $flag1 -eq 0 -a $flag2 -eq 1 ]; then
+         IPTABLES_NAT_RULE="$IPTABLES -t nat -A PORTTRIGGER $PROTOCOL -i ${LAN_IFACE} --dport $PORTTRIGGER_TSPORT:$PORTTRIGGER_TEPORT -j TRIGGER --trigger-type out --trigger-proto all --trigger-match $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT --trigger-relate $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT"
+        $IPTABLES_NAT_RULE
+        IPTABLES_RULE="$IPTABLES -A PORTTRIGGER_FORWARD $oPROTOCOL1 --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type in"
+        $IPTABLES_RULE
+        IPTABLES_NAT_RULES="$IPTABLES -t nat -A PORTTRIGGER $oPROTOCOL1 --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type dnat"
+        $IPTABLES_NAT_RULES
+	elif [ $flag1 -eq 1 -a $flag2 -eq 1 ]; then
+         IPTABLES_NAT_RULE="$IPTABLES -t nat -A PORTTRIGGER $PROTOCOL1 -i ${LAN_IFACE} --dport $PORTTRIGGER_TSPORT:$PORTTRIGGER_TEPORT -j TRIGGER --trigger-type out --trigger-proto all --trigger-match $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT --trigger-relate $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT"
+        $IPTABLES_NAT_RULE
+        IPTABLES_RULE="$IPTABLES -A PORTTRIGGER_FORWARD $oPROTOCOL1 --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type in"
+        $IPTABLES_RULE
+        IPTABLES_NAT_RULES="$IPTABLES -t nat -A PORTTRIGGER $oPROTOCOL1 --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type dnat"
+        $IPTABLES_NAT_RULES
+	fi
+	 IPTABLES_NAT_RULE="$IPTABLES -t nat -A PORTTRIGGER $PROTOCOL -i ${LAN_IFACE} --dport $PORTTRIGGER_TSPORT:$PORTTRIGGER_TEPORT -j TRIGGER --trigger-type out --trigger-proto all --trigger-match $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT --trigger-relate $PORTTRIGGER_ESPORT-$PORTTRIGGER_EEPORT"
+        $IPTABLES_NAT_RULE
+        IPTABLES_RULE="$IPTABLES -A PORTTRIGGER_FORWARD $oPROTOCOL --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type in"
+        $IPTABLES_RULE
+        IPTABLES_NAT_RULES="$IPTABLES -t nat -A PORTTRIGGER $oPROTOCOL --dport $PORTTRIGGER_ESPORT:$PORTTRIGGER_EEPORT -j TRIGGER --trigger-type dnat"
+        $IPTABLES_NAT_RULES
+
+
+
+	
+

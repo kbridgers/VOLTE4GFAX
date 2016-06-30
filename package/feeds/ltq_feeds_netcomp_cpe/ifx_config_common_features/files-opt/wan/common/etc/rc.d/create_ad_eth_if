@@ -1,0 +1,70 @@
+#!/bin/sh
+
+##########################################################################
+#
+# LAN Ports: Ports 0,1,2 are configured as Lan with VLAN ID 2
+# WAN Port:  Port4 as Wan with VLAN ID ${2}
+# CPU is attached to Port6 in ARx188
+#
+#########################################################################
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++##
+#	MODIY THE BELOW VARIABLES TO MATCH YOUR ISP SETTINGS 		##
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++##
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+  
+. /etc/rc.d/ltq_switch_functions.sh 2>/dev/null
+select_wan_mode
+
+SED="/bin/sed"
+
+eval vlan_id='$'vlanch_${1}_vlanId
+eval eth_iface='$'vlanch_${1}_l2ifName
+iface_name=`echo $eth_iface | $SED -n "s,\..*,,;1p"`
+
+ip_address="0.0.0.0"
+
+# Create VLAN interfaces on eth0/1
+if [ "${eth_iface}" = "eth1" -a "$CONFIG_IFX_CONFIG_CPU" = "AMAZON_S" ]; then
+	if [ ${vlan_id} -ne 0 ]; then
+		/sbin/ifconfig ${eth_iface} 0.0.0.0 up
+		/sbin/vconfig add ${iface_name} ${vlan_id}
+		/sbin/ifconfig ${eth_iface} ${ip_address} up
+	else
+		/sbin/ifconfig ${eth_iface} ${ip_address} up
+	fi		
+else
+	if [ ${vlan_id} = "-1" ]; then # un-tag based approach
+		/sbin/ifconfig ${eth_iface} ${ip_address} up
+	else # tag based approach
+		/sbin/vconfig add ${iface_name} ${vlan_id}
+
+		# create VLAN with id ${vlan_id}
+		create_vlanid ${vlan_id} $wan_fid
+		
+		#WAN VLAN membership
+		# - 1: Tag base Number Egress enabled
+		for argument in  $wan_port $cpu_port;do
+	   		config_port_member ${vlan_id} $argument 1
+		done
+		
+		/sbin/ifconfig ${iface_name}.${vlan_id} ${ip_address} up
+	fi
+fi
+
+# Add WAN interface to PPA
+. /etc/rc.d/ppa_config.sh addwan ${eth_iface}
+

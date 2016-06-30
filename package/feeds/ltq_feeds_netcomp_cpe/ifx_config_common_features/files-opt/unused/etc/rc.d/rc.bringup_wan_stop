@@ -1,0 +1,446 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. rewrite all of the qos scirpts
+OUTPUT="/tmp/cmd_output${1}"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+remove_output()
+{
+	rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+if [ $CONFIG_FEATURE_ALGS -a $CONFIG_FEATURE_ALGS = "1" ]; then
+	CONFIG_PACKAGE_IPTABLES="1"
+elif [ $CONFIG_FEATURE_FIREWALL -a $CONFIG_FEATURE_FIREWALL = "1" ]; then
+	CONFIG_PACKAGE_IPTABLES="1"
+elif [ $CONFIG_FEATURE_NAPT -a $CONFIG_FEATURE_NAPT = "1" ]; then
+	CONFIG_PACKAGE_IPTABLES="1"
+fi
+
+RESOLV_CONF="/etc/resolv.conf"
+
+eval LAN_IFACE='$'lan_main_0_interface
+eval link_type='$'wan_${1}_linkType
+eval addr_type='$'wanip_${1}_addrType
+eval wan_mode='$'wan_${1}_wanMode
+eval eth_iface='$'wan_${1}_iface
+eval vlanid='$'wan_${1}_vlanId
+
+eval g_wan_phy_mode='$'wanphy_phymode
+eval g_wan_tc_mode='$'wanphy_tc
+
+startFlag=0
+if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+	if [ "$wan_mode" = "0" ]; then # ATM
+		startFlag=1
+	fi
+elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL and PTM
+	if [ "$g_wan_tc_mode" = "1" ]; then
+		if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+			eval ptm_iface='$'wan_${1}_iface
+			iface_name=`echo $ptm_iface | sed -n "s,\..*,,;1p"`
+			startFlag=1
+		fi
+	fi
+elif [ "$g_wan_phy_mode" = "1" ]; then
+	if [ "$wan_mode" = "1" ]; then # Eth on MII0
+		eval eth_iface='$'wan_${1}_iface
+		iface_name=`echo $eth_iface | sed -n "s,\..*,,;1p"`
+		startFlag=1
+	fi
+elif [ "$g_wan_phy_mode" = "2" ]; then
+	if [ "$wan_mode" = "2" ]; then # Eth on MII1
+		eval eth_iface='$'wan_${1}_iface
+		iface_name=`echo $eth_iface | sed -n "s,\..*,,;1p"`
+		startFlag=1
+	fi
+fi
+
+if [ "$startFlag" = "1" ]; then
+
+if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+	if [ "$addr_type" = "1" ]; then # DHCP 
+		wan_type="DHCPC"
+	elif [ "$addr_type" = "2" ]; then # STATIC
+		wan_type="FIXED"
+	elif [ "$addr_type" = "0" ]; then # EoATM Bridge Mode
+		wan_type="BRIDGE"
+	fi
+elif [ "$link_type" = "3" ]; then # PPPoA
+	wan_type="PPPOA"
+elif [ "$link_type" = "4" ]; then # PPPoE
+	wan_type="PPPOE"
+elif [ "$link_type" = "5" ]; then # CLIP
+	wan_type="FIXED"
+else
+	wan_type="unknown"
+fi
+
+if [ "$wan_mode" != "1" -a "$wan_mode" != "2" ]; then # Not WAN ETH Mode
+	eval VCC_SETTING='$'wan_${1}_vcc
+	i=0
+	while [ $i -lt $adsl_vcchannel_Count ]; do
+		eval adsl_vcc='$'VCChannel_${i}_vcc
+		if [ "A$adsl_vcc" = "A$VCC_SETTING" ]; then
+			eval encap='$'VCChannel_${i}_encap
+			eval qos_mode='$'VCChannel_${i}_qos
+			eval maxpcr='$'VCChannel_${i}_maxpcr
+			eval minpcr='$'VCChannel_${i}_minpcr
+			eval cdv='$'VCChannel_${i}_cdv
+			eval mbs='$'VCChannel_${i}_mbs
+			eval scr='$'VCChannel_${i}_scr
+			eval VCC_SETTING='$encap\_'$VCC_SETTING'_$qos_mode'
+			if [ -n "$maxpcr" ]; then
+				eval VCC_SETTING=$VCC_SETTING',max_pcr='$maxpcr
+			fi
+			if [ -n "$minpcr" ]; then
+				eval VCC_SETTING=$VCC_SETTING',min_pcr='$minpcr
+			fi
+			if [ -n "$scr" ]; then
+				eval VCC_SETTING=$VCC_SETTING',scr='$scr
+			fi
+			if [ -n "$mbs" ]; then
+				eval VCC_SETTING=$VCC_SETTING',mbs='$mbs
+			fi
+			if [ -n "$cdv" ]; then
+				eval VCC_SETTING=$VCC_SETTING',cdv='$cdv
+			fi
+			break
+		fi
+		i=`expr $i + 1`
+	done
+fi
+
+eval IFCFG_WAN='$'wan_${1}_ipAddr
+eval DEF_ROUTE='$'wanip_${1}_gateway
+
+	# Get ATMPROTO from link_type
+	flush_output
+	eval link_type='$'wan_${1}_linkType
+	if [ "$link_type" = "1" ]; then #EoA
+		echo "rfc2684_eoa" > "$OUTPUT"
+		eval wan_iface='$'wan_${1}_iface
+		#ATMPROTO="rfc2684_eoa"
+	elif [ "$link_type" = "2" ]; then #IPoA
+		echo "rfc2684_ipoa" > "$OUTPUT"
+		eval wan_iface='$'wan_${1}_iface
+		#ATMPROTO="rfc2684_ipoa"
+	elif [ "$link_type" = "5" ]; then #CLIP
+		echo "clip" > "$OUTPUT"
+		eval wan_iface='$'wanip_${1}_ifatm
+		#ATMPROTO="clip"
+	elif [ "$link_type" = "4" ]; then #PPPOE
+		eval wan_iface='$'wan_${1}_iface
+	fi
+
+	if [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then
+		eval wan_iface='$'wan_${1}_iface
+	elif [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then
+		eval wan_iface='$'wan_${1}_iface
+	fi
+if [ "`/usr/sbin/status_oper GET bringup_wan${1}_if status`" = "start" ]; then 
+#stop(){
+
+	#eval nas_iface='$'wan_${1}_iface
+	#eval atm_iface='$'wanip_${1}_ifatm
+	eval nat_enable='$'wan_${1}_NATEnable
+
+	# Fix DNS resolv issue for board initiated WAN domain connections
+	#if  [ "$wan_type" != "BRIDGE" ]; then
+	#	echo -n > $RESOLV_CONF
+	#fi
+
+    # call mgmt.sh for web mgmt traffic prioritization
+	if [ "$WAN_TYPE" != "unknown" ]; then
+        if [ -n "${WEB_WAN_ENABLE}" -a "${WEB_WAN_ENABLE}" = "1" ]; then
+           WAN_IP="`/usr/sbin/status_oper GET Wan${1}_IF_Info IP`"
+           . /etc/rc.d/mgmt.sh stop 0 ${WAN_IP} 80 tcp
+           . /etc/rc.d/mgmt.sh stop 0 ${WAN_IP} 443 tcp
+        fi
+    fi
+
+	# WAN Interface Setup
+	case $wan_type in
+	[Ff][Ii][Xx][Ee][Dd])
+		if [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then #Eth WAN Mode
+                        #Do Something
+                        . /etc/rc.d/delete_eth_if $iface_name $vlanid $wan_mode
+		else
+			if [ "$wan_mode" = "3"  -o "$wan_mode" = "4" ]; then #PTM WAN Mode
+                        	. /etc/rc.d/delete_ptm_if $iface_name $wan_mode
+			fi
+                        if [ "$wan_mode" = "0" ]; then #ATM WAN Mode
+				ATMPROTO=`"$SED" -n 's,_eoa,,; s,_ipoa,,;1p' "$OUTPUT"`
+				if [ "$ATMPROTO" = "rfc2684" ]; then
+					. /etc/rc.d/delete_mpoa_if $1 
+				elif [ "$ATMPROTO" = "clip" ]; then
+					if [ "$CONFIG_PACKAGE_IPTABLES" = "1" -a "$nat_enable" = "1" ]; then
+						/usr/sbin/naptcfg --DELWANIF $atm_iface > /dev/null
+					fi
+					. /etc/rc.d/delete_clip_if $1 $DEF_ROUTE
+				fi
+			fi
+		fi	
+		if [ "$CONFIG_PACKAGE_IPTABLES" = "1" -a "$nat_enable" = "1" ]; then
+			/usr/sbin/naptcfg --DELWANIF $wan_iface > /dev/null
+		fi
+
+                if [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then #Eth WAN Mode
+                 . /etc/rc.d/rc.bringup_wan_services_stop $1
+                elif [ -n "`/bin/cat /tmp/adsl_status | grep "7"`" ]; then
+                 . /etc/rc.d/rc.bringup_wan_services stop $1
+                fi
+		;;
+	[Dd][Hh][Cc][Pp][Cc])
+		. /etc/rc.d/init.d/udhcpc stop $1
+		if [ "$CONFIG_PACKAGE_KMOD_IPV6" = "1"  -a  "$ipv6_status" = "1" ]; then
+			. /etc/rc.d/create_and_run_dhcp6c_cfg stop $wan_iface $1
+		fi
+		if [ "$CONFIG_PACKAGE_IPTABLES" = "1" -a "$nat_enable" = "1" ]; then
+			/usr/sbin/naptcfg --DELWANIF $wan_iface > /dev/null 
+		fi
+
+		if [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then #Eth WAN Mode
+                        #Do Something
+                        . /etc/rc.d/delete_eth_if $iface_name $vlanid $wan_mode
+		else
+			if [ "$wan_mode" = "3"  -o "$wan_mode" = "4" ]; then #PTM WAN Mode
+                        	. /etc/rc.d/delete_ptm_if $iface_name  $wan_mode
+			fi
+			if [ "$wan_mode" = "0" ]; then #ATM WAN Mode
+				. /etc/rc.d/delete_mpoa_if $1
+			fi 
+		fi
+
+		. /etc/rc.d/rc.bringup_wan_services stop $1
+		;;
+	[Pp][Pp][Pp][Oo][Ee])
+                #AMS
+                if [ "$CONFIG_PACKAGE_KMOD_IPV6" = "1"  -a  "$ipv6_status" = "1" ]; then
+		. /etc/rc.d/create_and_run_dhcp6c_cfg radvdstop $wan_iface $1
+                sleep 1
+                . /etc/rc.d/create_and_run_dhcp6c_cfg stop $wan_iface $1
+                sleep 2
+		fi
+
+		. /etc/rc.d/init.d/pppoe stop $1
+
+		if [ "$CONFIG_PACKAGE_KMOD_IPV6" = "1"  -a  "$ipv6_status" = "1" ]; then
+                sleep 1
+                . /etc/rc.d/create_and_run_dhcp6c_cfg radvdstart $wan_iface $1
+		fi
+
+		if [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then #Eth WAN Mode
+                        #Do Something
+                       	. /etc/rc.d/delete_eth_if $iface_name $vlanid $wan_mode
+		else
+			if [ "$wan_mode" = "3"  -o "$wan_mode" = "4" ]; then #PTM WAN Mode
+                        	. /etc/rc.d/delete_ptm_if $iface_name $wan_mode
+			fi
+			if [ "$wan_mode" = "0" ]; then #ATM WAN Mode
+				. /etc/rc.d/delete_mpoa_if $1 
+			fi
+		fi
+		;;
+	[Pp][Pp][Pp][Oo][Aa])
+		. /etc/rc.d/init.d/pppoa stop $1
+		;;
+	[Bb][Rr][Ii][Dd][Gg][Ee])
+
+#509022:linmars start
+		if [ "$CONFIG_FEATURE_IFX_VOIP" = "1" ]; then
+		# Stop the VOIP Application on this WAN interface 
+			. /etc/rc.d/rc.bringup_voip_stop $1	
+		fi
+
+		if [ "$CONFIG_FEATURE_VLAN" = "1" ]; then
+			. /etc/rc.d/init.d/vlan stop $1
+		fi
+#509022:linmars end
+#000001:tc.chen start
+		# santosh: 809241 start
+		if [ "$CONFIG_FEATURE_QOS" = "1" ]; then
+			. /etc/rc.d/init.d/qos stop_wan $wan_iface
+		fi
+		# santosh: 809241 end
+#000001:tc.chen end
+
+		# IGMP Proxy/snooping in Bridged mode
+    		wan_intf_idx="`echo $IGMP_WAN_INTF | sed -n 's,WAN,,;1p'`"
+    		#if [ "$IGMP_ENABLE" = "1" -a "$wan_intf_idx" = "$1" ]; then
+		#	. /etc/rc.d/init.d/igmp stop
+    		#fi
+
+		# PPA config
+  				if [ "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A5_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D5_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A4_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A4_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D4_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D4_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_E5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_E5_MOD" = "11" ]; then
+                	. /etc/rc.d/ppa_config.sh delwan $wan_iface
+        	fi
+
+		/usr/sbin/brctl delif ${LAN_IFACE} $wan_iface
+		if [ "$wan_mode" = "1" ]; then #Eth0 WAN Mode
+			echo ""
+		else
+			if [ "$wan_mode" = "2" ]; then #Eth1 WAN Mode
+				. /etc/rc.d/delete_eth_if $iface_name $vlanid $wan_mode
+			else
+				if [ "$wan_mode" = "3"  -o "$wan_mode" = "4" ]; then #PTM WAN Mode
+                        		. /etc/rc.d/delete_ptm_if $iface_name $wan_mode
+				fi
+				if [ "$wan_mode" = "0" ]; then
+					. /etc/rc.d/delete_mpoa_if $1
+				fi
+			fi
+		fi
+		;;
+	[Tt][Rr][0][3][78])
+		. /tmp/pvc_record
+		if [ TR037_PROTO = "PPPOA" ]; then
+			killall -9 pppd
+		fi 
+		if [ TR037_PROTO = "BR2684" ]; then
+			killall -9 br2684ctl
+		fi 
+		if [ TR037_PROTO = "CLIP" ]; then
+			killall -9 atmarpd
+		fi 
+		/etc/rc.d/killproc ilmid
+		;;
+	*)
+		echo "Unknown WAN Type!"
+		WAN_TYPE="unknown"
+		;;
+	esac
+	if [ "$WAN_TYPE" != "unknown" ]; then
+		/usr/sbin/status_oper SET bringup_wan$1_if status stop
+		/usr/sbin/status_oper SET Wan${1}_IF_Info STATUS UNCONFIGURED
+		/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS DISCONNECTED
+		i=`expr $i + 1`
+	    if [ "$CONFIG_PACKAGE_IFX_OAM" = "1" ]; then
+			if [ "$OAM_ENABLE" = "1" ]; then
+ 	       . /etc/init.d/oam stop $1
+   		fi
+		if [ "$wan_type" = "BRIDGE" ]; then
+		# Start DNS Relay Daemon
+		if  [ "$CONFIG_FEATURE_DNS_RELAY" = "1" ]; then
+			. /etc/rc.d/init.d/dns_relay restart $1
+		fi
+	fi
+	fi
+fi
+fi
+
+remove_output
+#}
+fi
+
+#IPQOS part:
+#disable iptable rule to attach eth0.x to imq when eth interface is deleted in mii0 mode
+if [ $qm_enable -eq "1" ]; then
+
+QUEUE_METHOD=`/usr/sbin/status_oper GET qos_bk queue_method`
+eval wanmode='$'wan_$1_wanMode
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				if [ $QUEUE_METHOD -eq 1 ]; then
+					eval iftype='$'wan_$1_ifType
+                   				. /etc/rc.d/get_wan_if $1
+			                   	eval iface=${WAN_IFNAME}
+						if [ "$iface" = "br0" ]; then
+							eval iface='$'wan_${1}_iface
+						fi
+        					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -eq 0 ]; then
+       					 		iptables -t mangle -D POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+				fi
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				if [ $QUEUE_METHOD -eq 1 ]; then
+					eval iftype='$'wan_$1_ifType
+                   				. /etc/rc.d/get_wan_if $1
+			                   	eval iface=${WAN_IFNAME}
+						if [ "$iface" = "br0" ]; then
+							eval iface='$'wan_${1}_iface
+						fi
+        					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -eq 0 ]; then
+       					 		iptables -t mangle -D POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+				fi
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ $QUEUE_METHOD -eq 1 ]; then
+			eval iftype='$'wan_$1_ifType
+      				. /etc/rc.d/get_wan_if $1
+	                   	eval iface=${WAN_IFNAME}
+				if [ "$iface" = "br0" ]; then
+					eval iface='$'wan_${1}_iface
+				fi
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -eq 0 ]; then
+       					iptables -t mangle -D POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+		fi
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		if [ $QUEUE_METHOD -eq 1 ]; then
+			eval iftype='$'wan_$1_ifType
+      				. /etc/rc.d/get_wan_if $1
+	                   	eval iface=${WAN_IFNAME}
+				if [ "$iface" = "br0" ]; then
+					eval iface='$'wan_${1}_iface
+				fi
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -eq 0 ]; then
+       					iptables -t mangle -D POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+		fi
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		if [ $QUEUE_METHOD -eq 1 ]; then
+			eval iftype='$'wan_$1_ifType
+      				. /etc/rc.d/get_wan_if $1
+	                   	eval iface=${WAN_IFNAME}
+				if [ "$iface" = "br0" ]; then
+					eval iface='$'wan_${1}_iface
+				fi
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -eq 0 ]; then
+       					iptables -t mangle -D POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+		fi
+		;;
+esac
+
+
+fi

@@ -1,0 +1,159 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. initial version
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+        . /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+while [ "`/usr/sbin/status_oper GET qos status`" = "initiating" ]; do
+	# waiting qos_star finish
+	sleep 3
+done
+
+if [ "`/usr/sbin/status_oper GET qos status`" = "start" ]; then 
+
+# totol downstream bandwidth in KBytes
+DOWNSTREAM_RATE="`/usr/sbin/get_adsl_rate 1`"
+DOWNSTREAM_IF="imq0"
+
+LOCAL_OUT_IF="imq1"
+
+# total upstream bandwidth in KBytes
+UPSTREAM_RATE="`/usr/sbin/get_adsl_rate 0`"
+UPSTREAM_IF="imq2"
+
+# Ration in %
+BANDWIDTH_RATIO=80
+DOWNSTREAM_RATE=$(( $DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100 ))
+UPSTREAM_RATE=$(( $UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100 ))
+
+TC="/usr/sbin/tc"
+
+#------------------- upstream -------------------------
+
+#
+#			QOS Tree
+#   +-----------------------------------------------------+
+#   |                      root 1:0 htb	                  |
+#   +-----------------------------------------------------+
+#	 	                |
+#   +-----------------------------------------------------+
+#   |                         1:1 htb		          |
+#   +-----------------------------------------------------+
+#	      |			|
+#   +-------------------------+  +------------------------+
+#   |       1:2 htb (VS)      |  | 1:3 htb(Precedence TOS)|
+#   +-------------------------+  +------------------------+
+# 	  |            |	              |
+#   +----------+  +-----------+  +------------------------+
+#   | 1:21(htb)|..| 1:2N(htb) |  |          3:0 prio      |
+#   +----------+  +-----------+  +------------------------+
+# 	  |             |	      |              |
+#   +----------+  +----------+   +----------+  +----------+
+#   |210(pfif0)|..|2N0(pfifo)|   |3:1(prio) |..| 3:8(prio)|
+#   +----------+  +----------+   +----------+  +----------+
+#				      |              |
+#				 +----------+  +----------+
+#				 |310(pfifo)|..|380(pfifo)|
+#				 +----------+  +----------+
+#
+
+	TC_CLASS_CHANGE="$TC class change dev $UPSTREAM_IF parent "
+
+# create qdisk tree
+
+        ${TC_CLASS_CHANGE} 1: classid 1:1 htb rate ${UPSTREAM_RATE}kbit
+
+	# for voip or some high priority packets
+        if [ "$DIFFSERV_VIRTUAL_SERVER" = "1" ]; then
+                i=0
+
+		# calculate Virtual Server minimum bandwidth and other bandwidth
+                vs_min_bandwidth=0
+                while [ "$i" -lt $nat_virtualser_Count]
+                do
+                        eval NATVS_MIN_BW='$'nat_virtualser_${i}_upminBW
+                        eval NATVS_F='$'nat_virtualser_${i}_fEnable
+                        eval NATVS_QOS_ENABLE='$'nat_virtualser_${i}_upqosEnable
+                        if [ "$NATVS_F" = "1" -a "$NATVS_QOS_ENABLE" = "1" ]; then
+                                vs_min_bandwidth=$(( $vs_min_bandwidth + $NATVS_MIN_BW ))
+                        fi
+                        i=$(( $i + 1 ))
+		done
+
+                others_bandwidth=$(( 100 - $vs_min_bandwidth ))
+                others_bandwidth=$(( $UPSTREAM_RATE \* $others_bandwidth / 100 ))
+		vs_min_bandwidth=$(( $UPSTREAM_RATE \* $vs_min_bandwidth / 100 ))
+
+		# create 1:2 class for virtual server services
+        	${TC_CLASS_CHANGE} 1:1  classid 1:2 htb rate ${vs_min_bandwidth}kbit ceil ${UPSTREAM_RATE}kbit prio 3 
+
+                i=0
+                while [ "$i" -lt $nat_virtualser_Count ]
+                do
+                        eval NATVS_F='$'nat_virtualser_${i}_fEnable
+                        eval NATVS_QOS_ENABLE='$'nat_virtualser_${i}_upqosEnable
+                        eval NATVS_MIN_BW='$'nat_virtualser_${i}_upminBW
+                        eval NATVS_MAX_BW='$'nat_virtualser_${i}_upmaxBW
+                        if [ "$NATVS_F" = "1" -a "$NATVS_QOS_ENABLE" = "1" ]; then
+                                LAN_CLASS_ID=$(( $i + 21 ))
+                                NATVS_MIN_BW=$(( $UPSTREAM_RATE \* $NATVS_MIN_BW / 100 ))
+                                NATVS_MAX_BW=$(( $UPSTREAM_RATE \* $NATVS_MAX_BW / 100 ))
+                                ${TC_CLASS_CHANGE} 1:2 classid 1:${LAN_CLASS_ID} htb rate ${NATVS_MIN_BW}kbit ceil ${NATVS_MAX_BW}kbit cburst 10500 quantum 3000
+                        fi
+                        i=$(( $i + 1 ))
+                done
+	else
+                others_bandwidth="$UPSTREAM_RATE"
+        fi
+
+	
+	# for tos precedence qos
+        ${TC_CLASS_CHANGE} 1:1  classid 1:3 htb rate ${others_bandwidth}kbit ceil ${UPSTREAM_RATE}kbit prio 4 quantum 1500 burst 10500
+
+#------------------- downstream -------------------------
+#			QOS Tree
+#   +------------------------------------+
+#   |            root 1:0 htb	         |
+#   +------------------------------------+
+#	 	      |
+#   +------------------------------------+
+#   |               1:1 htb	         |
+#   +------------------------------------+
+#	      |			|
+#   +----------------+  +----------------+
+#   | 1:2 htb (VOIP) |  |  1:3 (Other)   |
+#   +----------------+  +----------------+
+#            |		        |
+#   +----------------+  +----------------+
+#   |   20:  pfifo   |  |   30:  pfifo   |
+#   +----------------+  +----------------+
+#
+	TC_CLASS_CHANGE="$TC class change dev $DOWNSTREAM_IF parent "
+        if [ "$DIFFSERV_DUT_VOIP" = "1" ]; then
+           # Incoming packets from WAN
+                SERVICE_VOIP=10
+                SERVICE_OTHERS=10
+                VOICE_MIN_BW=$(( $DOWNSTREAM_RATE \* $SERVICE_VOIP / 100 ))
+                VOICE_MAX_BW=$DOWNSTREAM_RATE
+                VOICE_QLENGTH=50
+                OTHER_MIN_BW=$(( $DOWNSTREAM_RATE \* $SERVICE_OTHERS / 100 ))
+                OTHER_MAX_BW=$DOWNSTREAM_RATE
+                OTHER_QLENGTH=100
+                #${TC} qdisc change dev $DOWNSTREAM_IF handle 1: root htb default 3
+                ${TC_CLASS_CHANGE} 1:0 classid 1:1 htb rate ${DOWNSTREAM_RATE}kbit
+                ${TC_CLASS_CHANGE} 1:1 classid 1:2 htb rate ${VOICE_MIN_BW}kbit ceil ${VOICE_MAX_BW}kbit cburst 5500 quantum 3000 prio 0
+                ${TC_CLASS_CHANGE} 1:1 classid 1:3 htb rate ${OTHER_MIN_BW}kbit ceil ${OTHER_MAX_BW}kbit cburst 10500 quantum 1500 prio 1
+        fi
+
+fi

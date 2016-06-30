@@ -1,0 +1,583 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+		# To Read Remark VID & VPRIO From Tmp. It is tempurary.
+		if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		fi
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+
+EBTABLES="ebtables"
+
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+QOS_INTF_WAN=4
+
+# define QOS type 
+# NOTE: thease values should match with the values in the enum
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1 
+QOS_TYPE_802_1P=2 
+
+QOS_1P_MASK=0x20000000
+QOS_VLANID_MASK=0x40000000
+QOS_1QSELECT_CLEAR=0x9FFFFFFF
+
+# Read the index passed as command line parameter passed as this script
+i=$1
+j=$2
+
+
+#Get the qId of the classifier
+eval cl_qId='$'qcl_${i}_qId
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		;;
+esac
+
+n=$3
+#while [ $n -lt $qos_queue_Count ]
+#do
+	eval qCpeId='$'qq_${n}_cpeId
+	if [ $qCpeId -eq $cl_qId ]; then
+		eval queue_prio='$'qq_${n}_qPrio
+		vconfig_skb_prio=`expr -$queue_prio + 8`
+		eval qIfType='$'qq_${n}_qIfType	
+		#if [ $qIfType -eq $qIfTypeActive ]; then
+			# read each parameters from rc.conf
+			eval QOS_CPEID='$'qcl_${i}_cpeId
+			eval QOS_ORDER='$'qcl_${i}_order
+
+			if [ $2 -eq 1 ]; then
+				if [ $QOS_ORDER -gt $1 ]; then
+					QOS_ORDER=$(( $1 + 1 )) 
+				fi
+			fi
+
+			eval QOS_TYPE='$'qcl_${i}_type
+			eval QOS_IFTYPE='$'qcl_${i}_ifType
+			eval QOS_SPECIF='$'qcl_${i}_specIf
+			eval QOS_QID='$'qcl_${i}_qId
+			eval QOS_IFNAME='$'qcl_${i}_ifname
+			eval QOS_ENABLE='$'qcl_${i}_enable
+			eval QOS_RATELMT='$'qcl_${i}_rateLmt
+			eval QOS_RATECTRENBL='$'qcl_${i}_rateCtrlEnbl
+			NF_MARK=$QOS_QID
+
+			if [ $QOS_ENABLE -eq 1 -a $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+				#LQ Change Fill NF_MARK
+				# TBD: Calculate queue classifier mapped index
+				queuecfg -w $QOS_QID/$QOS_CPEID
+				QQ_QCL_MAPPED_IDX=$?
+				if [ $QQ_QCL_MAPPED_IDX -gt 0 ]; then
+					QQ_QCL_MAPPED_IDX=$(($QQ_QCL_MAPPED_IDX<<10))
+					NF_MARK=$(($QQ_QCL_MAPPED_IDX|$QOS_QID))
+				fi
+			fi
+
+			eval QOS_PROTO='$'qcl_${i}_proto
+			eval QOS_PROTOEXCL='$'qcl_${i}_protoExcl
+
+			eval QOS_DSTIP='$'qcl_${i}_dstIP
+			eval QOS_DSTIPMASK='$'qcl_${i}_dstIPMask
+			eval QOS_DSTIPEXCL='$'qcl_${i}_dstIPExcl
+
+			eval QOS_SRCIP='$'qcl_${i}_srcIP
+			eval QOS_SRCIPMASK='$'qcl_${i}_srcIPMask
+			eval QOS_SRCIPEXCL='$'qcl_${i}_srcIPExcl
+	
+			eval QOS_DSTPORT='$'qcl_${i}_dstPort
+			eval QOS_DSTPORTEND='$'qcl_${i}_dstPortEnd
+			eval QOS_DSTPORTEXCL='$'qcl_${i}_dstPortExcl
+
+			eval QOS_SRCPORT='$'qcl_${i}_srcPort
+			eval QOS_SRCPORTEND='$'qcl_${i}_srcPortEnd
+			eval QOS_SRCPORTEXCL='$'qcl_${i}_srcPortExcl
+
+			eval QOS_SRCMAC='$'qcl_${i}_srcMac
+			eval QOS_SRCMACMASK='$'qcl_${i}_srcMacMask
+			eval QOS_SRCMACEXCL='$'qcl_${i}_srcMacExcl
+
+			eval QOS_DSTMAC='$'qcl_${i}_dstMac
+			eval QOS_DSTMACMASK='$'qcl_${i}_dstMacMask
+			eval QOS_DSTMACEXCL='$'qcl_${i}_dstMacExcl
+			
+			eval QOS_INDSCP='$'qcl_${i}_inDscp
+			eval QOS_INDSCPEXCL='$'qcl_${i}_inDscpExcl
+			eval QOS_DSCPMARK='$'qcl_${i}_dscpMark
+
+			eval QOS_INVLANID='$'qcl_${i}_vlanId
+			eval QOS_INVLANIDEXCL='$'qcl_${i}_vlanIdExcl
+			eval QOS_INVLANIDMARK='$'qcl_${i}_vlanMark
+
+			eval QOS_IN802_1P='$'qcl_${i}_inPBits
+			eval QOS_IN802_1PEXCL='$'qcl_${i}_inPBitsExcl
+			eval QOS_802_1PMARK='$'qcl_${i}_PBitsMark
+
+			eval QOS_VLANIP='$'qcl_${i}_vlanId
+			eval QOS_VLANIDEXCL='$'qcl_${i}_vlanIdExcl
+			eval QOS_FWPOLICY='$'qcl_${i}_fwPolicy
+
+			# 802-1P remarking for ATM/PTM modes in SW.
+			# Change the Egress map of the vconfig interface as per the 802-1P remarking value specified through Web.
+			# Argument-1 for ipqos_common indicates 'vconfig changes for 8021P remarking'
+		        # Argument-2 for ipqos_common indicates 'add/delete the vconfig egress map for 8021P remarking'	
+					# For MFC classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+#echo "Entered this part 1"
+				in_1p=0
+				in_vid=0	
+				if [ ! -z $QOS_DSTIP ] || [ $QOS_PROTO != -1 ] || [ ! -z $QOS_SRCIP ] || [ $QOS_DSTPORT != -1 ] || [ $QOS_SRCPORT != -1 ] || [ $QOS_INDSCP != -1 ]; then	
+					QOS_RULE_L2="-p ipv4"
+				fi		
+				if [ $QOS_IN802_1P != -1 ] || [ $QOS_INVLANID != -1 ]; then
+					QOS_RULE_1Q="-p 8021Q"
+				fi
+
+				#check and add protocol
+				if [ $QOS_PROTO != -1 ]; then
+					QOS_RULE="-p"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-protocol"
+					if [ $QOS_PROTOEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_PROTO"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_PROTO"
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#check and add destination ip
+				if [ ! -z $QOS_DSTIP ]; then
+					QOS_RULE="$QOS_RULE -d"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-destination"
+					if [ $QOS_DSTIPEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_DSTIP"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTIP"
+					if [ ! -z $QOS_DSTIPMASK ]; then
+						QOS_RULE="$QOS_RULE/$QOS_DSTIPMASK"
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_DSTIPMASK"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add source ip address
+				if [ ! -z $QOS_SRCIP ]; then
+					QOS_RULE="$QOS_RULE -s"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-source"
+					if [ $QOS_SRCIPEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_SRCIP"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCIP"
+					if [ ! -z $QOS_SRCIPMASK ]; then
+						QOS_RULE="$QOS_RULE/$QOS_SRCIPMASK"
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_SRCIPMASK"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add dest port
+				if [ $QOS_DSTPORT != -1 ]; then
+					QOS_RULE="$QOS_RULE --dport"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-destination-port"
+					if [ $QOS_DSTPORTEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_DSTPORT"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTPORT"
+					if [ $QOS_DSTPORTEND != -1 ]; then
+						QOS_RULE="$QOS_RULE:$QOS_DSTPORTEND"
+						QOS_RULE_L2="$QOS_RULE_L2:$QOS_DSTPORTEND"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add src port
+				if [ $QOS_SRCPORT != -1 ]; then
+					QOS_RULE="$QOS_RULE --sport"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-source-port"
+					if [ $QOS_SRCPORTEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_SRCPORT"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCPORT"
+					if [ $QOS_SRCPORTEND != -1 ]; then
+						QOS_RULE="$QOS_RULE:$QOS_SRCPORTEND"
+						QOS_RULE_L2="$QOS_RULE_L2:$QOS_SRCPORTEND"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add source mac
+				if [ ! -z $QOS_SRCMAC ]; then
+					src_mac=1
+					QOS_RULE="$QOS_RULE -m mac --mac-source"
+					QOS_RULE_L2="$QOS_RULE_L2 -s"
+				#	QOS_RULE_mac="-s"
+					if [ $QOS_SRCMACEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_SRCMAC"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCMAC"
+					if [ ! -z $QOS_SRCMACMASK ]; then
+						QOS_RULE="$QOS_RULE/$QOS_SRCMACMASK"
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_SRCMACMASK"
+					fi
+				fi
+				
+				#Check and add source mac
+				if [ ! -z $QOS_DSTMAC ]; then
+					dst_mac=1
+				#	QOS_RULE_1Q="$QOS_RULE_1Q -d"
+					QOS_RULE_L2="$QOS_RULE_L2 -d"
+					if [ $QOS_DSTMACEXCL -ne 0 ]; then
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTMAC"
+					if [ ! -z $QOS_DSTMACMASK ]; then
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_DSTMACMASK"
+					fi
+				fi
+	
+				#Check and add DSCP match
+				if [ $QOS_INDSCP != -1 ]; then
+#echo "Entered this part 2"
+					QOS_RULE="$QOS_RULE -m dscp --dscp $QOS_INDSCP"
+					# Mapping DSCP to TOS
+					QOS_TOS_MAP=$(($QOS_INDSCP<<2))
+					QOS_TOS_MAP=$(echo $QOS_TOS_MAP | awk '{printf "%x", $1}')
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-tos $QOS_TOS_MAP"
+					QOS_RULE_LOCAL="$QOS_RULE"
+#echo "Rule_l2 = $QOS_RULE_L2"
+       				fi
+
+				#Check and add 802.1P match
+				if [ $QOS_IN802_1P != -1 ]; then
+					# Shift Incoming 1P value so that it matches the designated 1P bit positions in NFMARK
+					# This logic only used for Routed case i.e for Iptables
+					Incom_802_1p=$(($QOS_IN802_1P<<14))
+					in_1p=1
+					#Framing QOS Rule for Bridge scenario i.e for Ebtables
+					QOS_RULE_1P="-p 8021Q --vlan-prio"
+					if [ $QOS_IN802_1PEXCL -ne 0 ]; then
+						QOS_RULE_1P="$QOS_RULE_1Q !"
+					fi
+					QOS_RULE_1P="$QOS_RULE_1P $QOS_IN802_1P"
+       				fi
+				#Check and add VLAN ID match
+				if [ $QOS_INVLANID != -1 ]; then
+					# Shift Incoming VlanId value so that it matches the designated VlanId bit positions in NFMARK
+					# This logic only used for Routed case i.e for Iptables
+					if [ $QOS_INVLANIDEXCL -eq 0 ]; then
+						Incom_VID=$(($QOS_INVLANID<<17))
+						in_vid=1
+					fi
+					# Framing QOS Rule for Bridge scenario i.e for Ebtables
+					QOS_RULE_VID="-p 8021Q --vlan-id"
+					if [ $QOS_INVLANIDEXCL -ne 0 ]; then
+						QOS_RULE_VID="$QOS_RULE_VID !"
+					fi
+					QOS_RULE_VID="$QOS_RULE_VID $QOS_INVLANID"
+				fi				
+	
+				# iptables action to perform is always insert
+				act="I"
+
+        			# Prepare LAN and OUTPUT rule chain name
+        			# eval LAN_CHAIN_NAME="LAN_$QOS_CPEID"
+        			eval WAN_CHAIN_NAME="WAN_$QOS_CPEID"
+        			eval OUTPUT_CHAIN_NAME="DS_OUTPUT_$QOS_CPEID"
+				
+				X_MARK=$(($NF_MARK<<10))
+				# Form the iptables rules for the classification
+				# if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+#echo "QOS_IFTYPE =$QOS_IFTYPE"  
+				if [ $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+#echo "Entered this part 4"
+					# Interface is LAN. Add rules to chain IPQOS_LAN_ING
+					# for every new classification entry, add a new chain, insert the chain name at  order number
+					# in IPQOS_LAN_ING.
+					# Create the LAN rule chain with name 'LAN_CHAIN_NAME' for storing classifier rules
+					# Create equivalent rules for both Ebtables & Iptables for Bridged/Routed traffic resp.
+
+					EBTABLES_RULE="$EBTABLES -t filter -N $WAN_CHAIN_NAME"
+        				$EBTABLES_RULE
+
+					# Default target is return
+
+					EBTABLES_RULE="$EBTABLES -t filter -P $WAN_CHAIN_NAME RETURN"
+					$EBTABLES_RULE
+
+	        			#insert a skip rule ,if classification entry is in disabled state
+	        			if [ $QOS_ENABLE -ne 1 ]; then
+						# Add a rule to simply return
+						EBTABLES_RULE="$EBTABLES -t filter -I $WAN_CHAIN_NAME 1  -j RETURN"
+        					$EBTABLES_RULE
+	
+						# Insert the rule to jump to lan chain rule in IPQOS_LAN_ING at given order
+						EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_WAN_ING $QOS_ORDER -j $WAN_CHAIN_NAME"
+                				$EBTABLES_RULE
+	
+					else
+						# following lines are for if the classifier is enabled
+						# Insert a rule in the IPQOS_LAN_ING chain at the location of order and jump to LAN_CHAIN_NAME chain
+						EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_WAN_ING $QOS_ORDER -j $WAN_CHAIN_NAME"
+        					$EBTABLES_RULE
+
+						# first flush the LAN rule chain, for make the chain empty
+						# TBD: Currently not required since we always delete and add. Will be required in replace scenario
+		
+						# Add a rule to Classify packets that had Vlan-ID or 802.1P priority bits set for Routed case.
+						# For Bridge case the rules for VlanID & 802.1P are already available in QOS_RULE_L2
+
+						# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+						#echo " VENU: Qos_rulr_l2 = $QOS_RULE_L2 /n"
+						#echo " VENU VENU: Rule-1 = $EBTABLES_RULE /n"
+						
+						if [ "$QOS_RULE_L2" = "" ]; then
+							if [ $in_1p -eq 1 ] && [ $in_vid -eq 0 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								#echo " VENU 1P only "
+							fi
+							if [ $in_vid -eq 1 ] && [ $in_1p -eq 0 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_VID -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								#echo " VENU: VID only "
+							fi
+							if [ $in_vid -eq 1 ] && [ $in_1p -eq 1 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_VID -j mark --set-mark $X_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								#echo " VENU: 1P + VID "
+							fi
+							if [ $in_vid -eq 0 ] && [ $in_1p -eq 0 ]; then
+#echo " # "
+							fi
+						else
+							if [ $in_1p -eq 1 ] && [ $in_vid -eq 0 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+#echo " VENU: L3 + 1P "
+							fi
+							if [ $in_vid -eq 1 ] && [ $in_1p -eq 0 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_VID -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+#echo " VENU: L3 + VID "
+							fi
+							if [ $in_vid -eq 1 ] && [ $in_1p -eq 1 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_VID -j mark --set-mark $X_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+#echo " VENU: L3 + VID + 1P "
+							fi
+							if [ $in_vid -eq 0 ] && [ $in_1p -eq 0 ]; then
+								EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+#echo "Ebtables :$EBTABLES_RULE"
+#echo " VENU: only L3 "
+							fi
+
+						fi
+
+						# Check outgoing DSCP is specified. if given, mark the outgoing DSCP
+						if [ $QOS_DSCPMARK != "-1" ]; then
+							# If packet mark is configured QId, then mark the outgoing DSCP
+							# Deriving TOS value from DSCP value
+							QOS_TOSMARK=$((QOS_DSCPMARK<<2))
+							$QOS_TOSMARK
+							EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $QOS_QID/$QOS_QID -j tos --set-tos $QOS_TOSMARK"
+							$EBTABLES_RULE
+						fi
+	
+						# Packet hits all the rules in this chain. So add a rule to accept the packet.
+						# This will block the packet to travel through other chains
+						EBTABLES_RULE="$EBTABLES -t filter -A $WAN_CHAIN_NAME --mark $QOS_QID/$QOS_QID -j IPQOS_QUEUE_MAP"
+						$EBTABLES_RULE
+					fi
+
+				fi
+			fi
+
+			
+			
+			# For DSCP classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+				#Check and add DSCP match
+				if [ $QOS_INDSCP != -1 ]; then
+					QOS_RULE="-m dscp --dscp $QOS_INDSCP"
+					QOS_RULE_L2="-p ipv4"
+					QOS_TOS_MAP=$(($QOS_INDSCP<<2))
+					QOS_TOS_MAP=$(echo $QOS_TOS_MAP | awk '{printf "%x", $1}')
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-tos $QOS_TOS_MAP"
+				fi
+	
+				#Ingress Interface Classification 
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+					QOS_RULE="$QOS_RULE -i $QOS_SPECIF"	
+					QOS_RULE_L2="$QOS_RULE_L2 -i $QOS_SPECIF"	
+				fi
+
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+					# Prepare IPQOS_LAN_DSCP chain name
+					eval IPQOS_WAN_DSCP_CHAIN_NAME="IPQOS_WAN_DSCP_$QOS_CPEID"
+
+					#create the IPQOS_DSCP chain with name 'IPQOS_LAN_DSCP_CHAIN_NAME'
+					EBTABLES_RULE="$EBTABLES -t filter -N $IPQOS_WAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+					EBTABLES_RULE="$EBTABLES -t filter -P $IPQOS_WAN_DSCP_CHAIN_NAME RETURN"
+					$EBTABLES_RULE
+
+					#insert a skip rule ,if classification entry is in disabled state
+					if [ $QOS_ENABLE -ne 1 ]; then
+						# Add a rule to simply return
+						EBTABLES_RULE="$EBTABLES -t filter -I $IPQOS_WAN_DSCP_CHAIN_NAME 1  -j RETURN"
+						$EBTABLES_RULE
+						# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+						EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_WAN_DSCP_ALL -j $IPQOS_WAN_DSCP_CHAIN_NAME"
+						$EBTABLES_RULE
+	
+					else
+						# following lines are for if the classifier is enabled
+						# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+						EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_WAN_DSCP_ALL -j $IPQOS_WAN_DSCP_CHAIN_NAME"
+						$EBTABLES_RULE
+	
+						# first flush the LANDSCP rule chain, for make the chain empty
+						#TBD: Currently not required since we always delete and add. Will be required in replace scenario
+
+						# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+						EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_WAN_DSCP_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+						$EBTABLES_RULE
+
+						# Check outgoing DSCP is specified. if given, mark the outgoing DSCP
+						if [ $QOS_DSCPMARK != "-1" ]; then
+							# if packet mark is configured QId, then mark the outgoing DSCP
+							QOS_TOSMARK=$((QOS_DSCPMARK<<2))
+							$QOS_TOSMARK
+							#VENU Need to check whether to use $QOS_QID/$QOS_QID or NF_MARK 
+							EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_WAN_DSCP_CHAIN_NAME --mark $NF_MARK -j tos --set-tos $QOS_TOSMARK"
+							$EBTABLES_RULE
+						fi
+
+						# Packet hits all the rules in this chain. So add a rule to accept the packet.
+						# This will block the packet to travel through other chains
+						EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_WAN_DSCP_CHAIN_NAME --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+						$EBTABLES_RULE
+					fi
+
+				fi
+			fi
+			# For 802.1P classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+				in_1p=0
+				QOS_RULE_L2=""
+				#Check and add 802.1P match
+				if [ $QOS_IN802_1P != -1 ]; then
+					Incom_802_1p=$(($QOS_IN802_1P<<14))
+					in_1p=1
+					QOS_RULE_L2="-p 8021Q --vlan-prio"
+					if [ $QOS_IN802_1PEXCL -ne 0 ]; then
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_IN802_1P"
+        			fi
+				if [ $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					#Prepare IPQOS_LAN_8021P chain name
+					eval IPQOS_WAN_8021P_CHAIN_NAME="IPQOS_WAN_8021P_$QOS_CPEID"
+
+					EBTABLES_RULE="$EBTABLES -t filter -N $IPQOS_WAN_8021P_CHAIN_NAME"
+					$EBTABLES_RULE
+					EBTABLES_RULE="$EBTABLES -t filter -P $IPQOS_WAN_8021P_CHAIN_NAME RETURN"
+					$EBTABLES_RULE
+
+					if [ $QOS_ENABLE -ne 1 ]; then
+						EBTABLES_RULE="$EBTABLES -t filter -I $IPQOS_WAN_8021P_CHAIN_NAME 1  -j RETURN"
+        					$EBTABLES_RULE
+					else
+			
+						EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_WAN_8021P_ALL -j $IPQOS_WAN_8021P_CHAIN_NAME"
+                				$EBTABLES_RULE
+        				
+						EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_WAN_8021P_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $QOS_QID"
+	        				$EBTABLES_RULE
+
+					fi
+					EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_WAN_8021P_CHAIN_NAME --mark $QOS_QID -j IPQOS_QUEUE_MAP"
+					$EBTABLES_RULE
+				fi
+			fi
+		fi
+
+	QOS_RULE=""
+#	n=$(( $n + 1 ))
+#done

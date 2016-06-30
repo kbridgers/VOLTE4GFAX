@@ -1,0 +1,78 @@
+This patch fixes the partitions splitting when used on NAND with bad blocks.
+
+--- a/drivers/mtd/mtdpart.c
++++ b/drivers/mtd/mtdpart.c
+@@ -578,6 +578,22 @@ out_register:
+ 	return slave;
+ }
+ 
++static unsigned long fix_size_for_bad_blocks(struct mtd_info *mtd,
++			unsigned long offset, unsigned long size)
++{
++	unsigned long offs = 0;
++
++	if (mtd->block_isbad) {
++		while (offs < size) {
++			if (mtd->block_isbad(mtd, offs + offset))
++				size += mtd->erasesize;
++			offs += mtd->erasesize;
++		}
++	}
++
++	return size;
++}
++
+ #ifdef CONFIG_MTD_ROOTFS_SPLIT
+ #define ROOTFS_SPLIT_NAME "rootfs_data"
+ #define ROOTFS_REMOVED_NAME "<removed>"
+@@ -616,6 +632,7 @@ static int split_squashfs(struct mtd_inf
+ 	}
+ 
+ 	len = (u32) le64_to_cpu(sb.bytes_used);
++	len = fix_size_for_bad_blocks(master, offset, len);
+ 	len += (offset & 0x000fffff);
+ 	len +=  (master->erasesize - 1);
+ 	len &= ~(master->erasesize - 1);
+@@ -733,20 +750,30 @@ static unsigned long find_uimage_size(st
+ 	unsigned long magic = 0;
+ 	unsigned long temp;
+ 	size_t len;
++	unsigned long offs = 0;
+ 	int ret;
+ 
+-	ret = mtd->read(mtd, offset, 4, &len, (void *)&magic);
++	if (mtd->block_isbad) {
++		while (mtd->block_isbad(mtd, offset + offs))
++			offs += mtd->erasesize;
++	}
++
++	ret = mtd->read(mtd, offset + offs, 4, &len, (void *)&magic);
+ 	if (ret || len != sizeof(magic))
+ 		return 0;
+ 
+ 	if (le32_to_cpu(magic) != UBOOT_MAGIC)
+ 		return 0;
+ 
+-	ret = mtd->read(mtd, offset + 12, 4, &len, (void *)&temp);
++	ret = mtd->read(mtd, offset + offs + 12, 4, &len, (void *)&temp);
+ 	if (ret || len != sizeof(temp))
+ 		return 0;
+ 
+-	return temp + 0x40;
++	/* add size of u-boot image header */
++	temp += 0x40;
++
++	/* return size including skipped bad blocks */
++	return fix_size_for_bad_blocks(mtd, offset, temp);
+ }
+ 
+ static int detect_squashfs_partition(struct mtd_info *mtd, unsigned long offset)
+@@ -780,7 +807,7 @@ static int split_uimage(struct mtd_info 
+ 	split_partitions[0].size = find_uimage_size(mtd, part->offset);
+ 	if (!split_partitions[0].size) {
+ 		printk(KERN_NOTICE "no uImage found in linux partition\n");
+-		return -1;
++		return -EINVAL;
+ 	}
+ 
+ 	if (!detect_squashfs_partition(mtd,

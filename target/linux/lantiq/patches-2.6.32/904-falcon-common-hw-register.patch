@@ -1,0 +1,56 @@
+--- a/arch/mips/lantiq/falcon/mach-95C3AM1.c
++++ b/arch/mips/lantiq/falcon/mach-95C3AM1.c
+@@ -84,9 +84,6 @@ static struct platform_device board_95C3
+ 
+ static void __init board_95C3AM1_init(void)
+ {
+-	falcon_register_asc(0);
+-	falcon_register_gpio();
+-	falcon_register_wdt();
+ 	falcon_register_i2c();
+ 	falcon_register_spi_flash(&board_95C3AM1_flash_data);
+ 	platform_device_register(&board_95C3AM1_i2c_gpio_device);
+--- a/arch/mips/lantiq/falcon/mach-easy98000.c
++++ b/arch/mips/lantiq/falcon/mach-easy98000.c
+@@ -216,9 +216,6 @@ static void __init easy98000_spi_gpio_in
+ 
+ static void __init easy98000_init_common(void)
+ {
+-	falcon_register_asc(0);
+-	falcon_register_gpio();
+-	falcon_register_wdt();
+ 	falcon_register_i2c();
+ 	platform_device_register(&easy98000_i2c_gpio_device);
+ 	register_davicom();
+--- a/arch/mips/lantiq/falcon/mach-easy98020.c
++++ b/arch/mips/lantiq/falcon/mach-easy98020.c
+@@ -99,9 +99,6 @@ static struct gpio_led easy98020_leds_gp
+ 
+ static void __init easy98020_init(void)
+ {
+-	falcon_register_asc(0);
+-	falcon_register_gpio();
+-	falcon_register_wdt();
+ 	falcon_register_i2c();
+ 	falcon_register_spi_flash(&easy98020_spi_flash_data);
+ 	ltq_add_device_leds_gpio(-1, ARRAY_SIZE(easy98020_leds_gpio),
+--- a/arch/mips/lantiq/falcon/prom.c
++++ b/arch/mips/lantiq/falcon/prom.c
+@@ -20,6 +20,7 @@
+ #include <falcon/status_reg.h>
+ #include <falcon/sys1_reg.h>
+ 
++#include "devices.h"
+ #include "../prom.h"
+ 
+ /* mapping to linux hw-accessor routines */
+@@ -58,6 +59,9 @@ ltq_soc_setup(void)
+ 				INFRAC_DGASPHYS_MASK),
+ 			infrac);
+ 	}
++	falcon_register_asc(0);
++	falcon_register_gpio();
++	falcon_register_wdt();
+ }
+ 
+ void __init

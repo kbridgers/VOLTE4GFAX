@@ -1,0 +1,66 @@
+config FEATURE_IFX_OAM_FULL
+	bool 'Full OAM Support'
+	default n
+	help
+	  Enable Full OAM Support
+
+config FEATURE_IFX_OAM_F5_LOOPBACK
+	bool 'F5 Loopback Support'
+	default y
+	help
+	  Enable F5 Loopback Support
+
+config FEATURE_IFX_OAM_F5_LOOPBACK_PING
+	depends on FEATURE_IFX_OAM_F5_LOOPBACK
+	bool 'F5 Loopback Ping Support'
+	default y
+	help
+	  Enable F5 Loopback Ping Support
+
+config FEATURE_IFX_OAM_F4_LOOPBACK
+	depends on FEATURE_IFX_OAM_FULL
+	bool 'F4 Loopback Support'
+	default y
+	help
+	  Enable F4 Loopback Support
+
+config FEATURE_IFX_OAM_F4_LOOPBACK_PING
+	depends on FEATURE_IFX_OAM_FULL && FEATURE_IFX_OAM_F4_LOOPBACK
+	bool 'F4 Loopback Ping Support'
+	default y
+	help
+	  Enable F4 Loopback Ping Support
+
+config FEATURE_IFX_OAM_AIS
+	depends on FEATURE_IFX_OAM_FULL
+	bool 'AIS Support'
+	default y
+	help
+	  Enable AIS Support
+
+config FEATURE_IFX_OAM_RDI
+	depends on FEATURE_IFX_OAM_FULL
+	bool 'RDI Support'
+	default y
+	help
+	  Enable RDI Support
+	  
+config FEATURE_IFX_OAM_CC
+	depends on FEATURE_IFX_OAM_FULL
+	bool 'CC Support'
+	default y
+	help
+	  Enable CC Support
+	  
+config FEATURE_IFX_OAM_EVENT_SCRIPT
+	depends on FEATURE_IFX_OAM_F4_LOOPBACK || FEATURE_IFX_OAM_F5_LOOPBACK || FEATURE_IFX_OAM_AIS || FEATURE_IFX_OAM_RDI || FEATURE_IFX_OAM_CC
+	bool 'Event Script Support'
+	default y
+	help
+	  Enable Event Script Support
+
+config FEATURE_IFX_OAM_SIMULATOR
+	bool 'OAM cell generation simulator'
+	default n
+	help
+	  Enable OAM cell generation simulator

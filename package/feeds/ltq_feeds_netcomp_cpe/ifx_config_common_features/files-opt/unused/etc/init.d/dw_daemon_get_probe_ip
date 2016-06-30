@@ -1,0 +1,125 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+  echo "" > "$OUTPUT"
+}
+remove_output()
+{
+  rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+  if [ -r /etc/rc.conf ]; then
+     . /etc/rc.conf 2> /dev/null
+    ENVLOADED="1"
+  fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then             
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"                 
+	fi                                       
+fi         
+
+flush_output
+
+if [ "$2" = "1" ]; then
+	phyMode=$dw_pri_wanphy_phymode
+	tcMode=$dw_pri_wanphy_tc
+elif [ "$2" = "2" ]; then
+	phyMode=$dw_sec_wanphy_phymode
+	tcMode=$dw_sec_wanphy_tc
+fi
+check_wan_gw_connection()
+{
+		WAN_CONN_TAG="Wan${1}${2}_IF_Info"
+		stat="`/usr/sbin/status_oper GET $WAN_CONN_TAG STATUS`"
+		if [ "$stat" = "CONNECTED" ]; then
+			WAN_GW_TAG="Wan${1}${2}_GATEWAY"
+			gw="`/usr/sbin/status_oper GET $WAN_GW_TAG ROUTER1`"
+			if [ -n "$gw" ]; then
+				$PING -c 2 $gw > /dev/null
+				if [ "$?" = "0" ]; then
+					gw_status="REACHABLE"
+				else
+					gw_status="NOT_REACHABLE"
+				fi
+			else
+				# echo "gateway to this wan is not available.. declaring down"
+				gw_status="UNAVAILABLE"
+			fi
+		else
+			gw_status="NOT_CONNECTED"
+		fi
+}
+get_wan_idx_type()
+{
+	. /etc/init.d/get_wan_mode $phyMode $tcMode
+	flush_output
+	eval wanConnName='$'default_wan_${wanMode}_conn_connName
+	echo ${wanConnName} > "$OUTPUT"
+	wan_idx=`"$SED" -n 's,WANIP,,;1p' "$OUTPUT"`
+	if [ "$wan_idx" = "$wanConnName" ]; then
+		wan_idx=`"$SED" -n 's,WANPPP,,;1p' "$OUTPUT"`
+		wan_type="PPP"
+	else
+		wan_type="IP"	
+	fi
+}
+case $1 in
+"IP")
+	get_wan_idx_type
+	;;
+"URL")
+get_wan_idx_type
+if [ "$ifName" != "ppp60" ]; then
+	gw_status="INIT"
+	check_wan_gw_connection $wan_type $wan_idx
+else
+	WAN_CONN_TAG="Wan${wan_type}${wan_idx}_IF_Info"
+	stat="`/usr/sbin/status_oper GET $WAN_CONN_TAG STATUS`"
+	if [ "$stat" = "CONNECTED" ]; then
+		WAN_GW_TAG="Wan${wan_type}${wan_idx}_GATEWAY"
+		gw="`/usr/sbin/status_oper GET $WAN_GW_TAG ROUTER1`"
+		if [ -n "$gw" ]; then
+			gw_status="REACHABLE"
+		else
+			gw_status="UNAVAILABLE"
+		fi
+	fi
+fi
+#if [ "$2" = "1" -a "$pri_wan_status" = "0" ] || [ "$2" = "2" ]; then
+	if [ "$wanphy_phymode" != "$phyMode" ]; then
+		if [ "$gw_status" = "REACHABLE" ]; then
+			# echo "route add default gw $gw dev $ifName"
+			route add default gw $gw dev $ifName
+			if [ "$?" = "0" ]; then
+				add_def_dev=1
+			fi
+		fi
+	fi
+	
+	if [ -n "$add_def_dev" -a "$add_def_dev" = "1" ]; then
+		# echo "restarting dns with $wan_type	$wan_idx"
+		/etc/init.d/dns_relay_start $wan_type $wan_idx
+		probe_ip=`nslookup $probe_url | grep "Address 1" | awk -F " " '{print $3}' | sed 1d`
+		if [ -n "$probe_ip" ]; then
+			# echo "$probe_ip"
+			lookup="1"
+		fi
+		# echo "route delete default dev $ifName"
+		route delete default gw $gw dev $ifName
+		/etc/init.d/dns_relay restart
+	fi
+	if [ "$lookup" = "1" ]; then
+		# if url is resolved add a host route to the given url using the default device
+		# echo "route add -host $probe_ip dev $ifName"
+		route add -host $probe_ip dev $ifName
+	fi
+	add_def_dev="0"
+#fi
+	;;
+esac

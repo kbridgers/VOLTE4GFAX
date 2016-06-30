@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wrxml>
+    <properties platform="VxWorks" platform_name="vxworks-6.4" root="0" type="DownloadableKernelModuleProject"/>
+    <attributes>
+        <mapAttribute>
+            <listAttribute key="BLD::Info|GlobalMacros">
+                <stringAttribute value="PROJECT_TYPE"/>
+                <stringAttribute value="DEFINES"/>
+                <stringAttribute value="EXPAND_DBG"/>
+            </listAttribute>
+            <stringAttribute key="BLD::Info|GlobalMacro|DEFINES" value="-DVXWORKS -DTAPI -DEASY336 -DWITH_VXT -DCONFIG_IFX_SVIP_NAT -DTAPI_VERSION4 -DHAVE_DRV_TAPI_HEADERS -DDYNAMIC_RM -DUSE_FILESYSTEM -DNO_WITH_VXT -DNO_XT16 -DHAVE_DRV_SVIP_HEADERS"/>
+            <stringAttribute key="BLD::Info|GlobalMacro|EXPAND_DBG" value="0"/>
+            <stringAttribute key="BLD::Info|GlobalMacro|PROJECT_TYPE" value="DKM"/>
+            <listAttribute key="BLD::Info|Incl|MIPS32sfgnu">
+                <stringAttribute value="-I$(WIND_BASE)/target/h"/>
+                <stringAttribute value="-I$(WIND_BASE)/target/h/wrn/coreip"/>
+                <stringAttribute value="-I../../../../comacsd_bsp/svip_mips32sf"/>
+                <stringAttribute value="-I$(WIND_BASE)/target/config/svip_mips32sf"/>
+                <stringAttribute value="-I%Proj-lib_vos%/include"/>
+                <stringAttribute value="-I%Proj-lib_ifxos%/src/include"/>
+                <stringAttribute value="-I%Proj-lib_ifxos%/src/include/vxworks"/>
+                <stringAttribute value="-I%Proj-drv_svip%/include"/>
+                <stringAttribute value="-I%Proj-drv_vxt%/include"/>
+                <stringAttribute value="-I%Proj-drv_tapi%/include"/>
+                <stringAttribute value="-I%Proj-lib_svip%"/>
+                <stringAttribute value="-I%Proj-drv_svip%/vmmc"/>
+                <stringAttribute value="-I.."/>
+            </listAttribute>
+            <listAttribute key="BLD::Info|Macros">
+                <stringAttribute value="VX_CPU_FAMILY"/>
+                <stringAttribute value="CPU"/>
+                <stringAttribute value="TOOL_FAMILY"/>
+                <stringAttribute value="TOOL"/>
+                <stringAttribute value="TOOL_PATH"/>
+                <stringAttribute value="CC_ARCH_SPEC"/>
+                <stringAttribute value="LIBPATH"/>
+                <stringAttribute value="LIBS"/>
+            </listAttribute>
+            <stringAttribute key="BLD::Info|Macro|CC_ARCH_SPEC|value|MIPS32sfgnu" value="-G 0 -mno-branch-likely -mips2 -EB"/>
+            <stringAttribute key="BLD::Info|Macro|CPU|value|MIPS32sfgnu" value="MIPS32"/>
+            <stringAttribute key="BLD::Info|Macro|LIBPATH|value|MIPS32sfgnu" value=""/>
+            <stringAttribute key="BLD::Info|Macro|LIBS|value|MIPS32sfgnu" value=""/>
+            <stringAttribute key="BLD::Info|Macro|TOOL_FAMILY|value|MIPS32sfgnu" value="gnu"/>
+            <stringAttribute key="BLD::Info|Macro|TOOL_PATH|value|MIPS32sfgnu" value=""/>
+            <stringAttribute key="BLD::Info|Macro|TOOL|value|MIPS32sfgnu" value="sfgnu"/>
+            <stringAttribute key="BLD::Info|Macro|VX_CPU_FAMILY|value|MIPS32sfgnu" value="mips"/>
+            <listAttribute key="BLD::Info|Tools">
+                <stringAttribute value="C-Compiler"/>
+                <stringAttribute value="C++-Compiler"/>
+                <stringAttribute value="Linker"/>
+                <stringAttribute value="Partial Image Linker"/>
+                <stringAttribute value="Librarian"/>
+                <stringAttribute value="Assembler"/>
+            </listAttribute>
+            <stringAttribute key="BLD::Info|Tool|Assembler|cmd|MIPS32sfgnu" value="echo &quot;building $@&quot;;%assemblerprefix% $(TOOL_PATH)ccmips %DebugModeFlags% %ToolFlags% $(ADDED_CFLAGS) %Includes% $(ADDED_INCLUDES) -DCPU=$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -DMIPSEB -DSOFT_FLOAT  $(DEFINES) -o %OutFile% -c %InFile%"/>
+            <stringAttribute key="BLD::Info|Tool|Assembler|dbgFlags|MIPS32sfgnu" value="-g"/>
+            <stringAttribute key="BLD::Info|Tool|Assembler|derivedSigs|MIPS32sfgnu" value="*.o"/>
+            <stringAttribute key="BLD::Info|Tool|Assembler|flags|MIPS32sfgnu" value="$(CC_ARCH_SPEC) -ansi -fno-builtin  -xassembler-with-cpp -MD -MP"/>
+            <stringAttribute key="BLD::Info|Tool|Assembler|nonDbgFlags|MIPS32sfgnu" value="-O2"/>
+            <booleanAttribute key="BLD::Info|Tool|Assembler|object" value="true"/>
+            <booleanAttribute key="BLD::Info|Tool|Assembler|passAble" value="false"/>
+            <stringAttribute key="BLD::Info|Tool|Assembler|sigs" value="*.s"/>
+            <stringAttribute key="BLD::Info|Tool|C++-Compiler|cmd|MIPS32sfgnu" value="echo &quot;building $@&quot;;%cppcompilerprefix% $(TOOL_PATH)ccmips %DebugModeFlags% %ToolFlags% $(ADDED_C++FLAGS) %Includes% $(ADDED_INCLUDES) -DCPU=$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -DMIPSEB -DSOFT_FLOAT  $(DEFINES) -o %OutFile% -c %InFile%"/>
+            <stringAttribute key="BLD::Info|Tool|C++-Compiler|dbgFlags|MIPS32sfgnu" value="-g"/>
+            <stringAttribute key="BLD::Info|Tool|C++-Compiler|derivedSigs|MIPS32sfgnu" value="*.o"/>
+            <stringAttribute key="BLD::Info|Tool|C++-Compiler|flags|MIPS32sfgnu" value="$(CC_ARCH_SPEC) -ansi -fno-builtin -Wall -msoft-float -MD -MP"/>
+            <stringAttribute key="BLD::Info|Tool|C++-Compiler|nonDbgFlags|MIPS32sfgnu" value="-O2"/>
+            <booleanAttribute key="BLD::Info|Tool|C++-Compiler|object" value="true"/>
+            <booleanAttribute key="BLD::Info|Tool|C++-Compiler|passAble" value="false"/>
+            <stringAttribute key="BLD::Info|Tool|C++-Compiler|sigs" value="*.cpp;*.C;*.cxx;*.cc"/>
+            <stringAttribute key="BLD::Info|Tool|C-Compiler|cmd|MIPS32sfgnu" value="echo &quot;building $@&quot;;%ccompilerprefix% $(TOOL_PATH)ccmips %DebugModeFlags% %ToolFlags% $(ADDED_CFLAGS) %Includes% $(ADDED_INCLUDES) -DCPU=$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -DMIPSEB -DSOFT_FLOAT  $(DEFINES) -o %OutFile% -c %InFile%"/>
+            <stringAttribute key="BLD::Info|Tool|C-Compiler|dbgFlags|MIPS32sfgnu" value="-g -O1"/>
+            <stringAttribute key="BLD::Info|Tool|C-Compiler|derivedSigs|MIPS32sfgnu" value="*.o"/>
+            <stringAttribute key="BLD::Info|Tool|C-Compiler|flags|MIPS32sfgnu" value="$(CC_ARCH_SPEC) -ansi -fno-builtin -Wall -msoft-float -MD -MP"/>
+            <stringAttribute key="BLD::Info|Tool|C-Compiler|nonDbgFlags|MIPS32sfgnu" value="-O2"/>
+            <booleanAttribute key="BLD::Info|Tool|C-Compiler|object" value="true"/>
+            <booleanAttribute key="BLD::Info|Tool|C-Compiler|passAble" value="false"/>
+            <stringAttribute key="BLD::Info|Tool|C-Compiler|sigs" value="*.c"/>
+            <stringAttribute key="BLD::Info|Tool|Librarian|cmd|MIPS32sfgnu" value="echo &quot;building $@&quot;;%archiverprefix% $(TOOL_PATH)armips %ToolFlags% %OutFile% %Objects% $(ADDED_OBJECTS)"/>
+            <stringAttribute key="BLD::Info|Tool|Librarian|dbgFlags|MIPS32sfgnu" value=""/>
+            <stringAttribute key="BLD::Info|Tool|Librarian|derivedSigs|MIPS32sfgnu" value="*.a"/>
+            <stringAttribute key="BLD::Info|Tool|Librarian|flags|MIPS32sfgnu" value="crus"/>
+            <stringAttribute key="BLD::Info|Tool|Librarian|nonDbgFlags|MIPS32sfgnu" value=""/>
+            <booleanAttribute key="BLD::Info|Tool|Librarian|object" value="false"/>
+            <booleanAttribute key="BLD::Info|Tool|Librarian|passAble" value="true"/>
+            <stringAttribute key="BLD::Info|Tool|Librarian|sigs" value=""/>
+            <stringAttribute key="BLD::Info|Tool|Linker|cmd|MIPS32sfgnu" value="echo &quot;building $@&quot;;rm -f %OutFile%;nmmips %Objects% $(ADDED_OBJECTS) %Libraries% | tclsh $(WIND_BASE)/host/resource/hutils/tcl/munch.tcl -c mips &gt; $(OBJ_DIR)/ctdt.c;%ccompilerprefix% $(TOOL_PATH)ccmips %DebugModeFlags% $(CC_ARCH_SPEC) -fdollars-in-identifiers -Wall $(ADDED_CFLAGS) %Includes% $(ADDED_INCLUDES) -DCPU=$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -DMIPSEB -DSOFT_FLOAT  $(DEFINES) -msoft-float -o $(OBJ_DIR)/ctdt.o -c $(OBJ_DIR)/ctdt.c;%linkerprefix% $(TOOL_PATH)ccmips -r -nostdlib -Wl,-EB -Wl,-X %ToolFlags% -o %OutFile% $(OBJ_DIR)/ctdt.o %Objects% $(ADDED_OBJECTS) %Libraries% $(LIBPATH) $(LIBS) $(ADDED_LIBPATH) $(ADDED_LIBS) &amp;&amp; if [ &quot;$(EXPAND_DBG)&quot; = &quot;1&quot; ]; then plink &quot;$@&quot;;fi"/>
+            <stringAttribute key="BLD::Info|Tool|Linker|dbgFlags|MIPS32sfgnu" value="-g"/>
+            <stringAttribute key="BLD::Info|Tool|Linker|derivedSigs|MIPS32sfgnu" value="*.out"/>
+            <stringAttribute key="BLD::Info|Tool|Linker|flags|MIPS32sfgnu" value="-T $(WIND_BASE)/target/h/tool/gnu/ldscripts/link.OUT"/>
+            <stringAttribute key="BLD::Info|Tool|Linker|nonDbgFlags|MIPS32sfgnu" value="-O2"/>
+            <booleanAttribute key="BLD::Info|Tool|Linker|object" value="false"/>
+            <booleanAttribute key="BLD::Info|Tool|Linker|passAble" value="false"/>
+            <stringAttribute key="BLD::Info|Tool|Linker|sigs" value=""/>
+            <stringAttribute key="BLD::Info|Tool|Partial Image Linker|cmd|MIPS32sfgnu" value="echo &quot;building $@&quot;;%linkerprefix% $(TOOL_PATH)ccmips -r -nostdlib -Wl,-EB -Wl,-X %ToolFlags% -o %OutFile% %Objects% $(ADDED_OBJECTS) $(LIBPATH) $(LIBS) $(ADDED_LIBPATH) $(ADDED_LIBS) &amp;&amp; if [ &quot;$(EXPAND_DBG)&quot; = &quot;1&quot; ]; then plink &quot;$@&quot;;fi"/>
+            <stringAttribute key="BLD::Info|Tool|Partial Image Linker|dbgFlags|MIPS32sfgnu" value=""/>
+            <stringAttribute key="BLD::Info|Tool|Partial Image Linker|derivedSigs|MIPS32sfgnu" value="*.o"/>
+            <stringAttribute key="BLD::Info|Tool|Partial Image Linker|flags|MIPS32sfgnu" value=""/>
+            <stringAttribute key="BLD::Info|Tool|Partial Image Linker|nonDbgFlags|MIPS32sfgnu" value=""/>
+            <booleanAttribute key="BLD::Info|Tool|Partial Image Linker|object" value="false"/>
+            <booleanAttribute key="BLD::Info|Tool|Partial Image Linker|passAble" value="true"/>
+            <stringAttribute key="BLD::Info|Tool|Partial Image Linker|sigs" value=""/>
+            <stringAttribute key="BLD::Info|cmd" value="%makeprefix% make --no-print-directory"/>
+            <stringAttribute key="BLD::Info|defaultSpec" value="MIPS32sfgnu"/>
+            <stringAttribute key="BLD::Info|redirDir|MIPS32sfgnu" value="MIPS32sfgnu"/>
+            <stringAttribute key="BLD::Info|redirRoot" value=""/>
+            <listAttribute key="BLD::Info|specs">
+                <stringAttribute value="MIPS32sfgnu"/>
+            </listAttribute>
+            <intAttribute key="BuildSupportEnabled" value="1"/>
+            <booleanAttribute key="BuildTargetCentric" value="true"/>
+        </mapAttribute>
+    </attributes>
+    <buildtargets>
+        <buildtarget buildtool="Partial Image Linker" name="tapidemo" passed="true" targetname="tapidemo">
+            <attributes>
+                <mapAttribute>
+                    <listAttribute key="BuildSupportForBuildSpecs">
+                        <stringAttribute value="MIPS32sfgnu"/>
+                    </listAttribute>
+                </mapAttribute>
+            </attributes>
+            <contents>
+                <file name="/tapidemo/src/abstract.c"/>
+                <file name="/tapidemo/src/analog.c"/>
+                <file name="/tapidemo/src/board_svip.c"/>
+                <file name="/tapidemo/src/common.c"/>
+                <file name="/tapidemo/src/cid.c"/>
+                <file name="/tapidemo/src/event_handling_msg.c"/>
+                <file name="/tapidemo/src/feature.c"/>
+                <file name="/tapidemo/src/lib_tapi_signal.c"/>
+                <file name="/tapidemo/src/parse_cmd_arg.c"/>
+                <file name="/tapidemo/src/pcm.c"/>
+                <file name="/tapidemo/src/tapi_signal.c"/>
+                <file name="/tapidemo/src/tapidemo.c"/>
+                <file name="/tapidemo/src/voip.c"/>
+                <file name="/tapidemo/src/qos.c"/>
+                <file name="/tapidemo/src/conference.c"/>
+                <file name="/tapidemo/src/board_xt16.c"/>
+                <file name="/tapidemo/src/state_trans.c"/>
+                <file name="/tapidemo/src/board_easy336.c"/>
+                <file name="/tapidemo/src/device_vxt.c"/>
+                <file name="/tapidemo/src/device_svip.c"/>
+            </contents>
+        </buildtarget>
+    </buildtargets>
+</wrxml>

@@ -1,0 +1,1695 @@
+--- /dev/null
++++ b/drivers/i2c/busses/i2c-lantiq.c
+@@ -0,0 +1,823 @@
++/*
++ * Lantiq I2C bus adapter
++ *
++ * Parts based on i2c-designware.c and other i2c drivers from Linux 2.6.33
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/delay.h>
++#include <linux/slab.h> /* for kzalloc, kfree */
++#include <linux/i2c.h>
++#include <linux/errno.h>
++#include <linux/completion.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++#include <linux/io.h>
++
++#include <linux/i2c-lantiq-platform.h>
++
++#include "i2c-lantiq.h"
++
++/* CURRENT ISSUES:
++ * - no high speed support
++ * - ten bit mode is not tested (no slave devices)
++ */
++
++/* access macros */
++#define i2c_r32(reg)	\
++	__raw_readl(&(priv->membase)->reg)
++#define i2c_w32(val, reg)	\
++	__raw_writel(val, &(priv->membase)->reg)
++#define i2c_w32_mask(clear, set, reg)	\
++	i2c_w32((i2c_r32(reg) & ~(clear)) | (set), reg)
++
++#define DRV_NAME "i2c-lantiq"
++#define DRV_VERSION "1.00"
++
++#define LTQ_I2C_BUSY_TIMEOUT		20 /* ms */
++
++#ifdef DEBUG
++#define LTQ_I2C_XFER_TIMEOUT		(25*HZ)
++#else
++#define LTQ_I2C_XFER_TIMEOUT		HZ
++#endif
++#if defined(DEBUG) && 0
++#define PRINTK(arg...) printk(arg)
++#else
++#define PRINTK(arg...) do {} while (0)
++#endif
++
++#define LTQ_I2C_IMSC_DEFAULT_MASK	(I2C_IMSC_I2C_P_INT_EN | \
++					 I2C_IMSC_I2C_ERR_INT_EN)
++
++#define LTQ_I2C_ARB_LOST		(1 << 0)
++#define LTQ_I2C_NACK			(1 << 1)
++#define LTQ_I2C_RX_UFL			(1 << 2)
++#define LTQ_I2C_RX_OFL			(1 << 3)
++#define LTQ_I2C_TX_UFL			(1 << 4)
++#define LTQ_I2C_TX_OFL			(1 << 5)
++
++struct lantiq_i2c {
++	struct mutex mutex;
++
++	/* active clock settings */
++	unsigned int input_clock;	/* clock input for i2c hardware block */
++	unsigned int i2c_clock;		/* approximated bus clock in kHz */
++
++	/* resources (memory and interrupts) */
++	struct lantiq_reg_i2c __iomem *membase;	/* base of mapped registers */
++	int irq_lb, irq_b, irq_err, irq_p;	/* last burst, burst, error,
++						   protocol IRQs */
++
++	struct i2c_adapter adap;
++	struct device *dev;
++	struct i2c_lantiq_platform_data *pdata;
++
++	struct completion	cmd_complete;
++
++	/* message transfer data */
++	/* current message */
++	struct i2c_msg		*current_msg;
++	/* number of messages to handle */
++	int			msgs_num;
++	/* current buffer */
++	u8			*msg_buf;
++	/* remaining length of current buffer */
++	u32			msg_buf_len;
++	/* error status of the current transfer */
++	int			msg_err;
++
++	/* master status codes */
++	enum {
++		STATUS_IDLE,
++		STATUS_ADDR,	/* address phase */
++		STATUS_WRITE,
++		STATUS_READ,
++		STATUS_READ_END,
++		STATUS_STOP
++	} status;
++};
++
++static irqreturn_t lantiq_i2c_isr(int irq, void *dev_id);
++
++static inline void enable_burst_irq(struct lantiq_i2c *priv)
++{
++	i2c_w32_mask(0, I2C_IMSC_LBREQ_INT_EN | I2C_IMSC_BREQ_INT_EN, imsc);
++}
++static inline void disable_burst_irq(struct lantiq_i2c *priv)
++{
++	i2c_w32_mask(I2C_IMSC_LBREQ_INT_EN | I2C_IMSC_BREQ_INT_EN, 0, imsc);
++}
++
++static void prepare_msg_send_addr(struct lantiq_i2c *priv)
++{
++	struct i2c_msg *msg = priv->current_msg;
++	int rd = !!(msg->flags & I2C_M_RD);	/* extends to 0 or 1 */
++	u16 addr = msg->addr;
++
++	/* new i2c_msg */
++	priv->msg_buf = msg->buf;
++	priv->msg_buf_len = msg->len;
++	if (rd)
++		priv->status = STATUS_READ;
++	else
++		priv->status = STATUS_WRITE;
++
++	/* send slave address */
++	if (msg->flags & I2C_M_TEN) {
++		i2c_w32(0xf0 | ((addr & 0x300) >> 7) | rd, txd);
++		i2c_w32(addr & 0xff, txd);
++	} else
++		i2c_w32((addr & 0x7f) << 1 | rd, txd);
++}
++
++static void lantiq_i2c_set_tx_len(struct lantiq_i2c *priv)
++{
++	struct i2c_msg *msg = priv->current_msg;
++	int len = (msg->flags & I2C_M_TEN) ? 2 : 1;
++
++	PRINTK("set_tx_len %cX\n", (msg->flags & I2C_M_RD) ? 'R' : 'T');
++
++	priv->status = STATUS_ADDR;
++
++	if (!(msg->flags & I2C_M_RD)) {
++		len += msg->len;
++	} else {
++		/* set maximum received packet size (before rx int!) */
++		i2c_w32(msg->len, mrps_ctrl);
++	}
++	i2c_w32(len, tps_ctrl);
++	enable_burst_irq(priv);
++}
++
++static int lantiq_i2c_hw_set_clock(struct i2c_adapter *adap)
++{
++	struct lantiq_i2c *priv = i2c_get_adapdata(adap);
++	struct i2c_lantiq_platform_data *pdata = priv->pdata;
++	unsigned int i2c_clock = pdata->i2c_clock;
++	unsigned int input_clock = pdata->clock_khz;
++	u32 dec, inc = 1;
++
++	if (input_clock == 0)
++		input_clock = pdata->get_clock(pdata->data);
++
++	/* clock changed? */
++	if ((priv->input_clock == input_clock) &&
++	    (priv->i2c_clock == i2c_clock))
++		return 0;
++
++	/* this formula is only an approximation, found by the recommended
++	 * values in the "I2C Architecture Specification 1.7.1"
++	 */
++	dec = input_clock/(i2c_clock*2);
++	if (dec <= 6)
++		return -ENXIO;
++
++	i2c_w32(0, fdiv_high_cfg);
++	i2c_w32((inc << I2C_FDIV_CFG_INC_OFFSET) |
++		(dec << I2C_FDIV_CFG_DEC_OFFSET),
++		fdiv_cfg);
++
++	dev_info(priv->dev, "setup clocks (in %d kHz, bus %d kHz, dec=%d)\n",
++		input_clock, i2c_clock, dec);
++
++	priv->input_clock = input_clock;
++	priv->i2c_clock = i2c_clock;
++	return 0;
++}
++
++static int lantiq_i2c_hw_init(struct i2c_adapter *adap)
++{
++	int ret = 0;
++	struct lantiq_i2c *priv = i2c_get_adapdata(adap);
++
++	/* disable bus */
++	i2c_w32_mask(I2C_RUN_CTRL_RUN_EN, 0, run_ctrl);
++
++#ifndef DEBUG
++	/* set normal operation clock divider */
++	i2c_w32(1 << I2C_CLC_RMC_OFFSET, clc);
++#else
++	/* for debugging a higher divider value! */
++	i2c_w32(0xF0 << I2C_CLC_RMC_OFFSET, clc);
++#endif
++
++	/* setup clock */
++	ret = lantiq_i2c_hw_set_clock(adap);
++	if (ret != 0) {
++		dev_warn(priv->dev, "invalid clock settings\n");
++		return ret;
++	}
++
++	/* configure fifo */
++	i2c_w32(I2C_FIFO_CFG_TXFC | /* tx fifo as flow controller */
++		I2C_FIFO_CFG_RXFC | /* rx fifo as flow controller */
++		I2C_FIFO_CFG_TXFA_TXFA2 | /* tx fifo 4-byte aligned */
++		I2C_FIFO_CFG_RXFA_RXFA2 | /* rx fifo 4-byte aligned */
++		I2C_FIFO_CFG_TXBS_TXBS0 | /* tx fifo burst size is 1 word */
++		I2C_FIFO_CFG_RXBS_RXBS0,  /* rx fifo burst size is 1 word */
++		fifo_cfg);
++
++	/* configure address */
++	i2c_w32(I2C_ADDR_CFG_SOPE_EN |	/* generate stop when no more data in
++					   the fifo */
++		I2C_ADDR_CFG_SONA_EN |	/* generate stop when NA received */
++		I2C_ADDR_CFG_MnS_EN |	/* we are master device */
++		0,			/* our slave address (not used!) */
++		addr_cfg);
++
++	/* enable bus */
++	i2c_w32_mask(0, I2C_RUN_CTRL_RUN_EN, run_ctrl);
++
++	return 0;
++}
++
++static int lantiq_i2c_wait_bus_not_busy(struct lantiq_i2c *priv)
++{
++	int timeout = LTQ_I2C_BUSY_TIMEOUT;
++
++	while ((i2c_r32(bus_stat) & I2C_BUS_STAT_BS_MASK)
++				 != I2C_BUS_STAT_BS_FREE) {
++		if (timeout <= 0) {
++			dev_err(priv->dev, "timeout waiting for bus ready\n");
++			return -ETIMEDOUT;
++		}
++		timeout--;
++		mdelay(1);
++	}
++
++	return 0;
++}
++
++static void lantiq_i2c_tx(struct lantiq_i2c *priv, int last)
++{
++	if (priv->msg_buf_len && priv->msg_buf) {
++		i2c_w32(*priv->msg_buf, txd);
++
++		if (--priv->msg_buf_len)
++			priv->msg_buf++;
++		else
++			priv->msg_buf = NULL;
++	} else
++		last = 1;
++
++	if (last)
++		disable_burst_irq(priv);
++}
++
++static void lantiq_i2c_rx(struct lantiq_i2c *priv, int last)
++{
++	u32 fifo_stat, timeout;
++	if (priv->msg_buf_len && priv->msg_buf) {
++		timeout = 5000000;
++		do {
++			fifo_stat = i2c_r32(ffs_stat);
++		} while (!fifo_stat && --timeout);
++		if (!timeout) {
++			last = 1;
++			PRINTK("\nrx timeout\n");
++			goto err;
++		}
++		while (fifo_stat) {
++			*priv->msg_buf = i2c_r32(rxd);
++			if (--priv->msg_buf_len)
++				priv->msg_buf++;
++			else {
++				priv->msg_buf = NULL;
++				last = 1;
++				break;
++			}
++			#if 0
++			fifo_stat = i2c_r32(ffs_stat);
++			#else
++			/* do not read more than burst size, otherwise no "last
++			burst" is generated and the transaction is blocked! */
++			fifo_stat = 0;
++			#endif
++		}
++	} else {
++		last = 1;
++	}
++err:
++	if (last) {
++		disable_burst_irq(priv);
++
++		if (priv->status == STATUS_READ_END) {
++			/* do the STATUS_STOP and complete() here, as sometimes
++			   the tx_end is already seen before this is finished */
++			priv->status = STATUS_STOP;
++			complete(&priv->cmd_complete);
++		} else {
++			i2c_w32(I2C_ENDD_CTRL_SETEND, endd_ctrl);
++			priv->status = STATUS_READ_END;
++		}
++	}
++}
++
++static void lantiq_i2c_xfer_init(struct lantiq_i2c *priv)
++{
++	/* enable interrupts */
++	i2c_w32(LTQ_I2C_IMSC_DEFAULT_MASK, imsc);
++
++	/* trigger transfer of first msg */
++	lantiq_i2c_set_tx_len(priv);
++}
++
++static void dump_msgs(struct i2c_msg msgs[], int num, int rx)
++{
++#if defined(DEBUG)
++	int i, j;
++	printk("Messages %d %s\n", num, rx ? "out" : "in");
++	for (i = 0; i < num; i++) {
++		printk("%2d %cX Msg(%d) addr=0x%X: ", i,
++			(msgs[i].flags & I2C_M_RD) ? 'R' : 'T',
++			msgs[i].len, msgs[i].addr);
++		if (!(msgs[i].flags & I2C_M_RD) || rx) {
++			for (j = 0; j < msgs[i].len; j++)
++				printk("%02X ", msgs[i].buf[j]);
++		}
++		printk("\n");
++	}
++#endif
++}
++
++static void lantiq_i2c_release_bus(struct lantiq_i2c *priv)
++{
++	if ((i2c_r32(bus_stat) & I2C_BUS_STAT_BS_MASK) == I2C_BUS_STAT_BS_BM)
++		i2c_w32(I2C_ENDD_CTRL_SETEND, endd_ctrl);
++}
++
++static int lantiq_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
++			   int num)
++{
++	struct lantiq_i2c *priv = i2c_get_adapdata(adap);
++	int ret;
++
++	dev_dbg(priv->dev, "xfer %u messages\n", num);
++	dump_msgs(msgs, num, 0);
++
++	mutex_lock(&priv->mutex);
++
++	INIT_COMPLETION(priv->cmd_complete);
++	priv->current_msg = msgs;
++	priv->msgs_num = num;
++	priv->msg_err = 0;
++	priv->status = STATUS_IDLE;
++
++	/* wait for the bus to become ready */
++	ret = lantiq_i2c_wait_bus_not_busy(priv);
++	if (ret)
++		goto done;
++
++	while (priv->msgs_num) {
++		/* start the transfers */
++		lantiq_i2c_xfer_init(priv);
++
++		/* wait for transfers to complete */
++		ret = wait_for_completion_interruptible_timeout(
++			&priv->cmd_complete, LTQ_I2C_XFER_TIMEOUT);
++		if (ret == 0) {
++			dev_err(priv->dev, "controller timed out\n");
++			lantiq_i2c_hw_init(adap);
++			ret = -ETIMEDOUT;
++			goto done;
++		} else if (ret < 0)
++			goto done;
++
++		if (priv->msg_err) {
++			if (priv->msg_err & LTQ_I2C_NACK)
++				ret = -ENXIO;
++			else
++				ret = -EREMOTEIO;
++			goto done;
++		}
++		if (--priv->msgs_num)
++			priv->current_msg++;
++	}
++	/* no error? */
++	ret = num;
++
++done:
++	lantiq_i2c_release_bus(priv);
++
++	mutex_unlock(&priv->mutex);
++
++	if (ret >= 0)
++		dump_msgs(msgs, num, 1);
++
++	PRINTK("XFER ret %d\n", ret);
++	return ret;
++}
++
++static irqreturn_t lantiq_i2c_isr_burst(int irq, void *dev_id)
++{
++	struct lantiq_i2c *priv = dev_id;
++	struct i2c_msg *msg = priv->current_msg;
++	int last = (irq == priv->irq_lb);
++
++	if (last)
++		PRINTK("LB ");
++	else
++		PRINTK("B ");
++
++	if (msg->flags & I2C_M_RD) {
++		switch (priv->status) {
++		case STATUS_ADDR:
++			PRINTK("X");
++			prepare_msg_send_addr(priv);
++			disable_burst_irq(priv);
++			break;
++		case STATUS_READ:
++		case STATUS_READ_END:
++			PRINTK("R");
++			lantiq_i2c_rx(priv, last);
++			break;
++		default:
++			disable_burst_irq(priv);
++			printk("Status R %d\n", priv->status);
++			break;
++		}
++	} else {
++		switch (priv->status) {
++		case STATUS_ADDR:
++			PRINTK("x");
++			prepare_msg_send_addr(priv);
++			break;
++		case STATUS_WRITE:
++			PRINTK("w");
++			lantiq_i2c_tx(priv, last);
++			break;
++		default:
++			disable_burst_irq(priv);
++			printk("Status W %d\n", priv->status);
++			break;
++		}
++	}
++
++	i2c_w32(I2C_ICR_BREQ_INT_CLR | I2C_ICR_LBREQ_INT_CLR, icr);
++	return IRQ_HANDLED;
++}
++
++static void lantiq_i2c_isr_prot(struct lantiq_i2c *priv)
++{
++	u32 i_pro = i2c_r32(p_irqss);
++
++	PRINTK("i2c-p");
++
++	/* not acknowledge */
++	if (i_pro & I2C_P_IRQSS_NACK) {
++		priv->msg_err |= LTQ_I2C_NACK;
++		PRINTK(" nack");
++	}
++
++	/* arbitration lost */
++	if (i_pro & I2C_P_IRQSS_AL) {
++		priv->msg_err |= LTQ_I2C_ARB_LOST;
++		PRINTK(" arb-lost");
++	}
++	/* tx -> rx switch */
++	if (i_pro & I2C_P_IRQSS_RX)
++		PRINTK(" rx");
++
++	/* tx end */
++	if (i_pro & I2C_P_IRQSS_TX_END)
++		PRINTK(" txend");
++	PRINTK("\n");
++
++	if (!priv->msg_err) {
++		/* tx -> rx switch */
++		if (i_pro & I2C_P_IRQSS_RX) {
++			priv->status = STATUS_READ;
++			enable_burst_irq(priv);
++		}
++		if (i_pro & I2C_P_IRQSS_TX_END) {
++			if (priv->status == STATUS_READ)
++				priv->status = STATUS_READ_END;
++			else {
++				disable_burst_irq(priv);
++				priv->status = STATUS_STOP;
++			}
++		}
++	}
++
++	i2c_w32(i_pro, p_irqsc);
++}
++
++static irqreturn_t lantiq_i2c_isr(int irq, void *dev_id)
++{
++	u32 i_raw, i_err = 0;
++	struct lantiq_i2c *priv = dev_id;
++
++	i_raw = i2c_r32(mis);
++	PRINTK("i_raw 0x%08X\n", i_raw);
++
++	/* error interrupt */
++	if (i_raw & I2C_RIS_I2C_ERR_INT_INTOCC) {
++		i_err = i2c_r32(err_irqss);
++		PRINTK("i_err 0x%08X bus_stat 0x%04X\n",
++			i_err, i2c_r32(bus_stat));
++
++		/* tx fifo overflow (8) */
++		if (i_err & I2C_ERR_IRQSS_TXF_OFL)
++			priv->msg_err |= LTQ_I2C_TX_OFL;
++
++		/* tx fifo underflow (4) */
++		if (i_err & I2C_ERR_IRQSS_TXF_UFL)
++			priv->msg_err |= LTQ_I2C_TX_UFL;
++
++		/* rx fifo overflow (2) */
++		if (i_err & I2C_ERR_IRQSS_RXF_OFL)
++			priv->msg_err |= LTQ_I2C_RX_OFL;
++
++		/* rx fifo underflow (1) */
++		if (i_err & I2C_ERR_IRQSS_RXF_UFL)
++			priv->msg_err |= LTQ_I2C_RX_UFL;
++
++		i2c_w32(i_err, err_irqsc);
++	}
++
++	/* protocol interrupt */
++	if (i_raw & I2C_RIS_I2C_P_INT_INTOCC)
++		lantiq_i2c_isr_prot(priv);
++
++	if ((priv->msg_err) || (priv->status == STATUS_STOP))
++		complete(&priv->cmd_complete);
++
++	return IRQ_HANDLED;
++}
++
++static u32 lantiq_i2c_functionality(struct i2c_adapter *adap)
++{
++	return	I2C_FUNC_I2C |
++		I2C_FUNC_10BIT_ADDR |
++		I2C_FUNC_SMBUS_EMUL;
++}
++
++static struct i2c_algorithm lantiq_i2c_algorithm = {
++	.master_xfer	= lantiq_i2c_xfer,
++	.functionality	= lantiq_i2c_functionality,
++};
++
++static int __devinit lantiq_i2c_probe(struct platform_device *pdev)
++{
++	int ret = 0;
++	struct i2c_lantiq_platform_data *pdata;
++	struct lantiq_i2c *priv;
++	struct i2c_adapter *adap;
++	struct resource *mmres, *ioarea,
++			*irqres_lb, *irqres_b, *irqres_err, *irqres_p;
++
++	dev_dbg(&pdev->dev, "probing\n");
++
++	pdata = pdev->dev.platform_data;
++	if (!pdata) {
++		dev_err(&pdev->dev, "no platform_data!\n");
++		return -ENXIO;
++	}
++	if ((pdata->clock_khz == 0) && (pdata->get_clock == NULL)) {
++		dev_err(&pdev->dev, "invalid platform_data, input clock!\n");
++		return -ENXIO;
++	}
++
++	mmres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	irqres_lb = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
++						 "i2c_lb");
++	irqres_b = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "i2c_b");
++	irqres_err = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
++						  "i2c_err");
++	irqres_p = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "i2c_p");
++
++	if (!mmres || !irqres_lb || !irqres_b || !irqres_err || !irqres_p) {
++		dev_err(&pdev->dev, "no resources\n");
++		return -ENODEV;
++	}
++
++	/* allocate private data */
++	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
++	if (!priv) {
++		dev_err(&pdev->dev, "can't allocate private data\n");
++		return -ENOMEM;
++	}
++
++	priv->pdata = pdata;
++	adap = &priv->adap;
++	i2c_set_adapdata(adap, priv);
++	adap->owner = THIS_MODULE;
++	adap->class = I2C_CLASS_HWMON | I2C_CLASS_SPD;
++	strlcpy(adap->name, DRV_NAME "-adapter", sizeof(adap->name));
++	adap->algo = &lantiq_i2c_algorithm;
++
++	priv->dev = &pdev->dev;
++
++	init_completion(&priv->cmd_complete);
++	mutex_init(&priv->mutex);
++
++	if (pdata->setup_pins) {
++		if (pdata->setup_pins(pdata->data)) {
++			dev_err(&pdev->dev, "setup_pins failed!\n");
++			ret = -ENXIO;
++			goto err_free_priv;
++		}
++	}
++
++	ioarea = request_mem_region(mmres->start, resource_size(mmres),
++					 pdev->name);
++
++	if (ioarea == NULL) {
++		dev_err(&pdev->dev, "I2C region already claimed\n");
++		ret = -ENXIO;
++		goto err_free_gpio;
++	}
++
++	/* map memory */
++	priv->membase = ioremap_nocache(mmres->start & ~KSEG1,
++		resource_size(mmres));
++	if (priv->membase == NULL) {
++		ret = -ENOMEM;
++		goto err_release_region;
++	}
++
++	priv->irq_lb = irqres_lb->start;
++	ret = request_irq(priv->irq_lb, lantiq_i2c_isr_burst, IRQF_DISABLED,
++			  irqres_lb->name, priv);
++	if (ret) {
++		dev_err(&pdev->dev, "can't get last burst IRQ %d\n",
++			irqres_lb->start);
++		ret = -ENODEV;
++		goto err_unmap_mem;
++	}
++
++	priv->irq_b = irqres_b->start;
++	ret = request_irq(priv->irq_b, lantiq_i2c_isr_burst, IRQF_DISABLED,
++			  irqres_b->name, priv);
++	if (ret) {
++		dev_err(&pdev->dev, "can't get burst IRQ %d\n",
++			irqres_b->start);
++		ret = -ENODEV;
++		goto err_free_lb_irq;
++	}
++
++	priv->irq_err = irqres_err->start;
++	ret = request_irq(priv->irq_err, lantiq_i2c_isr, IRQF_DISABLED,
++			  irqres_err->name, priv);
++	if (ret) {
++		dev_err(&pdev->dev, "can't get error IRQ %d\n",
++			irqres_err->start);
++		ret = -ENODEV;
++		goto err_free_b_irq;
++	}
++
++	priv->irq_p = irqres_p->start;
++	ret = request_irq(priv->irq_p, lantiq_i2c_isr, IRQF_DISABLED,
++			  irqres_p->name, priv);
++	if (ret) {
++		dev_err(&pdev->dev, "can't get protocol IRQ %d\n",
++			irqres_p->start);
++		ret = -ENODEV;
++		goto err_free_err_irq;
++	}
++
++	dev_dbg(&pdev->dev, "mapped io-space to %p\n", priv->membase);
++	dev_dbg(&pdev->dev, "use IRQs %d, %d, %d, %d\n", irqres_lb->start,
++		irqres_b->start, irqres_err->start, irqres_p->start);
++
++	/* add our adapter to the i2c stack */
++	ret = i2c_add_numbered_adapter(adap);
++	if (ret) {
++		dev_err(&pdev->dev, "can't register I2C adapter\n");
++		goto err_free_p_irq;
++	}
++
++	platform_set_drvdata(pdev, priv);
++	i2c_set_adapdata(adap, priv);
++
++	/* print module version information */
++	dev_dbg(&pdev->dev, "module id=%u revision=%u\n",
++		(i2c_r32(id) & I2C_ID_ID_MASK) >> I2C_ID_ID_OFFSET,
++		(i2c_r32(id) & I2C_ID_REV_MASK) >> I2C_ID_REV_OFFSET);
++
++	/* initialize HW */
++	ret = lantiq_i2c_hw_init(adap);
++	if (ret) {
++		dev_err(&pdev->dev, "can't configure adapter\n");
++		goto err_remove_adapter;
++	}
++
++	dev_info(&pdev->dev, "version %s\n", DRV_VERSION);
++
++	return 0;
++
++err_remove_adapter:
++	i2c_del_adapter(adap);
++	platform_set_drvdata(pdev, NULL);
++
++err_free_p_irq:
++	free_irq(priv->irq_p, priv);
++
++err_free_err_irq:
++	free_irq(priv->irq_err, priv);
++
++err_free_b_irq:
++	free_irq(priv->irq_b, priv);
++
++err_free_lb_irq:
++	free_irq(priv->irq_lb, priv);
++
++err_unmap_mem:
++	iounmap(priv->membase);
++
++err_release_region:
++	release_mem_region(mmres->start, resource_size(mmres));
++
++err_free_gpio:
++	if (pdata->unset_pins)
++		pdata->unset_pins(pdata->data);
++
++err_free_priv:
++	kfree(priv);
++
++	return ret;
++}
++
++static int __devexit lantiq_i2c_remove(struct platform_device *pdev)
++{
++	struct lantiq_i2c *priv = platform_get_drvdata(pdev);
++	struct i2c_lantiq_platform_data *pdata = pdev->dev.platform_data;
++	struct resource *mmres;
++
++	/* disable bus */
++	i2c_w32_mask(I2C_RUN_CTRL_RUN_EN, 0, run_ctrl);
++
++	/* remove driver */
++	platform_set_drvdata(pdev, NULL);
++	i2c_del_adapter(&priv->adap);
++
++	free_irq(priv->irq_lb, priv);
++	free_irq(priv->irq_b, priv);
++	free_irq(priv->irq_err, priv);
++	free_irq(priv->irq_p, priv);
++
++	iounmap(priv->membase);
++
++	if (pdata->unset_pins)
++		pdata->unset_pins(pdata->data);
++
++	kfree(priv);
++
++	mmres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	release_mem_region(mmres->start, resource_size(mmres));
++
++	dev_dbg(&pdev->dev, "removed\n");
++
++	return 0;
++}
++
++static struct platform_driver lantiq_i2c_driver = {
++	.probe	= lantiq_i2c_probe,
++	.remove	= __devexit_p(lantiq_i2c_remove),
++	.driver	= {
++		.name	= DRV_NAME,
++		.owner	= THIS_MODULE,
++	},
++};
++
++static int __init lantiq_i2c_init(void)
++{
++	int ret;
++
++	ret = platform_driver_register(&lantiq_i2c_driver);
++
++	if (ret)
++		pr_debug(DRV_NAME ": can't register platform driver\n");
++
++	return ret;
++}
++
++static void __exit lantiq_i2c_exit(void)
++{
++	platform_driver_unregister(&lantiq_i2c_driver);
++}
++
++module_init(lantiq_i2c_init);
++module_exit(lantiq_i2c_exit);
++
++MODULE_DESCRIPTION("Lantiq I2C bus adapter");
++MODULE_AUTHOR("Thomas Langer <thomas.langer@lantiq.com>");
++MODULE_ALIAS("platform:" DRV_NAME);
++MODULE_LICENSE("GPL");
++MODULE_VERSION(DRV_VERSION);
+--- a/drivers/i2c/busses/Kconfig
++++ b/drivers/i2c/busses/Kconfig
+@@ -418,6 +418,16 @@ config I2C_IXP2000
+ 	  This driver is deprecated and will be dropped soon. Use i2c-gpio
+ 	  instead.
+ 
++config I2C_LANTIQ
++	tristate "Lantiq I2C interface"
++#	depends on HAVE_LANTIQ_I2C
++	help
++	  If you say yes to this option, support will be included for the
++	  built-in I2C interface on some Lantiq devices.
++
++	  This driver can also be built as a module.  If so, the module
++	  will be called i2c-lantiq.
++
+ config I2C_MPC
+ 	tristate "MPC107/824x/85xx/52xx/86xx"
+ 	depends on PPC32
+--- a/drivers/i2c/busses/Makefile
++++ b/drivers/i2c/busses/Makefile
+@@ -40,6 +40,7 @@ obj-$(CONFIG_I2C_IBM_IIC)	+= i2c-ibm_iic
+ obj-$(CONFIG_I2C_IMX)		+= i2c-imx.o
+ obj-$(CONFIG_I2C_IOP3XX)	+= i2c-iop3xx.o
+ obj-$(CONFIG_I2C_IXP2000)	+= i2c-ixp2000.o
++obj-$(CONFIG_I2C_LANTIQ)	+= i2c-lantiq.o
+ obj-$(CONFIG_I2C_MPC)		+= i2c-mpc.o
+ obj-$(CONFIG_I2C_MV64XXX)	+= i2c-mv64xxx.o
+ obj-$(CONFIG_I2C_OCORES)	+= i2c-ocores.o
+--- /dev/null
++++ b/include/linux/i2c-lantiq-platform.h
+@@ -0,0 +1,25 @@
++#ifndef I2C_LANTIQ_PLATFORM_H
++#define I2C_LANTIQ_PLATFORM_H
++
++struct i2c_lantiq_platform_data {
++	void *data;			/* private data for lowlevel routines */
++	unsigned int i2c_clock;		/* approximated bus clock in kHz:
++					 * The real clock depends on the electrical
++					 * load and also external slaves and
++					 * masters can delay the clock.
++					 * The supported reange is between
++					 * 100 kHz (standard speed) and 400 kHz
++					 * (fast speed). 3.4 MHz (high speed)
++					 * is currently not supported! */
++	unsigned int clock_khz;		/* static input clock in kHz */
++	int (*get_clock) (void *data);	/* get dynamic changable clock in kHz,
++					 * has priority over "clock_khz" */
++	int (*setup_pins) (void *data); /* prepare platform specific pins/gpios
++					 * to be used by this driver,
++					 * returns !=0 if not available */
++	void (*unset_pins) (void *data);/* free possibly reserved pins,
++					 * will only be called if "setup_pins"
++					 * had not reported an error */
++};
++
++#endif /* I2C_LANTIQ_PLATFORM_H */
+--- /dev/null
++++ b/drivers/i2c/busses/i2c-lantiq.h
+@@ -0,0 +1,809 @@
++#ifndef I2C_LANTIQ_H
++#define I2C_LANTIQ_H
++
++/** \addtogroup I2C_REGISTER
++	@{
++*/
++
++/** I2C register structure */
++struct lantiq_reg_i2c {
++	/** I2C Kernel Clock Control Register */
++	unsigned int clc; /* 0x00000000 */
++	/** Reserved */
++	unsigned int res_0; /* 0x00000004 */
++	/** I2C Identification Register */
++	unsigned int id; /* 0x00000008 */
++	/** Reserved */
++	unsigned int res_1; /* 0x0000000C */
++	/** I2C RUN Control Register
++	This register enables and disables the I2C peripheral. Before enabling, the I2C has to be configured properly. After enabling no configuration is possible */
++	unsigned int run_ctrl; /* 0x00000010 */
++	/** I2C End Data Control Register
++	This register is used to either turn around the data transmission direction or to address another slave without sending a stop condition. Also the software can stop the slave-transmitter by sending a not-accolade when working as master-receiver or even stop data transmission immediately when operating as master-transmitter. The writing to the bits of this control register is only effective when in MASTER RECEIVES BYTES, MASTER TRANSMITS BYTES, MASTER RESTART or SLAVE RECEIVE BYTES state */
++	unsigned int endd_ctrl; /* 0x00000014 */
++	/** I2C Fractional Divider Configuration Register
++	These register is used to program the fractional divider of the I2C bus. Before the peripheral is switched on by setting the RUN-bit the two (fixed) values for the two operating frequencies are programmed into these (configuration) registers. The Register FDIV_HIGH_CFG has the same layout as I2C_FDIV_CFG. */
++	unsigned int fdiv_cfg; /* 0x00000018 */
++	/** I2C Fractional Divider (highspeed mode) Configuration Register
++	These register is used to program the fractional divider of the I2C bus. Before the peripheral is switched on by setting the RUN-bit the two (fixed) values for the two operating frequencies are programmed into these (configuration) registers. The Register FDIV_CFG has the same layout as I2C_FDIV_CFG. */
++	unsigned int fdiv_high_cfg; /* 0x0000001C */
++	/** I2C Address Configuration Register */
++	unsigned int addr_cfg; /* 0x00000020 */
++	/** I2C Bus Status Register
++	This register gives a status information of the I2C. This additional information can be used by the software to start proper actions. */
++	unsigned int bus_stat; /* 0x00000024 */
++	/** I2C FIFO Configuration Register */
++	unsigned int fifo_cfg; /* 0x00000028 */
++	/** I2C Maximum Received Packet Size Register */
++	unsigned int mrps_ctrl; /* 0x0000002C */
++	/** I2C Received Packet Size Status Register */
++	unsigned int rps_stat; /* 0x00000030 */
++	/** I2C Transmit Packet Size Register */
++	unsigned int tps_ctrl; /* 0x00000034 */
++	/** I2C Filled FIFO Stages Status Register */
++	unsigned int ffs_stat; /* 0x00000038 */
++	/** Reserved */
++	unsigned int res_2; /* 0x0000003C */
++	/** I2C Timing Configuration Register */
++	unsigned int tim_cfg; /* 0x00000040 */
++	/** Reserved */
++	unsigned int res_3[7]; /* 0x00000044 */
++	/** I2C Error Interrupt Request Source Mask Register */
++	unsigned int err_irqsm; /* 0x00000060 */
++	/** I2C Error Interrupt Request Source Status Register */
++	unsigned int err_irqss; /* 0x00000064 */
++	/** I2C Error Interrupt Request Source Clear Register */
++	unsigned int err_irqsc; /* 0x00000068 */
++	/** Reserved */
++	unsigned int res_4; /* 0x0000006C */
++	/** I2C Protocol Interrupt Request Source Mask Register */
++	unsigned int p_irqsm; /* 0x00000070 */
++	/** I2C Protocol Interrupt Request Source Status Register */
++	unsigned int p_irqss; /* 0x00000074 */
++	/** I2C Protocol Interrupt Request Source Clear Register */
++	unsigned int p_irqsc; /* 0x00000078 */
++	/** Reserved */
++	unsigned int res_5; /* 0x0000007C */
++	/** I2C Raw Interrupt Status Register */
++	unsigned int ris; /* 0x00000080 */
++	/** I2C Interrupt Mask Control Register */
++	unsigned int imsc; /* 0x00000084 */
++	/** I2C Masked Interrupt Status Register */
++	unsigned int mis; /* 0x00000088 */
++	/** I2C Interrupt Clear Register */
++	unsigned int icr; /* 0x0000008C */
++	/** I2C Interrupt Set Register */
++	unsigned int isr; /* 0x00000090 */
++	/** I2C DMA Enable Register */
++	unsigned int dmae; /* 0x00000094 */
++	/** Reserved */
++	unsigned int res_6[8154]; /* 0x00000098 */
++	/** I2C Transmit Data Register */
++	unsigned int txd; /* 0x00008000 */
++	/** Reserved */
++	unsigned int res_7[4095]; /* 0x00008004 */
++	/** I2C Receive Data Register */
++	unsigned int rxd; /* 0x0000C000 */
++	/** Reserved */
++	unsigned int res_8[4095]; /* 0x0000C004 */
++};
++
++/* Fields of "I2C Kernel Clock Control Register" */
++/** Clock Divider for Optional Run Mode (AHB peripherals)
++    Max 8-bit divider value. Note: As long as the new divider value ORMC is not valid, the register returns 0x0000 00xx on reading. */
++#define I2C_CLC_ORMC_MASK 0x00FF0000
++/** field offset */
++#define I2C_CLC_ORMC_OFFSET 16
++/** Clock Divider for Normal Run Mode
++    Max 8-bit divider value. IF RMC is 0 the module is disabled. Note: As long as the new divider value RMC is not valid, the register returns 0x0000 00xx on reading. */
++#define I2C_CLC_RMC_MASK 0x0000FF00
++/** field offset */
++#define I2C_CLC_RMC_OFFSET 8
++/** Fast Shut-Off Enable Bit */
++#define I2C_CLC_FSOE 0x00000020
++/* Disable
++#define I2C_CLC_FSOE_DIS 0x00000000 */
++/** Enable */
++#define I2C_CLC_FSOE_EN 0x00000020
++/** Suspend Bit Write Enable for OCDS */
++#define I2C_CLC_SBWE 0x00000010
++/* Disable
++#define I2C_CLC_SBWE_DIS 0x00000000 */
++/** Enable */
++#define I2C_CLC_SBWE_EN 0x00000010
++/** Disable External Request Disable */
++#define I2C_CLC_EDIS 0x00000008
++/* Enable
++#define I2C_CLC_EDIS_EN 0x00000000 */
++/** Disable */
++#define I2C_CLC_EDIS_DIS 0x00000008
++/** Suspend Enable Bit for OCDS */
++#define I2C_CLC_SPEN 0x00000004
++/* Disable
++#define I2C_CLC_SPEN_DIS 0x00000000 */
++/** Enable */
++#define I2C_CLC_SPEN_EN 0x00000004
++/** Disable Status Bit
++    Bit DISS can be modified only by writing to bit DISR */
++#define I2C_CLC_DISS 0x00000002
++/* Enable
++#define I2C_CLC_DISS_EN 0x00000000 */
++/** Disable */
++#define I2C_CLC_DISS_DIS 0x00000002
++/** Disable Request Bit */
++#define I2C_CLC_DISR 0x00000001
++/* Module disable not requested
++#define I2C_CLC_DISR_OFF 0x00000000 */
++/** Module disable requested */
++#define I2C_CLC_DISR_ON 0x00000001
++
++/* Fields of "I2C Identification Register" */
++/** Module ID */
++#define I2C_ID_ID_MASK 0x0000FF00
++/** field offset */
++#define I2C_ID_ID_OFFSET 8
++/** Revision */
++#define I2C_ID_REV_MASK 0x000000FF
++/** field offset */
++#define I2C_ID_REV_OFFSET 0
++
++/* Fields of "I2C RUN Control Register" */
++/** Enabling I2C Interface
++    Only when this bit is set to zero, the configuration registers of the I2C peripheral are writable by SW. */
++#define I2C_RUN_CTRL_RUN 0x00000001
++/* Disable
++#define I2C_RUN_CTRL_RUN_DIS 0x00000000 */
++/** Enable */
++#define I2C_RUN_CTRL_RUN_EN 0x00000001
++
++/* Fields of "I2C End Data Control Register" */
++/** Set End of Transmission
++    Note:Do not write '1' to this bit when bus is free. This will cause an abort after the first byte when a new transfer is started. */
++#define I2C_ENDD_CTRL_SETEND 0x00000002
++/* No-Operation
++#define I2C_ENDD_CTRL_SETEND_NOP 0x00000000 */
++/** Master Receives Bytes */
++#define I2C_ENDD_CTRL_SETEND_MRB 0x00000002
++/** Set Restart Condition */
++#define I2C_ENDD_CTRL_SETRSC 0x00000001
++/* No-Operation
++#define I2C_ENDD_CTRL_SETRSC_NOP 0x00000000 */
++/** Master Restart */
++#define I2C_ENDD_CTRL_SETRSC_RESTART 0x00000001
++
++/* Fields of "I2C Fractional Divider Configuration Register" */
++/** Decrement Value of fractional divider */
++#define I2C_FDIV_CFG_INC_MASK 0x00FF0000
++/** field offset */
++#define I2C_FDIV_CFG_INC_OFFSET 16
++/** Increment Value of fractional divider */
++#define I2C_FDIV_CFG_DEC_MASK 0x000007FF
++/** field offset */
++#define I2C_FDIV_CFG_DEC_OFFSET 0
++
++/* Fields of "I2C Fractional Divider (highspeed mode) Configuration Register" */
++/** Decrement Value of fractional divider */
++#define I2C_FDIV_HIGH_CFG_INC_MASK 0x00FF0000
++/** field offset */
++#define I2C_FDIV_HIGH_CFG_INC_OFFSET 16
++/** Increment Value of fractional divider */
++#define I2C_FDIV_HIGH_CFG_DEC_MASK 0x000007FF
++/** field offset */
++#define I2C_FDIV_HIGH_CFG_DEC_OFFSET 0
++
++/* Fields of "I2C Address Configuration Register" */
++/** Stop on Packet End
++    If device works as receiver a not acknowledge is generated in both cases. After successful transmission of a master code (during high speed mode) SOPE is not considered till a stop condition is manually generated by SETEND. */
++#define I2C_ADDR_CFG_SOPE 0x00200000
++/* Disable
++#define I2C_ADDR_CFG_SOPE_DIS 0x00000000 */
++/** Enable */
++#define I2C_ADDR_CFG_SOPE_EN 0x00200000
++/** Stop on Not Acknowledge
++    After successful transmission of a master code (during high speed mode) SONA is not considered till a stop condition is manually generated by SETEND. */
++#define I2C_ADDR_CFG_SONA 0x00100000
++/* Disable
++#define I2C_ADDR_CFG_SONA_DIS 0x00000000 */
++/** Enable */
++#define I2C_ADDR_CFG_SONA_EN 0x00100000
++/** Master Enable */
++#define I2C_ADDR_CFG_MnS 0x00080000
++/* Disable
++#define I2C_ADDR_CFG_MnS_DIS 0x00000000 */
++/** Enable */
++#define I2C_ADDR_CFG_MnS_EN 0x00080000
++/** Master Code Enable */
++#define I2C_ADDR_CFG_MCE 0x00040000
++/* Disable
++#define I2C_ADDR_CFG_MCE_DIS 0x00000000 */
++/** Enable */
++#define I2C_ADDR_CFG_MCE_EN 0x00040000
++/** General Call Enable */
++#define I2C_ADDR_CFG_GCE 0x00020000
++/* Disable
++#define I2C_ADDR_CFG_GCE_DIS 0x00000000 */
++/** Enable */
++#define I2C_ADDR_CFG_GCE_EN 0x00020000
++/** Ten Bit Address Mode */
++#define I2C_ADDR_CFG_TBAM 0x00010000
++/* 7-bit address mode enabled.
++#define I2C_ADDR_CFG_TBAM_7bit 0x00000000 */
++/** 10-bit address mode enabled. */
++#define I2C_ADDR_CFG_TBAM_10bit 0x00010000
++/** I2C Bus device address
++    This is the address of this device. (Watch out for reserved addresses by referring to Phillips Spec V2.1) This could either be a 7bit- address (bits [7:1]) or a 10bit- address (bits [9:0]). Note:The validity of the bits are in accordance with the TBAM bit. Bit-1 (Bit-0) is the LSB of the device address. */
++#define I2C_ADDR_CFG_ADR_MASK 0x000003FF
++/** field offset */
++#define I2C_ADDR_CFG_ADR_OFFSET 0
++
++/* Fields of "I2C Bus Status Register" */
++/** Read / not Write */
++#define I2C_BUS_STAT_RNW 0x00000004
++/* Write to I2C Bus.
++#define I2C_BUS_STAT_RNW_WRITE 0x00000000 */
++/** Read from I2C Bus. */
++#define I2C_BUS_STAT_RNW_READ 0x00000004
++/** Bus Status */
++#define I2C_BUS_STAT_BS_MASK 0x00000003
++/** field offset */
++#define I2C_BUS_STAT_BS_OFFSET 0
++/** I2C Bus is free. */
++#define I2C_BUS_STAT_BS_FREE 0x00000000
++/** A start condition has been detected on the bus (bus busy). */
++#define I2C_BUS_STAT_BS_SC 0x00000001
++/** The device is working as master and has claimed the control on the I2C-bus (busy master). */
++#define I2C_BUS_STAT_BS_BM 0x00000002
++/** A remote master has accessed this device as slave. */
++#define I2C_BUS_STAT_BS_RM 0x00000003
++
++/* Fields of "I2C FIFO Configuration Register" */
++/** TX FIFO Flow Control */
++#define I2C_FIFO_CFG_TXFC 0x00020000
++/* TX FIFO not as Flow Controller
++#define I2C_FIFO_CFG_TXFC_TXNFC 0x00000000 */
++/** RX FIFO Flow Control */
++#define I2C_FIFO_CFG_RXFC 0x00010000
++/* RX FIFO not as Flow Controller
++#define I2C_FIFO_CFG_RXFC_RXNFC 0x00000000 */
++/** The reset value depends on the used character sizes of the peripheral. The maximum selectable alignment depends on the maximum number of characters per stage. */
++#define I2C_FIFO_CFG_TXFA_MASK 0x00003000
++/** field offset */
++#define I2C_FIFO_CFG_TXFA_OFFSET 12
++/** Byte aligned (character alignment) */
++#define I2C_FIFO_CFG_TXFA_TXFA0 0x00000000
++/** Half word aligned (character alignment of two characters) */
++#define I2C_FIFO_CFG_TXFA_TXFA1 0x00001000
++/** Word aligned (character alignment of four characters) */
++#define I2C_FIFO_CFG_TXFA_TXFA2 0x00002000
++/** Double word aligned (character alignment of eight */
++#define I2C_FIFO_CFG_TXFA_TXFA3 0x00003000
++/** The reset value depends on the used character sizes of the peripheral. The maximum selectable alignment depends on the maximum number of characters per stage. */
++#define I2C_FIFO_CFG_RXFA_MASK 0x00000300
++/** field offset */
++#define I2C_FIFO_CFG_RXFA_OFFSET 8
++/** Byte aligned (character alignment) */
++#define I2C_FIFO_CFG_RXFA_RXFA0 0x00000000
++/** Half word aligned (character alignment of two characters) */
++#define I2C_FIFO_CFG_RXFA_RXFA1 0x00000100
++/** Word aligned (character alignment of four characters) */
++#define I2C_FIFO_CFG_RXFA_RXFA2 0x00000200
++/** Double word aligned (character alignment of eight */
++#define I2C_FIFO_CFG_RXFA_RXFA3 0x00000300
++/** DMA controller does not support a burst size of 2 words. The reset value is the half of the FIFO size. The maximum selectable burst size is smaller than the FIFO size. */
++#define I2C_FIFO_CFG_TXBS_MASK 0x00000030
++/** field offset */
++#define I2C_FIFO_CFG_TXBS_OFFSET 4
++/** 1 word */
++#define I2C_FIFO_CFG_TXBS_TXBS0 0x00000000
++/** 2 words */
++#define I2C_FIFO_CFG_TXBS_TXBS1 0x00000010
++/** 4 words */
++#define I2C_FIFO_CFG_TXBS_TXBS2 0x00000020
++/** 8 words */
++#define I2C_FIFO_CFG_TXBS_TXBS3 0x00000030
++/** DMA controller does not support a burst size of 2 words. The reset value is the half of the FIFO size. The maximum selectable burst size is smaller than the FIFO size. */
++#define I2C_FIFO_CFG_RXBS_MASK 0x00000003
++/** field offset */
++#define I2C_FIFO_CFG_RXBS_OFFSET 0
++/** 1 word */
++#define I2C_FIFO_CFG_RXBS_RXBS0 0x00000000
++/** 2 words */
++#define I2C_FIFO_CFG_RXBS_RXBS1 0x00000001
++/** 4 words */
++#define I2C_FIFO_CFG_RXBS_RXBS2 0x00000002
++/** 8 words */
++#define I2C_FIFO_CFG_RXBS_RXBS3 0x00000003
++
++/* Fields of "I2C Maximum Received Packet Size Register" */
++/** MRPS */
++#define I2C_MRPS_CTRL_MRPS_MASK 0x00003FFF
++/** field offset */
++#define I2C_MRPS_CTRL_MRPS_OFFSET 0
++
++/* Fields of "I2C Received Packet Size Status Register" */
++/** RPS */
++#define I2C_RPS_STAT_RPS_MASK 0x00003FFF
++/** field offset */
++#define I2C_RPS_STAT_RPS_OFFSET 0
++
++/* Fields of "I2C Transmit Packet Size Register" */
++/** TPS */
++#define I2C_TPS_CTRL_TPS_MASK 0x00003FFF
++/** field offset */
++#define I2C_TPS_CTRL_TPS_OFFSET 0
++
++/* Fields of "I2C Filled FIFO Stages Status Register" */
++/** FFS */
++#define I2C_FFS_STAT_FFS_MASK 0x0000000F
++/** field offset */
++#define I2C_FFS_STAT_FFS_OFFSET 0
++
++/* Fields of "I2C Timing Configuration Register" */
++/** SDA Delay Stages for Start/Stop bit in High Speed Mode
++    The actual delay is calculated as the value of this field + 3 */
++#define I2C_TIM_CFG_HS_SDA_DEL_MASK 0x00070000
++/** field offset */
++#define I2C_TIM_CFG_HS_SDA_DEL_OFFSET 16
++/** Enable Fast Mode SCL Low period timing */
++#define I2C_TIM_CFG_FS_SCL_LOW 0x00008000
++/* Disable
++#define I2C_TIM_CFG_FS_SCL_LOW_DIS 0x00000000 */
++/** Enable */
++#define I2C_TIM_CFG_FS_SCL_LOW_EN 0x00008000
++/** SCL Delay Stages for Hold Time Start (Restart) Bit.
++    The actual delay is calculated as the value of this field + 2 */
++#define I2C_TIM_CFG_SCL_DEL_HD_STA_MASK 0x00000E00
++/** field offset */
++#define I2C_TIM_CFG_SCL_DEL_HD_STA_OFFSET 9
++/** SDA Delay Stages for Start/Stop bit in High Speed Mode
++    The actual delay is calculated as the value of this field + 3 */
++#define I2C_TIM_CFG_HS_SDA_DEL_HD_DAT_MASK 0x000001C0
++/** field offset */
++#define I2C_TIM_CFG_HS_SDA_DEL_HD_DAT_OFFSET 6
++/** SDA Delay Stages for Start/Stop bit in High Speed Mode
++    The actual delay is calculated as the value of this field + 3 */
++#define I2C_TIM_CFG_SDA_DEL_HD_DAT_MASK 0x0000003F
++/** field offset */
++#define I2C_TIM_CFG_SDA_DEL_HD_DAT_OFFSET 0
++
++/* Fields of "I2C Error Interrupt Request Source Mask Register" */
++/** Enables the corresponding error interrupt. */
++#define I2C_ERR_IRQSM_TXF_OFL 0x00000008
++/* Disable
++#define I2C_ERR_IRQSM_TXF_OFL_DIS 0x00000000 */
++/** Enable */
++#define I2C_ERR_IRQSM_TXF_OFL_EN 0x00000008
++/** Enables the corresponding error interrupt. */
++#define I2C_ERR_IRQSM_TXF_UFL 0x00000004
++/* Disable
++#define I2C_ERR_IRQSM_TXF_UFL_DIS 0x00000000 */
++/** Enable */
++#define I2C_ERR_IRQSM_TXF_UFL_EN 0x00000004
++/** Enables the corresponding error interrupt. */
++#define I2C_ERR_IRQSM_RXF_OFL 0x00000002
++/* Disable
++#define I2C_ERR_IRQSM_RXF_OFL_DIS 0x00000000 */
++/** Enable */
++#define I2C_ERR_IRQSM_RXF_OFL_EN 0x00000002
++/** Enables the corresponding error interrupt. */
++#define I2C_ERR_IRQSM_RXF_UFL 0x00000001
++/* Disable
++#define I2C_ERR_IRQSM_RXF_UFL_DIS 0x00000000 */
++/** Enable */
++#define I2C_ERR_IRQSM_RXF_UFL_EN 0x00000001
++
++/* Fields of "I2C Error Interrupt Request Source Status Register" */
++/** TXF_OFL */
++#define I2C_ERR_IRQSS_TXF_OFL 0x00000008
++/* Nothing
++#define I2C_ERR_IRQSS_TXF_OFL_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_ERR_IRQSS_TXF_OFL_INTOCC 0x00000008
++/** TXF_UFL */
++#define I2C_ERR_IRQSS_TXF_UFL 0x00000004
++/* Nothing
++#define I2C_ERR_IRQSS_TXF_UFL_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_ERR_IRQSS_TXF_UFL_INTOCC 0x00000004
++/** RXF_OFL */
++#define I2C_ERR_IRQSS_RXF_OFL 0x00000002
++/* Nothing
++#define I2C_ERR_IRQSS_RXF_OFL_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_ERR_IRQSS_RXF_OFL_INTOCC 0x00000002
++/** RXF_UFL */
++#define I2C_ERR_IRQSS_RXF_UFL 0x00000001
++/* Nothing
++#define I2C_ERR_IRQSS_RXF_UFL_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_ERR_IRQSS_RXF_UFL_INTOCC 0x00000001
++
++/* Fields of "I2C Error Interrupt Request Source Clear Register" */
++/** TXF_OFL */
++#define I2C_ERR_IRQSC_TXF_OFL 0x00000008
++/* No-Operation
++#define I2C_ERR_IRQSC_TXF_OFL_NOP 0x00000000 */
++/** Clear */
++#define I2C_ERR_IRQSC_TXF_OFL_CLR 0x00000008
++/** TXF_UFL */
++#define I2C_ERR_IRQSC_TXF_UFL 0x00000004
++/* No-Operation
++#define I2C_ERR_IRQSC_TXF_UFL_NOP 0x00000000 */
++/** Clear */
++#define I2C_ERR_IRQSC_TXF_UFL_CLR 0x00000004
++/** RXF_OFL */
++#define I2C_ERR_IRQSC_RXF_OFL 0x00000002
++/* No-Operation
++#define I2C_ERR_IRQSC_RXF_OFL_NOP 0x00000000 */
++/** Clear */
++#define I2C_ERR_IRQSC_RXF_OFL_CLR 0x00000002
++/** RXF_UFL */
++#define I2C_ERR_IRQSC_RXF_UFL 0x00000001
++/* No-Operation
++#define I2C_ERR_IRQSC_RXF_UFL_NOP 0x00000000 */
++/** Clear */
++#define I2C_ERR_IRQSC_RXF_UFL_CLR 0x00000001
++
++/* Fields of "I2C Protocol Interrupt Request Source Mask Register" */
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_RX 0x00000040
++/* Disable
++#define I2C_P_IRQSM_RX_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_RX_EN 0x00000040
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_TX_END 0x00000020
++/* Disable
++#define I2C_P_IRQSM_TX_END_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_TX_END_EN 0x00000020
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_NACK 0x00000010
++/* Disable
++#define I2C_P_IRQSM_NACK_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_NACK_EN 0x00000010
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_AL 0x00000008
++/* Disable
++#define I2C_P_IRQSM_AL_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_AL_EN 0x00000008
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_MC 0x00000004
++/* Disable
++#define I2C_P_IRQSM_MC_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_MC_EN 0x00000004
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_GC 0x00000002
++/* Disable
++#define I2C_P_IRQSM_GC_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_GC_EN 0x00000002
++/** Enables the corresponding interrupt. */
++#define I2C_P_IRQSM_AM 0x00000001
++/* Disable
++#define I2C_P_IRQSM_AM_DIS 0x00000000 */
++/** Enable */
++#define I2C_P_IRQSM_AM_EN 0x00000001
++
++/* Fields of "I2C Protocol Interrupt Request Source Status Register" */
++/** RX */
++#define I2C_P_IRQSS_RX 0x00000040
++/* Nothing
++#define I2C_P_IRQSS_RX_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_RX_INTOCC 0x00000040
++/** TX_END */
++#define I2C_P_IRQSS_TX_END 0x00000020
++/* Nothing
++#define I2C_P_IRQSS_TX_END_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_TX_END_INTOCC 0x00000020
++/** NACK */
++#define I2C_P_IRQSS_NACK 0x00000010
++/* Nothing
++#define I2C_P_IRQSS_NACK_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_NACK_INTOCC 0x00000010
++/** AL */
++#define I2C_P_IRQSS_AL 0x00000008
++/* Nothing
++#define I2C_P_IRQSS_AL_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_AL_INTOCC 0x00000008
++/** MC */
++#define I2C_P_IRQSS_MC 0x00000004
++/* Nothing
++#define I2C_P_IRQSS_MC_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_MC_INTOCC 0x00000004
++/** GC */
++#define I2C_P_IRQSS_GC 0x00000002
++/* Nothing
++#define I2C_P_IRQSS_GC_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_GC_INTOCC 0x00000002
++/** AM */
++#define I2C_P_IRQSS_AM 0x00000001
++/* Nothing
++#define I2C_P_IRQSS_AM_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_P_IRQSS_AM_INTOCC 0x00000001
++
++/* Fields of "I2C Protocol Interrupt Request Source Clear Register" */
++/** RX */
++#define I2C_P_IRQSC_RX 0x00000040
++/* No-Operation
++#define I2C_P_IRQSC_RX_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_RX_CLR 0x00000040
++/** TX_END */
++#define I2C_P_IRQSC_TX_END 0x00000020
++/* No-Operation
++#define I2C_P_IRQSC_TX_END_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_TX_END_CLR 0x00000020
++/** NACK */
++#define I2C_P_IRQSC_NACK 0x00000010
++/* No-Operation
++#define I2C_P_IRQSC_NACK_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_NACK_CLR 0x00000010
++/** AL */
++#define I2C_P_IRQSC_AL 0x00000008
++/* No-Operation
++#define I2C_P_IRQSC_AL_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_AL_CLR 0x00000008
++/** MC */
++#define I2C_P_IRQSC_MC 0x00000004
++/* No-Operation
++#define I2C_P_IRQSC_MC_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_MC_CLR 0x00000004
++/** GC */
++#define I2C_P_IRQSC_GC 0x00000002
++/* No-Operation
++#define I2C_P_IRQSC_GC_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_GC_CLR 0x00000002
++/** AM */
++#define I2C_P_IRQSC_AM 0x00000001
++/* No-Operation
++#define I2C_P_IRQSC_AM_NOP 0x00000000 */
++/** Clear */
++#define I2C_P_IRQSC_AM_CLR 0x00000001
++
++/* Fields of "I2C Raw Interrupt Status Register" */
++/** This is the combined interrupt bit for indication of an protocol event in the I2C kernel. */
++#define I2C_RIS_I2C_P_INT 0x00000020
++/* Nothing
++#define I2C_RIS_I2C_P_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_RIS_I2C_P_INT_INTOCC 0x00000020
++/** This is the combined interrupt bit for indication of FIFO errors due to overflow and underrun. */
++#define I2C_RIS_I2C_ERR_INT 0x00000010
++/* Nothing
++#define I2C_RIS_I2C_ERR_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_RIS_I2C_ERR_INT_INTOCC 0x00000010
++/** BREQ_INT */
++#define I2C_RIS_BREQ_INT 0x00000008
++/* Nothing
++#define I2C_RIS_BREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_RIS_BREQ_INT_INTOCC 0x00000008
++/** LBREQ_INT */
++#define I2C_RIS_LBREQ_INT 0x00000004
++/* Nothing
++#define I2C_RIS_LBREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_RIS_LBREQ_INT_INTOCC 0x00000004
++/** SREQ_INT */
++#define I2C_RIS_SREQ_INT 0x00000002
++/* Nothing
++#define I2C_RIS_SREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_RIS_SREQ_INT_INTOCC 0x00000002
++/** LSREQ_INT */
++#define I2C_RIS_LSREQ_INT 0x00000001
++/* Nothing
++#define I2C_RIS_LSREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_RIS_LSREQ_INT_INTOCC 0x00000001
++
++/* Fields of "I2C Interrupt Mask Control Register" */
++/** This is the combined interrupt bit for indication of an protocol event in the I2C kernel. */
++#define I2C_IMSC_I2C_P_INT 0x00000020
++/* Disable
++#define I2C_IMSC_I2C_P_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_IMSC_I2C_P_INT_EN 0x00000020
++/** This is the combined interrupt bit for indication of FIFO errors due to overflow and underrun. */
++#define I2C_IMSC_I2C_ERR_INT 0x00000010
++/* Disable
++#define I2C_IMSC_I2C_ERR_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_IMSC_I2C_ERR_INT_EN 0x00000010
++/** BREQ_INT */
++#define I2C_IMSC_BREQ_INT 0x00000008
++/* Disable
++#define I2C_IMSC_BREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_IMSC_BREQ_INT_EN 0x00000008
++/** LBREQ_INT */
++#define I2C_IMSC_LBREQ_INT 0x00000004
++/* Disable
++#define I2C_IMSC_LBREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_IMSC_LBREQ_INT_EN 0x00000004
++/** SREQ_INT */
++#define I2C_IMSC_SREQ_INT 0x00000002
++/* Disable
++#define I2C_IMSC_SREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_IMSC_SREQ_INT_EN 0x00000002
++/** LSREQ_INT */
++#define I2C_IMSC_LSREQ_INT 0x00000001
++/* Disable
++#define I2C_IMSC_LSREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_IMSC_LSREQ_INT_EN 0x00000001
++
++/* Fields of "I2C Masked Interrupt Status Register" */
++/** This is the combined interrupt bit for indication of an protocol event in the I2C kernel. */
++#define I2C_MIS_I2C_P_INT 0x00000020
++/* Nothing
++#define I2C_MIS_I2C_P_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_MIS_I2C_P_INT_INTOCC 0x00000020
++/** This is the combined interrupt bit for indication of FIFO errors due to overflow and underrun. */
++#define I2C_MIS_I2C_ERR_INT 0x00000010
++/* Nothing
++#define I2C_MIS_I2C_ERR_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_MIS_I2C_ERR_INT_INTOCC 0x00000010
++/** BREQ_INT */
++#define I2C_MIS_BREQ_INT 0x00000008
++/* Nothing
++#define I2C_MIS_BREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_MIS_BREQ_INT_INTOCC 0x00000008
++/** LBREQ_INT */
++#define I2C_MIS_LBREQ_INT 0x00000004
++/* Nothing
++#define I2C_MIS_LBREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_MIS_LBREQ_INT_INTOCC 0x00000004
++/** SREQ_INT */
++#define I2C_MIS_SREQ_INT 0x00000002
++/* Nothing
++#define I2C_MIS_SREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_MIS_SREQ_INT_INTOCC 0x00000002
++/** LSREQ_INT */
++#define I2C_MIS_LSREQ_INT 0x00000001
++/* Nothing
++#define I2C_MIS_LSREQ_INT_NULL 0x00000000 */
++/** Read: Interrupt occurred. */
++#define I2C_MIS_LSREQ_INT_INTOCC 0x00000001
++
++/* Fields of "I2C Interrupt Clear Register" */
++/** This is the combined interrupt bit for indication of an protocol event in the I2C kernel. */
++#define I2C_ICR_I2C_P_INT 0x00000020
++/* No-Operation
++#define I2C_ICR_I2C_P_INT_NOP 0x00000000 */
++/** Clear */
++#define I2C_ICR_I2C_P_INT_CLR 0x00000020
++/** This is the combined interrupt bit for indication of FIFO errors due to overflow and underrun. */
++#define I2C_ICR_I2C_ERR_INT 0x00000010
++/* No-Operation
++#define I2C_ICR_I2C_ERR_INT_NOP 0x00000000 */
++/** Clear */
++#define I2C_ICR_I2C_ERR_INT_CLR 0x00000010
++/** BREQ_INT */
++#define I2C_ICR_BREQ_INT 0x00000008
++/* No-Operation
++#define I2C_ICR_BREQ_INT_NOP 0x00000000 */
++/** Clear */
++#define I2C_ICR_BREQ_INT_CLR 0x00000008
++/** LBREQ_INT */
++#define I2C_ICR_LBREQ_INT 0x00000004
++/* No-Operation
++#define I2C_ICR_LBREQ_INT_NOP 0x00000000 */
++/** Clear */
++#define I2C_ICR_LBREQ_INT_CLR 0x00000004
++/** SREQ_INT */
++#define I2C_ICR_SREQ_INT 0x00000002
++/* No-Operation
++#define I2C_ICR_SREQ_INT_NOP 0x00000000 */
++/** Clear */
++#define I2C_ICR_SREQ_INT_CLR 0x00000002
++/** LSREQ_INT */
++#define I2C_ICR_LSREQ_INT 0x00000001
++/* No-Operation
++#define I2C_ICR_LSREQ_INT_NOP 0x00000000 */
++/** Clear */
++#define I2C_ICR_LSREQ_INT_CLR 0x00000001
++
++/* Fields of "I2C Interrupt Set Register" */
++/** This is the combined interrupt bit for indication of an protocol event in the I2C kernel. */
++#define I2C_ISR_I2C_P_INT 0x00000020
++/* No-Operation
++#define I2C_ISR_I2C_P_INT_NOP 0x00000000 */
++/** Set */
++#define I2C_ISR_I2C_P_INT_SET 0x00000020
++/** This is the combined interrupt bit for indication of FIFO errors due to overflow and underrun. */
++#define I2C_ISR_I2C_ERR_INT 0x00000010
++/* No-Operation
++#define I2C_ISR_I2C_ERR_INT_NOP 0x00000000 */
++/** Set */
++#define I2C_ISR_I2C_ERR_INT_SET 0x00000010
++/** BREQ_INT */
++#define I2C_ISR_BREQ_INT 0x00000008
++/* No-Operation
++#define I2C_ISR_BREQ_INT_NOP 0x00000000 */
++/** Set */
++#define I2C_ISR_BREQ_INT_SET 0x00000008
++/** LBREQ_INT */
++#define I2C_ISR_LBREQ_INT 0x00000004
++/* No-Operation
++#define I2C_ISR_LBREQ_INT_NOP 0x00000000 */
++/** Set */
++#define I2C_ISR_LBREQ_INT_SET 0x00000004
++/** SREQ_INT */
++#define I2C_ISR_SREQ_INT 0x00000002
++/* No-Operation
++#define I2C_ISR_SREQ_INT_NOP 0x00000000 */
++/** Set */
++#define I2C_ISR_SREQ_INT_SET 0x00000002
++/** LSREQ_INT */
++#define I2C_ISR_LSREQ_INT 0x00000001
++/* No-Operation
++#define I2C_ISR_LSREQ_INT_NOP 0x00000000 */
++/** Set */
++#define I2C_ISR_LSREQ_INT_SET 0x00000001
++
++/* Fields of "I2C DMA Enable Register" */
++/** BREQ_INT */
++#define I2C_DMAE_BREQ_INT 0x00000008
++/* Disable
++#define I2C_DMAE_BREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_DMAE_BREQ_INT_EN 0x00000008
++/** LBREQ_INT */
++#define I2C_DMAE_LBREQ_INT 0x00000004
++/* Disable
++#define I2C_DMAE_LBREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_DMAE_LBREQ_INT_EN 0x00000004
++/** SREQ_INT */
++#define I2C_DMAE_SREQ_INT 0x00000002
++/* Disable
++#define I2C_DMAE_SREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_DMAE_SREQ_INT_EN 0x00000002
++/** LSREQ_INT */
++#define I2C_DMAE_LSREQ_INT 0x00000001
++/* Disable
++#define I2C_DMAE_LSREQ_INT_DIS 0x00000000 */
++/** Enable */
++#define I2C_DMAE_LSREQ_INT_EN 0x00000001
++
++/* Fields of "I2C Transmit Data Register" */
++/** Characters to be transmitted */
++#define I2C_TXD_TXD_MASK 0xFFFFFFFF
++/** field offset */
++#define I2C_TXD_TXD_OFFSET 0
++
++/* Fields of "I2C Receive Data Register" */
++/** Received characters */
++#define I2C_RXD_RXD_MASK 0xFFFFFFFF
++/** field offset */
++#define I2C_RXD_RXD_OFFSET 0
++
++/*! @} */ /* I2C_REGISTER */
++
++#endif /* I2C_LANTIQ_H */

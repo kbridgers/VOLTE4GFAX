@@ -1,0 +1,97 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+case "$1" in
+start)
+	shift
+	if [ "$OAM_ENABLE" = "1" ]; then
+		if [ $# -eq 1 ]; then
+			#TBD: how to know if $1 is IP or PPP connection
+			. /etc/rc.d/init.d/oam_start $@
+		else
+			/usr/bin/oamd & 
+
+			wan_idx=0
+			while [ $wan_idx -lt $wan_ip_Count ]
+			do
+				eval link_type='$'wanip_${wan_idx}_linkType
+				eval addr_type='$'wanip_${wan_idx}_addrType
+
+				if [ "$link_type" = "1" -a "$addr_type" = "0" ]; then # EoATM Bridge Mode
+					wan_type="BRIDGE"
+				fi
+
+				if [ "$link_type" = "1" -o "$link_type" = "2" ]; then # EoATM or IPoATM
+					if [ "$addr_type" = "1" ]; then # DHCP 
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					fi
+				elif [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					. /etc/rc.d/init.d/oam_start "IP" $wan_idx $@
+				fi
+
+				wan_idx=$(( $wan_idx + 1 ))
+			done
+
+			wan_idx=0
+			while [ $wan_idx -lt $wan_ppp_Count ]
+			do
+				eval link_type='$'wanppp_${wan_idx}_linkType
+				eval addr_type='$'wappp_${wan_idx}_addrType
+
+				if [ "$link_type" = "1" -a "$addr_type" = "0" ]; then # EoATM Bridge Mode
+					wan_type="BRIDGE"
+				fi
+
+				if [ "$link_type" = "1" -o "$link_type" = "2" ]; then # EoATM or IPoATM
+					if [ "$addr_type" = "1" ]; then # DHCP 
+						wan_type="DHCPC"
+					elif [ "$addr_type" = "2" ]; then # STATIC
+						wan_type="FIXED"
+					fi
+				elif [ "$link_type" = "3" ]; then # PPPoA
+					wan_type="PPPOA"
+				elif [ "$link_type" = "4" ]; then # PPPoE
+					wan_type="PPPOE"
+				elif [ "$link_type" = "5" ]; then # CLIP
+					wan_type="FIXED"
+				else
+					wan_type="UNKNOWN"
+				fi
+
+				if [ -n "$wan_type" -a "$wan_type" != "UNKNOWN" ]; then
+					. /etc/rc.d/init.d/oam_start "PPP" $wan_idx $@
+				fi
+
+				wan_idx=$(( $wan_idx + 1 ))
+			done
+		fi
+	fi
+#	echo "start oam $1"
+	;;
+stop)
+	shift
+	. /etc/rc.d/init.d/oam_stop $@
+#	echo "stop oam $1"
+	;;
+restart)
+	. /etc/rc.d/init.d/oam stop 
+	. /etc/rc.d/init.d/oam start
+esac

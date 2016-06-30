@@ -1,0 +1,19 @@
+config FEATURE_LTQ_WAVE_300
+	bool 'Enable WAVE300 support'
+	help
+	  Support for WAVE300
+
+config FEATURE_LTQ_WAVE_400
+	bool 'Enable WAVE400 support'
+	help
+	  Support for WAVE400
+
+config FEATURE_LTQ_WAVE_AR10_SUPPORT
+	bool 'Enable WAVE support for AR10'
+	help
+	  Support for WAVE on AR10 platforms
+
+config FEATURE_LTQ_WAVE_STA
+	bool 'Enable WAVE station support'
+	help
+	  Support for WAVE STA mode

@@ -1,0 +1,56 @@
+--- open_ntpclient.orig/Makefile	2009-11-04 09:37:03.000000000 +0530
++++ open_ntpclient/Makefile	2009-11-25 13:21:45.000000000 +0530
+@@ -12,7 +12,7 @@
+ # CFLAGS += -DPRECISION_SIOCGSTAMP
+ CFLAGS += -DENABLE_DEBUG
+ CFLAGS += -DENABLE_REPLAY
+-# CFLAGS += -DUSE_OBSOLETE_GETTIMEOFDAY
++CFLAGS += -DUSE_OBSOLETE_GETTIMEOFDAY
+ CFLAGS += $(IFX_CFLAGS)
+ 
+ #LDFLAGS += -lrt
+--- open_ntpclient.orig/ntpclient.c	2009-11-04 09:37:03.000000000 +0530
++++ open_ntpclient/ntpclient.c	2009-11-25 13:21:37.000000000 +0530
+@@ -623,8 +623,6 @@
+ 	char *hostname[10];          /* must be set */
+         int i=0;
+ 	int initial_freq;             /* initial freq value to use */
+-    int time_in_hrs = 0, time_in_mins = 0;
+-    char time_env[10];
+ 	struct ntp_control ntpc;
+ 	ntpc.live=0;
+ 	ntpc.set_clock=0;
+@@ -637,7 +635,7 @@
+         memset(hostname,0,sizeof(hostname));
+ 
+ 	for (;;) {
+-		c = getopt( argc, argv, "c:" DEBUG_OPTION "f:g:h:i:lp:q:" REPLAY_OPTION "stoD:");
++		c = getopt( argc, argv, "c:" DEBUG_OPTION "f:g:h:i:lp:q:" REPLAY_OPTION "sto:");
+ 		if (c == EOF) break;
+ 		switch (c) {
+ 			case 'c':
+@@ -686,10 +684,6 @@
+ 				(ntpc.cross_check)=0;
+ 				break;
+ 
+-			case 'D':
+-				daemon();
+-				break;
+-
+                         case 'o':
+                                 time_offset = atoi(optarg);
+                                 break;
+@@ -731,13 +725,6 @@
+ 		ntpc.set_clock, ntpc.cross_check, time_offset );
+ 	}
+ 
+-    time_in_hrs=time_offset/60;
+-    time_in_mins=time_offset%60;
+-    if(time_in_mins < 0)
+-        time_in_mins += (2 * time_in_mins);
+-    sprintf(time_env, "GMT%d:%d", time_in_hrs, time_in_mins);
+-    setenv("TZ", time_env, 1);
+-
+         i=0;
+         while(hostname[i] && !success)
+         {

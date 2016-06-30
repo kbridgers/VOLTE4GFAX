@@ -1,0 +1,12 @@
+export of_irq_to_resource_table for usage in modules
+
+--- a/drivers/of/irq.c
++++ b/drivers/of/irq.c
+@@ -392,6 +392,7 @@ int of_irq_to_resource_table(struct devi
+ 
+ 	return i;
+ }
++EXPORT_SYMBOL_GPL(of_irq_to_resource_table);
+ 
+ struct intc_desc {
+ 	struct list_head	list;

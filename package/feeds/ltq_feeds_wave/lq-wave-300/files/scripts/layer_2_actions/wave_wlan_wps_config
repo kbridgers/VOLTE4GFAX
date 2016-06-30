@@ -1,0 +1,20 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "running wave_wlan_wps_config: args: $*"
+
+apIndex=$1
+
+timestamp "wave_wlan_wps_config:$apIndex:begin"
+
+NETWORK_TYPE=`host_api get $$ $apIndex network_type`
+if [ "$NETWORK_TYPE" != "$STA" ]
+then
+	(. $ETC_PATH/wave_wlan_sec_modify $@)
+fi
+
+timestamp "wave_wlan_wps_config:$apIndex:done"

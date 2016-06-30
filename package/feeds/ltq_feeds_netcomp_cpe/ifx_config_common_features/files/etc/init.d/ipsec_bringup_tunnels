@@ -1,0 +1,6 @@
+#!/bin/sh
+wan_connection=$1
+for index in `sed -n 's|ipsec_tunnel_\(.*\)_wanConnIf="'$wan_connection'"|\1|p' /flash/rc.conf`; 
+do 
+    /etc/rc.d/init.d/ipsec_add $index $wan_connection
+done

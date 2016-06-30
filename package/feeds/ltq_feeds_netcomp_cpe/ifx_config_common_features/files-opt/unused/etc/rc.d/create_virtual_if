@@ -1,0 +1,109 @@
+#!/bin/sh
+#if [ $1 = "3" ] ; then
+#set -x
+#fi
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# create virtual interface
+# create_virtual_if <if_index> <VCC_VALUE> <PPP/IP> <IP_ADDR> <ATM_PROTOCOL>
+# MAC is generated randomly on prototype
+# Change the mac address option on PRODUCTION Software
+
+#	ENC=`echo $2 | cut -f1 -d "_"`
+	ENC=${2%%_*}
+#	VPI=`echo $2 | cut -f2 -d "_" | cut -f1 -d "/"`
+	VPI=${2#*_}
+	VPI=${VPI%%\/*}
+#	VCI=`echo $2 | cut -f2 -d "_" | cut -f2 -d "/"`
+	VCI=${2#*_}
+	VCI=${VCI#*\/}
+	QOS=$VCI
+	VCI=${VCI%%_*}
+#	QOS=`echo $2 | cut -f3- -d "_"`
+	QOS=${QOS#*_}
+#	if [ "`echo $QOS | cut -b 2`" = "," ]; then
+	case "$QOS" in
+		?,*) 
+#		QOSNAME=`echo $QOS | cut -f1 -d','`
+		QOSNAME=${QOS%%,*}
+		QOSNAME=`/usr/sbin/get_atmqos_name $QOSNAME`
+		qos2=${QOS#*,}
+		QOSNAME="$QOSNAME"",aal5:"$qos2
+#		QOS=`/usr/sbin/get_atmqos_name $QOSNAME`",aal5:"`echo $QOS | cut -f2- -d','`
+		;;
+#	else
+		*)
+		QOSNAME=`/usr/sbin/get_atmqos_name $QOS` ;;
+	esac
+#	fi
+
+	#Vicky_Note:
+	#embryo_iface: Unformed interface which is updated in rc.conf 
+        
+	if [ "$3" = "ppp" ]; then #PPP
+                eval embryo_iface='$'wanppp_${1}_iface
+		eval VCC_SETTING='$'wanppp_${1}_vcc
+        fi
+
+        if [ "$3" = "ip" ]; then #IP
+                eval embryo_iface='$'wanip_${1}_iface
+		eval VCC_SETTING='$'wanip_${1}_vcc
+        fi
+
+        eval nas_iface=${embryo_iface%_*}       # Real intreface
+        eval nas_vnd_index=${embryo_iface#*_}   # Virtual interface index
+
+	i=0
+	while [ $i -lt $adsl_vcchannel_Count ]; do
+		eval adsl_vcc='$'VCChannel_${i}_vcc
+		if [ "A$adsl_vcc" = "A$VCC_SETTING" ]; then
+			break
+		fi
+		i=$(( $i + 1 ))
+	done
+	i=$(( $i + 1 ))
+	/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS CONNECTING
+
+	fail=0
+
+
+	# Vicky_Note: Create a virtual Interface
+	/usr/sbin/vnd add $nas_iface $nas_vnd_index > /dev/null 2> /dev/null
+	#Change the interface to nasx_y format
+	eval nas_iface=$embryo_iface
+
+	status=$?
+
+	# Keep trying in case there is delay in "nas" interface creation
+	trial=0
+	usleep 100000
+	/sbin/ifconfig $nas_iface > /dev/null 2> /dev/null
+	status=$?
+	while [ "$status" -ne 0 -a $trial -lt 4 ]; do
+		sleep 1
+		trial=$(( $trial + 1 ))
+		/sbin/ifconfig $nas_iface > /dev/null 2> /dev/null
+		status=$?
+	done
+
+	if [ "$fail" = "1" ]; then
+		/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS DISCONNECTED
+	else
+		/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS CONNECTED
+		/sbin/ifconfig $nas_iface $5 up
+	fi
+
+

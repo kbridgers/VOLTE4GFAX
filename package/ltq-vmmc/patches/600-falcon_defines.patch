@@ -1,0 +1,26 @@
+--- a/src/mps/drv_mps_vmmc_common.c
++++ b/src/mps/drv_mps_vmmc_common.c
+@@ -60,7 +60,7 @@
+ #include <asm/ifx/ifx_gptu.h>
+ #endif
+ #if defined(SYSTEM_FALCON)
+-#include <sys1_reg.h>
++#define ACTS_MPS 0x02000000
+ #include <sysctrl.h>
+ #endif
+ #endif /* SYSTEM_FALCON */
+--- a/src/mps/drv_mps_vmmc_falcon.c
++++ b/src/mps/drv_mps_vmmc_falcon.c
+@@ -29,8 +29,10 @@
+ #include "ifxos_select.h"
+ #include "ifxos_interrupt.h"
+ #include <linux/gpio.h>
+-#include <sys1_reg.h>
+-#include <gpon_reg_base.h>
++#define GPON_SYS1_BASE		(KSEG1 | 0x1EF00000)
++#define GPON_SYS_BASE		(KSEG1 | 0x1DF00000)
++#define ACTS_MPS 0x02000000
++#define ACTS_GPTC 0x04000000
+ #include <falcon_irq.h>
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0))
+ #include <vpe.h>

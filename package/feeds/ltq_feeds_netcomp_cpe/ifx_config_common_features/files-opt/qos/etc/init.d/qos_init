@@ -1,0 +1,34 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#initial mangle 
+iptables -t mangle -N QOS_PREROUTING
+iptables -t mangle -N QOS_VS
+iptables -t mangle -N QOS_PRIO
+sleep 5
+iptables -t mangle -A QOS_PREROUTING -j QOS_VS
+iptables -t mangle -A QOS_PREROUTING -j QOS_PRIO
+iptables -t mangle -N QOS_POSTROUTING
+
+if [ "$QOS_ENABLE" = 1 ]; then
+	#(sleep 20; /etc/rc.d/init.d/qos_upstream_start ; 	/etc/rc.d/init.d/qos_downstream_start ; )&
+	if [ "$QOS_PRIO" = "1" ]; then
+		if [ "$CONFIG_FEATURE_QOS_8021P" = 1 ]; then
+			. /etc/rc.d/init.d/pif start
+		fi
+		. /etc/rc.d/init.d/qos_apply_priority
+	fi
+fi

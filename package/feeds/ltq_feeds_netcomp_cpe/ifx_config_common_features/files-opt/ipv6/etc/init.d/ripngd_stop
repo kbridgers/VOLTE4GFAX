@@ -1,0 +1,34 @@
+#!/bin/sh
+
+killproc() {
+       pid=
+       if [ -f /var/run/quagga/$1.pid ]; then
+               local line p
+               read line < /var/run/quagga/$1.pid
+               for p in $line; do
+                       pid="$pid $p"
+               done
+       fi
+       if [ -z "$pid" ]; then
+               /usr/bin/killall $1
+       else
+               kill -TERM $pid
+               usleep 100000
+               if checkpid $pid && sleep 1 &&
+                  checkpid $pid $$ sleep 3 &&
+                  checkpid $pid; then
+                       kill -KILL $pid
+                       usleep 100000
+               fi
+       fi
+       rm -f /var/run/quagga/$1.pid
+}
+
+killproc ripngd
+killproc zebra
+
+#stop() {
+#	/etc/rc.d/killproc ripngd
+#	/etc/rc.d/killproc zebra
+#       naptcfg --Servicesinit
+#}	

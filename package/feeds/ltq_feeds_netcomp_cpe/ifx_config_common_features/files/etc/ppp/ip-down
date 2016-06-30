@@ -1,0 +1,67 @@
+#!/bin/sh
+
+# ip-down interface-name tty-device speed local-link-local-address remote-link-local-address ipparam
+
+if [ -r /etc/rc.d/config.sh ]; then
+	. /etc/rc.d/config.sh 2>/dev/null
+fi
+if [ -r /etc/rc.conf ]; then
+	. /etc/rc.conf 2> /dev/null
+fi
+
+#if [ $CONFIG_FEATURE_ALGS -a $CONFIG_FEATURE_ALGS = "1" ]; then
+#	CONFIG_PACKAGE_IPTABLES="1"
+#elif [ $CONFIG_FEATURE_FIREWALL -a $CONFIG_FEATURE_FIREWALL = "1" ]; then
+#	CONFIG_PACKAGE_IPTABLES="1"
+#elif [ $CONFIG_FEATURE_NAPT -a $CONFIG_FEATURE_NAPT = "1" ]; then
+#	CONFIG_PACKAGE_IPTABLES="1"
+#fi
+
+#	wan_idx=`cat /etc/rc.conf | grep "ifppp=\"${1}\"" | cut -d '_' -f 2`
+	i=0
+	wan_idx=-1
+	while [ $i -lt $wan_ppp_Count ]	
+	do
+		eval wanPPPIf='$'wanppp_${i}_ifppp
+		if [ "$wanPPPIf" = "$1" ]; then
+			wan_idx=$i
+			break
+		fi
+		i=`expr $i + 1`
+	done
+	eval PPP_MTU='$'wanppp_${wan_idx}_MTU
+	eval nat_enable='$'wanppp_${wan_idx}_NATEnable
+	# Remove the TCPMSS Clamping
+	/usr/sbin/iptables -D FORWARD -o $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	/usr/sbin/iptables -D FORWARD -i $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	/usr/sbin/iptables -t mangle -D FORWARD -o $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	/usr/sbin/iptables -t mangle -D FORWARD -i $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	if [ "$CONFIG_PACKAGE_IPTABLES" = "1" -a "$nat_enable" = "1" ]; then
+		/usr/sbin/naptcfg --DELWANIF $1
+
+#   		/usr/sbin/iptables -t nat -D POSTROUTING -o $1 -p tcp --tcp-flags SYN,RST SYN -m tcpmss --mss `expr $PPP_MTU - 40 + 1`: -j TCPMSS --set-mss `expr $PPP_MTU - 40`
+	fi
+
+	# Update WWAN ppp status if wan_idx = 0
+	([ -n "$wan_idx" -a "$wan_idx" = "0" ] && [ -f /tmp/cwan_status.txt ]) && {
+		sed -i 's/cellWanSta.*/cellWanSta 0/g' /tmp/cwan_status.txt
+	} || >&-
+
+	/etc/rc.d/rc.bringup_wanppp_services_stop $wan_idx > /dev/console
+
+        #/usr/sbin/status_oper SET "Wan${wan_idx}_IF_Info" STATUS UNCONFIGURED
+
+	#705183:Pramod start
+	if [ "$CONFIG_PACKAGE_IFX_DEVM" = "1" ]; then
+		# call event utility with interface down
+		/usr/sbin/ifx_event_util "WAN_INTERFACE" "DOWN" "wan_ppp" "wan_index" "$wan_idx"
+	fi
+	#705183:Pramod end
+	echo "0" > /proc/sys/net/ipv4/if_bridged_enable 
+
+	if [ -n "`/bin/cat /tmp/adsl_status | grep "0"`" ]; then
+		if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+			echo none > /sys/class/leds/internet_red_led/trigger
+			echo 0 > /sys/class/leds/internet_red_led/brightness
+		fi	
+	fi

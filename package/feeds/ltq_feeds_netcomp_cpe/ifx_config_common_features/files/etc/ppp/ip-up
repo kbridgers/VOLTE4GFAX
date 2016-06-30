@@ -1,0 +1,143 @@
+#!/bin/sh
+# ip-up interface-name tty-device speed local-link-local-address remote-link-local-address ipparam
+
+eval status_ad=`/usr/sbin/status_oper GET autodetect_status status_ad`
+if [ -z $status_ad ] || [ $status_ad -eq 0 ]; then
+
+	if [ ! "$ENVLOADED" ]; then
+		if [ -r /etc/rc.conf ]; then
+			 . /etc/rc.conf 2> /dev/null
+			ENVLOADED="1"
+		fi
+	fi
+
+	if [ ! "$CONFIGLOADED" ]; then
+		if [ -r /etc/rc.d/config.sh ]; then
+			. /etc/rc.d/config.sh 2>/dev/null
+			CONFIGLOADED="1"
+		fi
+	fi
+
+	i=0
+	wan_idx=-1
+	while [ 1 ]	
+	do
+		eval wanPPPIf='$'wanppp_${i}_ifppp
+		if [ -z "$wanPPPIf" ]; then
+			break
+		fi
+		if [ "$wanPPPIf" = "$1" ]; then
+			wan_idx=$i
+			break
+		fi
+		i=`expr $i + 1`
+	done
+	if [ "$wan_idx" != "-1" ]; then # [ if wan_idx is not -1
+		eval PPP_MTU='$'wanppp_${wan_idx}_MTU
+		eval PPP_DEMAND='$'wanppp_${wan_idx}_connTrigger
+		eval nat_enable='$'wanppp_${wan_idx}_NATEnable
+		if [ "$CONFIG_PACKAGE_IPTABLES" = "1" -a "$nat_enable" = "1" ]; then
+			/usr/sbin/naptcfg --ADDWANIF $1
+		fi
+		# Clamp the MSS for In/Outbound traffic over PPP interface
+		/usr/sbin/iptables -I FORWARD -o $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+		/usr/sbin/iptables -I FORWARD -i $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+		/usr/sbin/iptables -t mangle -I FORWARD -o $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+		/usr/sbin/iptables -t mangle -I FORWARD -i $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+	#80905:<IFTW-hsuh>:fix for FTP fail on wan upstream. 
+		#if [ "$nat_enable" = "1" ]; then
+			#/usr/sbin/iptables -t nat -I POSTROUTING -o $1 -p tcp --tcp-flags SYN,RST SYN -m tcpmss --mss `/usr/bin/expr $PPP_MTU - 40 + 1`: -j TCPMSS --set-mss `/usr/bin/expr $PPP_MTU - 40`
+			#/usr/sbin/iptables -t nat -I POSTROUTING -o $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+		#fi
+	#80905:<IFTW-hsuh>: End of fix for FTP fail on wan upstream.
+	
+		eval dns_override='$'wanppp_${wan_idx}_dnsoverride
+		if [ "$dns_override" = "1" ]; then # if DNS Override set get the DNS Servers' IP From Server
+			if [ -n "$DNS1" ]; then
+	       		DNS_ARG="DNS1 $DNS1"
+				if [ -n "$DNS2" ]; then
+	    	   		DNS_ARG="$DNS_ARG DNS2 $DNS2"
+				fi
+			fi
+		else # if DNS Override is disabled get the DNS Servers' IP from rc.conf
+			eval file_dns='$'wanppp_${wan_idx}_dnsservers
+			dns_servers=`echo $file_dns | tr -s "," " "`
+			count=1
+			DNS_ARG=""
+			for i in $dns_servers ; do
+				DNS_ARG="$DNS_ARG DNS$count $i"
+				count=`expr $count + 1`
+			done
+			/usr/sbin/iptables -t mangle -I FORWARD -o $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+			/usr/sbin/iptables -t mangle -I FORWARD -i $1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+		fi
+		if [ -n "$DNS_ARG" ]; then
+			/usr/sbin/status_oper SET "WanPPP${wan_idx}_DNS_SERVER" $DNS_ARG
+		else
+			/usr/sbin/status_oper SET "WanPPP${wan_idx}_DNS_SERVER" "DNS1" "" "DNS2" ""
+		fi
+	
+	#80905:<IFTW-hsuh>: End of fix for FTP fail on wan upstream.
+	
+		if [ "$PPP_DEMAND" = "1" ]; then
+			eval peer_ip=`ifconfig ${1} | grep 'P-t-P:' | cut -f3 -d: | cut -f1 -d' '`
+			/bin/ping -c 4 $peer_ip
+		fi
+	
+		#705176:Pramod start
+		if [ "$CONFIG_PACKAGE_IFX_DEVM" = "1" ]; then
+			# call event utility for interface up
+			/usr/sbin/ifx_event_util "WAN_INTERFACE" "UP" "wan_ppp" "wan_index" "$wan_idx"
+	
+			local_ip=`/usr/sbin/status_oper GET "WanPPP${wan_idx}_IF_Info" LOCAL_IP`
+			if [ "$local_ip" != "$IPLOCAL" ]; then
+				# call event utility with the new local ipaddress and wan index
+				/usr/sbin/ifx_event_util "WAN_IPADDRESS" "MOD" "wan_ppp" "ipAddr" "$IPLOCAL" "wan_index" "$wan_idx"
+			fi
+		fi
+		#705176:Pramod end
+	
+		ppp_pid=`/bin/sed q /var/run/ppp-pppoe-${wan_idx}.pid`
+	        sessionid=`/usr/sbin/status_oper GET "WanPPP_pid_${ppp_pid}" SESSIONID`
+	
+		/usr/sbin/status_oper -u SET "WanPPP${wan_idx}_PPP_Info" SESSIONID "$sessionid" REMOTE_IP $IPREMOTE LOCAL_IP $IPLOCAL
+	
+		/usr/sbin/status_oper SET "WanPPP${wan_idx}_GATEWAY" ROUTER1 $IPREMOTE
+	
+		sleep 2
+	
+		# Update WWAN ppp status if wan_idx = 0
+		([ -n "$wan_idx" -a "$wan_idx" = "0" ] && [ -f /tmp/cwan_status.txt ]) && {
+			sed -i 's/cellWanSta.*/cellWanSta 1/g' /tmp/cwan_status.txt
+		} || >&-
+	
+		/etc/rc.d/rc.bringup_wanppp_services_start "$wan_idx" > /dev/console
+	
+	
+		# Sumedh: PPPoE Bridged mode enable!
+		eval g_wan_phy_mode='$'wanphy_phymode
+		eval g_wan_tc_mode='$'wanphy_tc
+		
+		if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+			startFlag=1
+			# Bridge support for PTM, Ethernet interfaces need to be provided
+			# elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" -a "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+			#	startFlag=1
+			# elif [ "$g_wan_phy_mode" = "2" ]; then # Eth on MII1
+			#	startFlag=1
+		fi
+		
+		if [ -n "$startFlag" -a "$startFlag" = "1" ]; then
+			eval LAN_IFACE='$'lan_main_0_interface
+			nasidx=`expr ${wan_idx} - 1`
+			eval be='$'wanppp_${wan_idx}_bridgeEnable
+			if [ "$be" = "1" ]; then
+				echo "1" > /proc/sys/net/ipv4/if_bridged_enable
+				(sleep 2; /usr/sbin/brctl addif ${LAN_IFACE} nas${nasidx}; )&
+			fi
+		fi
+	fi # if wan_idx is not -1 ]
+else 
+	/usr/sbin/status_oper -u SET "autodetect_status" pppoe_status 1
+fi
+

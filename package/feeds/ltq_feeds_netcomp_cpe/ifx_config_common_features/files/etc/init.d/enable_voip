@@ -1,0 +1,89 @@
+#!/bin/sh
+
+#Sumedh- This script adds certain firewall rules to allow voip traffic. CREATED-2/3/06
+#
+
+#VOIP_SIGNAL_PORT_UDP="5060"
+#VOIP_SIGNAL_PORT_TCP="5060"
+#VOIP_DATA_SPORT="5000"
+#VOIP_DATA_EPORT="6000"
+#VOIP_TCP_CLIENT_SPORT="30000"
+#VOIP_TCP_CLIENT_EPORT="30032"
+#FAX_SPORT="7600"
+#FAX_LISTEN_EPORT="7603"
+#FAX_EPORT="7620"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# Ritesh : Source VoIP port information 
+if [ -r /etc/rc.d/init.d/voip_ports_cfg ]; then
+        . /etc/rc.d/init.d/voip_ports_cfg
+fi
+
+#
+#iptables -A INPUT -p udp --dport ! $VOIP_SIGNAL_PORT_UDP -m state --state RELATED, ESTABLISHED -j ACCEPT
+#iptables -A INPUT -p tcp --dport ! $VOIP_SIGNAL_PORT_TCP -m state --state RELATED, ESTABLISHED -j ACCEPT
+#
+
+#           ---==[ OUTPUT CHAIN RULES ]==---
+#To allow SIP signalling on specified udp port to go *out* from device
+iptables -A OUTPUT -p udp --sport $VOIP_SIGNAL_PORT_UDP -j ACCEPT
+
+#To allow RTP/RTCP packets to go *out* from device
+iptables -A OUTPUT -p udp --sport $VOIP_DATA_SPORT:$VOIP_DATA_EPORT -j ACCEPT
+
+#To allow connection between 2 phones connected to FXS of the (same) device.
+iptables -A IFX_FW_ACCEPT_WAN_IF_OUTPUT -o lo -j ACCEPT 
+#  	  ------------------------------------
+
+#           ---==[ INTPUT CHAIN RULES ]==---
+#To allow SIP signalling on specified udp port to reach device
+iptables -A IFX_FW_ACCEPT_SERVICES -p udp --dport $VOIP_SIGNAL_PORT_UDP -j ACCEPT
+
+#To allow RTP/RTCP packets to reach from device
+iptables -A IFX_FW_ACCEPT_SERVICES -p udp --dport $VOIP_DATA_SPORT:$VOIP_DATA_EPORT -j ACCEPT
+
+#To allow SIP signalling on specified tcp port to reach device
+iptables -A IFX_FW_ACCEPT_SERVICES -p tcp --dport $VOIP_SIGNAL_PORT_TCP -j ACCEPT 
+#  	  ------------------------------------
+
+
+#    ---==[ TABLE NAT - PREROUTING CHAIN RULES ]==---
+#To allow SIP signalling on specified udp port
+iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p udp --dport $VOIP_SIGNAL_PORT_UDP -j ACCEPT
+# XXX: Don't we need the rule for RTP/RTCP UDP ports as well ? For a phone
+# conv, probably if first few packets get dropped from remote phone, one still
+# has a connection !!? However, Looks like adding it is the right way. Should be done through port
+# trigger though
+iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p udp --dport $VOIP_DATA_SPORT:$VOIP_DATA_EPORT -j ACCEPT
+
+#To allow SIP signalling on specified tcp port
+iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p tcp --dport $VOIP_SIGNAL_PORT_TCP -j ACCEPT #needs to be verified!
+#  	  ------------------------------------
+#
+##   Ritesh - Collect all VoIP related iptables stuff in one file 
+##    ---==[ TABLE MANGLE - SETUP QOS RULES IF QOS ENABLED ]==---
+#if [ "$SIP_QOS" = "1" -a "$ALG_SIP_ENABLE" = "1" ]; then
+#	echo "VoIP QoS through SIP ALG"
+#else
+#	 if [ "$DIFFSERV_DUT_VOIP" = "1" ]; then
+## Rule for RTP/RTCP packets output from Amazon VoIP application - send all pkts to imq2 in case other qos stuff
+#	iptables -t mangle -A POSTROUTING -j IMQ --todev 2
+## Rule for RTP/RTCP packets received by Amazon VoIP application: PREROUTING ?
+#	iptables -t mangle -A PREROUTING -j IMQ --todev 0
+#	fi
+#fi
+#
+#echo "Firewall Support for VoIP calls is now ENABLED in the device!!"

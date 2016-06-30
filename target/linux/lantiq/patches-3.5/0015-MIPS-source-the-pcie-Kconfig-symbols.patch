@@ -1,0 +1,19 @@
+From f8853a26bcf7a7bd8e346a6b3934c4ef2ea24cae Mon Sep 17 00:00:00 2001
+From: John Crispin <blogic@openwrt.org>
+Date: Sun, 20 May 2012 00:40:25 +0200
+Subject: [PATCH 15/22] MIPS: source the pcie Kconfig symbols
+
+---
+ arch/mips/Kconfig |    1 +
+ 1 files changed, 1 insertions(+), 0 deletions(-)
+
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -2390,6 +2390,7 @@ config PCI_DOMAINS
+ 	bool
+ 
+ source "drivers/pci/Kconfig"
++source "drivers/pci/pcie/Kconfig"
+ 
+ #
+ # ISA support is now enabled via select.  Too many systems still have the one

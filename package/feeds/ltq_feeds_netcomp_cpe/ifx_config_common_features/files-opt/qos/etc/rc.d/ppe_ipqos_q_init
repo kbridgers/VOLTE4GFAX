@@ -1,0 +1,43 @@
+#!/bin/sh
+#$1 =add(1)/del(0)
+
+if [ $1 -eq 1 ]; then
+	cmd="add"
+fi
+if [ $1 -eq 0 ]; then
+	cmd="del"
+fi
+
+cd /proc/eth
+
+#add 8 queues in to PVC 0/35
+
+eval i=0
+echo Initializing ATM queues > /tmp/ipqos_log
+
+while [ $i -le 7 ]
+do
+	echo $cmd queue$i to pvc 0.35
+	echo pvc 0.35 $cmd > prio
+	i=`expr $i + 1`
+done
+
+
+# assign priority to queues
+#if [ $1 -eq 1 ]; then
+#	eval p=0
+#	eval q=7
+#	eval i=0
+
+#while [ $i -le 7 ]
+#do
+#   echo pvc 0.35 prio $p queue $q > prio
+#   i=`expr $i + 1`
+#   p=`expr $p + 1`
+#   q=`expr $q - 1`
+#done
+
+#fi
+
+cd -
+

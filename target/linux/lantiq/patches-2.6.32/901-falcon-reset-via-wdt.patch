@@ -1,0 +1,52 @@
+--- a/arch/mips/lantiq/falcon/reset.c
++++ b/arch/mips/lantiq/falcon/reset.c
+@@ -18,8 +18,28 @@
+ #include <falcon/status_reg.h>
+ #include <falcon/sys1_reg.h>
+ 
++#define WDT_PW1			0x00BE0000
++#define WDT_PW2			0x00DC0000
++#define WDT_REG_BASE		(KSEG1 | 0x1F8803F0)
++
+ static struct gpon_reg_sys1 * const pSYS1 = (struct gpon_reg_sys1 *)GPON_SYS1_BASE;
+ 
++struct gpon_reg_boot {
++	/* bootrom related virtual registers */
++	unsigned int rvec;
++	unsigned int nvec;
++	unsigned int evec;
++	unsigned int cp0_status;
++	unsigned int cp0_epc;
++	unsigned int cp0_eepc;
++	unsigned int size;
++	unsigned int cfg_stat;
++	/* additional virtual registers */
++	unsigned int magic0; /* magic for valid reboot */
++	unsigned int magic1; /*  -"-  */
++	unsigned int bcount; /* reboot counter, used by u-boot */
++} * const pBOOT = (struct gpon_reg_boot *)GPON_SBS0RAM_BASE;
++
+ /* This function is used by the watchdog driver */
+ int ltq_reset_cause(void)
+ {
+@@ -32,8 +52,18 @@ ltq_machine_restart(char *command)
+ {
+ 	printk(KERN_NOTICE "System restart\n");
+ 	local_irq_disable();
+-	ltq_w32(0, (void*)0xBF200000); /* reset Bootreg RVEC */
+-	ltq_w32(RBT_CPU_TRIG, &pSYS1->rbt);
++	/* write magic to signal a valid restart */
++	ltq_w32(0x4C545100, &pBOOT->magic0); /* 'LTQ\0' */
++	ltq_w32(0x0051544C, &pBOOT->magic1); /* '\0QTL' */
++	ltq_w32(0, &pBOOT->rvec); /* reset Bootreg RVEC */
++	/* reset via watchdog timer, to ensure reset of all hardware components */
++	ltq_w32(WDT_PW1, (void*)WDT_REG_BASE);
++	ltq_w32(WDT_PW2 |
++		(0x3 << 26) | /* PWL */
++		(0x2 << 24) | /* CLKDIV */
++		(0x1 << 31) | /* enable */
++		(1), /* reload */
++		(void*)WDT_REG_BASE);
+ 	for(;;);
+ }
+ 

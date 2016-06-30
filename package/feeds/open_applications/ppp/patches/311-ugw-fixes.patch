@@ -1,0 +1,781 @@
+diff -Nbaur ppp-2.4.4/pppd/auth.c ppp-2.4.4-mod/pppd/auth.c
+--- ppp-2.4.4/pppd/auth.c	2006-06-18 16:56:00.000000000 +0530
++++ ppp-2.4.4-mod/pppd/auth.c	2010-12-20 18:20:45.142507256 +0530
+@@ -116,6 +116,7 @@
+ #include "cbcp.h"
+ #endif
+ #include "pathnames.h"
++#include <ifx_config.h>
+ 
+ static const char rcsid[] = RCSID;
+ 
+@@ -400,6 +401,67 @@
+     { NULL }
+ };
+ 
++static inline void turn_on_led(int ifunit)
++{
++	FILE *fp = NULL;
++	char buf[5] = {0};
++	size_t bytes_read;
++	char ifname[5];
++        const char prefix[] = "ppp";
++
++        sprintf (ifname, "%s%d", prefix, ifunit);
++
++#ifdef CONFIG_FEATURE_IFX_CUSTOM_BOARD_SUPPORT
++	if ( (fp = popen("/etc/rc.d/get_default_wan_config", "r")) != NULL)
++	{
++		bytes_read = fread(buf, 4, 1, fp);
++	    	error("turn_on_led: ifunit:[%d] ifname:[%s] buf:[%s]", ifunit, ifname, buf);
++		if ((bytes_read > 0) && (!strncmp(ifname, buf, 4))) {
++			system("/usr/sbin/led_control -l 11 off");
++			system("/usr/sbin/led_control -l 12 on");
++		}
++		pclose(fp);
++	}
++#else
++	//system("/usr/sbin/led_control -l 2 on");
++#ifdef CONFIG_FEATURE_LED_INTERNET_RED
++        system("echo none > /sys/class/leds/internet_red_led/trigger");
++        system ("echo 1 > /sys/class/leds/internet_red_led/brightness");
++#endif
++#endif
++}
++
++static inline void turn_off_led(int ifunit)
++{
++	FILE *fp = NULL;
++	char buf[5] = {0};
++	size_t bytes_read;
++	char ifname[5];
++        const char prefix[] = "ppp";
++
++        sprintf (ifname, "%s%d", prefix, ifunit);
++
++#ifdef CONFIG_FEATURE_IFX_CUSTOM_BOARD_SUPPORT
++	if ( (fp = popen("/etc/rc.d/get_default_wan_config", "r")) != NULL)
++	{
++		bytes_read = fread(buf, 4, 1, fp);
++	    	error("turn_off_led: ifunit:[%d] ifname:[%s] buf:[%s]", ifunit, ifname, buf);
++		if ((bytes_read > 0) && (!strncmp(ifname, buf, 4))) {
++			system("/usr/sbin/led_control -l 12 off");
++			system("/usr/sbin/led_control -l 11 on");
++		}
++		pclose(fp);
++	}
++#else
++	//system("/usr/sbin/led_control -l 2 off");
++#ifdef CONFIG_FEATURE_LED_INTERNET_RED
++        system("echo none > /sys/class/leds/internet_red_led/trigger");
++        system ("echo 0 > /sys/class/leds/internet_red_led/brightness");
++#endif
++#endif
++}
++
++
+ /*
+  * setupapfile - specifies UPAP info for authenticating with peer.
+  */
+@@ -848,6 +910,7 @@
+     struct protent *protp;
+     int ecp_required, mppe_required;
+ 
++    turn_off_led(ifunit);
+     new_phase(PHASE_NETWORK);
+ 
+ #ifdef HAVE_MULTILINK
+@@ -897,9 +960,11 @@
+ 	    ++num_np_open;
+ 	}
+ 
+-    if (num_np_open == 0)
++    if (num_np_open == 0) {
+ 	/* nothing to do */
+ 	lcp_close(0, "No network protocols running");
++        turn_off_led(ifunit);
++    }
+ }
+ 
+ /*
+@@ -982,6 +1047,9 @@
+ auth_withpeer_fail(unit, protocol)
+     int unit, protocol;
+ {
++    char buf[64];
++    memset(buf, 0x00, sizeof(buf));
++
+     if (passwd_from_file)
+ 	BZERO(passwd, MAXSECRETLEN);
+     /*
+@@ -992,6 +1060,10 @@
+      */
+     status = EXIT_AUTH_TOPEER_FAILED;
+     lcp_close(unit, "Failed to authenticate ourselves to peer");
++
++    sprintf(buf, "> /tmp/%s_auth_fail", ifname);
++    system(buf);
++    turn_on_led(ifunit);
+ }
+ 
+ /*
+@@ -1004,6 +1076,10 @@
+     int bit;
+     const char *prot = "";
+ 
++    char buf[64];
++
++    memset(buf, 0x00, sizeof(buf));
++
+     switch (protocol) {
+     case PPP_CHAP:
+ 	bit = CHAP_WITHPEER;
+@@ -1042,6 +1118,10 @@
+     /* Save the authentication method for later. */
+     auth_done[unit] |= bit;
+ 
++    sprintf(buf, "/tmp/%s_auth_fail", ifname);
++    remove(buf);
++    turn_off_led(ifunit);
++
+     /*
+      * If there is no more authentication still being done,
+      * proceed to the network (or callback) phase.
+diff -Nbaur ppp-2.4.4/pppd/chap-new.c ppp-2.4.4-mod/pppd/chap-new.c
+--- ppp-2.4.4/pppd/chap-new.c	2010-12-20 18:28:26.211258299 +0530
++++ ppp-2.4.4-mod/pppd/chap-new.c	2010-12-20 18:21:21.512506772 +0530
+@@ -127,7 +127,7 @@
+ static void chap_respond(struct chap_client_state *cs, int id,
+ 		unsigned char *pkt, int len);
+ static void chap_handle_status(struct chap_client_state *cs, int code, int id,
+-		unsigned char *pkt, int len);
++		unsigned char *pkt, int len, int unit);
+ static void chap_protrej(int unit);
+ static void chap_input(int unit, unsigned char *pkt, int pktlen);
+ static int chap_print_pkt(unsigned char *p, int plen,
+@@ -480,7 +480,7 @@
+ 
+ static void
+ chap_handle_status(struct chap_client_state *cs, int code, int id,
+-		   unsigned char *pkt, int len)
++		   unsigned char *pkt, int len, int unit)
+ {
+ 	const char *msg = NULL;
+ 
+@@ -509,11 +509,11 @@
+ 			info("%s", msg);
+ 	}
+ 	if (code == CHAP_SUCCESS)
+-		auth_withpeer_success(0, PPP_CHAP, cs->digest->code);
++		auth_withpeer_success(unit, PPP_CHAP, cs->digest->code);
+ 	else {
+ 		cs->flags |= AUTH_FAILED;
+-		error("CHAP authentication failed");
+-		auth_withpeer_fail(0, PPP_CHAP);
++		error("CHAP authentication failed : unit:[%d]", unit);
++		auth_withpeer_fail(unit, PPP_CHAP);
+ 	}
+ }
+ 
+@@ -543,7 +543,7 @@
+ 		break;
+ 	case CHAP_FAILURE:
+ 	case CHAP_SUCCESS:
+-		chap_handle_status(cs, code, id, pkt, len);
++		chap_handle_status(cs, code, id, pkt, len, unit);
+ 		break;
+ 	}
+ }
+@@ -564,8 +564,8 @@
+ 	}
+ 	if ((cs->flags & (AUTH_STARTED|AUTH_DONE)) == AUTH_STARTED) {
+ 		cs->flags &= ~AUTH_STARTED;
+-		error("CHAP authentication failed due to protocol-reject");
+-		auth_withpeer_fail(0, PPP_CHAP);
++		error("CHAP authentication failed due to protocol-reject: unit:[%d]", unit);
++		auth_withpeer_fail(unit, PPP_CHAP);
+ 	}
+ }
+ 
+diff -Nbaur ppp-2.4.4/pppd/ipcp.c ppp-2.4.4-mod/pppd/ipcp.c
+--- ppp-2.4.4/pppd/ipcp.c	2010-12-20 18:28:26.221258880 +0530
++++ ppp-2.4.4-mod/pppd/ipcp.c	2010-12-20 18:20:45.142507256 +0530
+@@ -60,6 +60,7 @@
+ #include "fsm.h"
+ #include "ipcp.h"
+ #include "pathnames.h"
++#include <ifx_config.h>
+ 
+ static const char rcsid[] = RCSID;
+ 
+@@ -298,6 +299,30 @@
+ } ipcp_script_state;
+ static pid_t ipcp_script_pid;
+ 
++static inline void turn_on_led(void)
++{
++#ifdef CONFIG_FEATURE_IFX_CUSTOM_BOARD_SUPPORT
++	system("/usr/sbin/ledconfig on");
++#else
++#ifdef CONFIG_FEATURE_LED_INTERNET_RED
++        system("echo none > /sys/class/leds/internet_red_led/trigger");
++        system ("echo 1 > /sys/class/leds/internet_red_led/brightness");
++#endif
++#endif
++}
++
++static inline void turn_off_led(void)
++{
++#ifdef CONFIG_FEATURE_IFX_CUSTOM_BOARD_SUPPORT
++	system("/usr/sbin/ledconfig off");
++#else
++#ifdef CONFIG_FEATURE_LED_INTERNET_RED
++        system("echo none > /sys/class/leds/internet_red_led/trigger");
++        system ("echo 0 > /sys/class/leds/internet_red_led/brightness");
++#endif
++#endif
++}
++
+ /*
+  * Make a string representation of a network IP address.
+  */
+@@ -1707,11 +1732,13 @@
+     if (!(go->neg_addr || go->old_addrs) && (wo->neg_addr || wo->old_addrs)
+ 	&& wo->ouraddr != 0) {
+ 	error("Peer refused to agree to our IP address");
++	turn_on_led();
+ 	ipcp_close(f->unit, "Refused our IP address");
+ 	return;
+     }
+     if (go->ouraddr == 0) {
+ 	error("Could not determine local IP address");
++	turn_on_led();
+ 	ipcp_close(f->unit, "Could not determine local IP address");
+ 	return;
+     }
+@@ -1737,6 +1764,7 @@
+      */
+     if (!auth_ip_addr(f->unit, ho->hisaddr)) {
+ 	error("Peer is not authorized to use remote address %I", ho->hisaddr);
++	turn_on_led();
+ 	ipcp_close(f->unit, "Unauthorized remote IP address");
+ 	return;
+     }
+@@ -1771,6 +1799,7 @@
+ 	    if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
+ 		if (debug)
+ 		    warn("Interface configuration failed");
++		turn_on_led();
+ 		ipcp_close(f->unit, "Interface configuration failed");
+ 		return;
+ 	    }
+@@ -1800,6 +1829,7 @@
+ 	if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
+ 	    if (debug)
+ 		warn("Interface configuration failed");
++	    turn_on_led();
+ 	    ipcp_close(f->unit, "Interface configuration failed");
+ 	    return;
+ 	}
+@@ -1812,6 +1842,7 @@
+ 	if (!sifup(f->unit)) {
+ 	    if (debug)
+ 		warn("Interface failed to come up");
++	    turn_on_led();
+ 	    ipcp_close(f->unit, "Interface configuration failed");
+ 	    return;
+ 	}
+@@ -1820,6 +1851,7 @@
+ 	if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
+ 	    if (debug)
+ 		warn("Interface configuration failed");
++	    turn_on_led();
+ 	    ipcp_close(f->unit, "Interface configuration failed");
+ 	    return;
+ 	}
+@@ -1855,6 +1887,7 @@
+     notify(ip_up_notifier, 0);
+     if (ip_up_hook)
+ 	ip_up_hook();
++    turn_off_led();
+ 
+     /*
+      * Execute the ip-up script, like this:
+diff -Nbaur ppp-2.4.4/pppd/ipv6cp.c ppp-2.4.4-mod/pppd/ipv6cp.c
+--- ppp-2.4.4/pppd/ipv6cp.c	2010-12-20 18:28:26.211258299 +0530
++++ ppp-2.4.4-mod/pppd/ipv6cp.c	2010-12-20 18:20:45.152506976 +0530
+@@ -1170,6 +1170,7 @@
+ ipv6cp_up(f)
+     fsm *f;
+ {
++    /* char sCommand[200]; //AMS */
+     ipv6cp_options *ho = &ipv6cp_hisoptions[f->unit];
+     ipv6cp_options *go = &ipv6cp_gotoptions[f->unit];
+     ipv6cp_options *wo = &ipv6cp_wantoptions[f->unit];
+@@ -1290,6 +1291,8 @@
+ 	ipv6cp_script_state = s_up;
+ 	ipv6cp_script(_PATH_IPV6UP);
+     }
++    /* sprintf(sCommand,"%s %s",_PATH_DHCPV6UP, ifname); */
++    /* system(sCommand); */
+ }
+ 
+ 
+@@ -1303,7 +1306,10 @@
+ ipv6cp_down(f)
+     fsm *f;
+ {
++    /* char sCommand[200]; //AMS */
+     IPV6CPDEBUG(("ipv6cp: down"));
++    /* sprintf(sCommand,"%s %s",_PATH_DHCPV6DOWN, ifname); */
++    /* system(sCommand); */
+     update_link_stats(f->unit);
+     if (ipv6cp_is_up) {
+ 	ipv6cp_is_up = 0;
+diff -Nbaur ppp-2.4.4/pppd/lcp.c ppp-2.4.4-mod/pppd/lcp.c
+--- ppp-2.4.4/pppd/lcp.c	2010-12-20 18:28:26.241258549 +0530
++++ ppp-2.4.4-mod/pppd/lcp.c	2010-12-20 18:20:45.152506976 +0530
+@@ -55,6 +55,7 @@
+ #include "lcp.h"
+ #include "chap-new.h"
+ #include "magic.h"
++#include <ifx_config.h>
+ 
+ static const char rcsid[] = RCSID;
+ 
+@@ -293,6 +294,31 @@
+ #define CODENAME(x)	((x) == CONFACK ? "ACK" : \
+ 			 (x) == CONFNAK ? "NAK" : "REJ")
+ 
++static inline void turn_on_led(void)
++{
++#ifdef CONFIG_FEATURE_IFX_CUSTOM_BOARD_SUPPORT
++	system("/usr/sbin/ledconfig on");
++#else
++	//system("/usr/sbin/led_control -l 2 on");
++#ifdef CONFIG_FEATURE_LED_INTERNET_RED
++        system("echo none > /sys/class/leds/internet_red_led/trigger");
++        system ("echo 1 > /sys/class/leds/internet_red_led/brightness");
++#endif
++#endif
++}
++
++static inline void turn_off_led(void)
++{
++#ifdef CONFIG_FEATURE_IFX_CUSTOM_BOARD_SUPPORT
++	system("/usr/sbin/ledconfig off");
++#else
++	//system("/usr/sbin/led_control -l 2 off");
++#ifdef CONFIG_FEATURE_LED_INTERNET_RED
++        system("echo none > /sys/class/leds/internet_red_led/trigger");
++        system ("echo 0 > /sys/class/leds/internet_red_led/brightness");
++#endif
++#endif
++}
+ /*
+  * noopt - Disable all options (why?).
+  */
+@@ -2235,6 +2261,7 @@
+         notice("Serial link appears to be disconnected.");
+ 	status = EXIT_PEER_DEAD;
+ 	lcp_close(f->unit, "Peer not responding");
++	turn_on_led();	
+     }
+ }
+ 
+diff -Nbaur ppp-2.4.4/pppd/options.c ppp-2.4.4-mod/pppd/options.c
+--- ppp-2.4.4/pppd/options.c	2010-12-20 18:28:26.251257976 +0530
++++ ppp-2.4.4-mod/pppd/options.c	2010-12-20 18:20:45.152506976 +0530
+@@ -106,7 +106,7 @@
+ char	*ipparam = NULL;	/* Extra parameter for ip up/down scripts */
+ int	idle_time_limit = 0;	/* Disconnect if idle for this many seconds */
+ int	holdoff = 30;		/* # seconds to pause before reconnecting */
+-bool	holdoff_specified;	/* true if a holdoff value has been given */
++bool	holdoff_specified = 1;	/* true if a holdoff value has been given */
+ int	log_to_fd = 1;		/* send log messages to this fd too */
+ bool	log_default = 1;	/* log_to_fd is default (stdout) */
+ int	maxfail = 10;		/* max # of unsuccessful connection attempts */
+@@ -1652,7 +1652,7 @@
+ 		     arg, vers, VERSION);
+ 	goto errclose;
+     }
+-    info("Plugin %s loaded.", arg);
++//    info("Plugin %s loaded.", arg);
+     (*init)();
+     return 1;
+ 
+diff -Nbaur ppp-2.4.4/pppd/pathnames.h ppp-2.4.4-mod/pppd/pathnames.h
+--- ppp-2.4.4/pppd/pathnames.h	2005-08-26 05:29:34.000000000 +0530
++++ ppp-2.4.4-mod/pppd/pathnames.h	2010-12-20 18:20:45.152506976 +0530
+@@ -27,7 +27,7 @@
+ #define _PATH_IPPREUP	 _ROOT_PATH "/etc/ppp/ip-pre-up"
+ #define _PATH_AUTHUP	 _ROOT_PATH "/etc/ppp/auth-up"
+ #define _PATH_AUTHDOWN	 _ROOT_PATH "/etc/ppp/auth-down"
+-#define _PATH_TTYOPT	 _ROOT_PATH "/etc/ppp/options."
++#define _PATH_TTYOPT	 _ROOT_PATH "/etc/ppp/options"
+ #define _PATH_CONNERRS	 _ROOT_PATH "/etc/ppp/connect-errors"
+ #define _PATH_PEERFILES	 _ROOT_PATH "/etc/ppp/peers/"
+ #define _PATH_RESOLV	 _ROOT_PATH "/etc/ppp/resolv.conf"
+@@ -38,6 +38,8 @@
+ #ifdef INET6
+ #define _PATH_IPV6UP     _ROOT_PATH "/etc/ppp/ipv6-up"
+ #define _PATH_IPV6DOWN   _ROOT_PATH "/etc/ppp/ipv6-down"
++#define _PATH_DHCPV6UP   _ROOT_PATH "/etc/ppp/dhcp-ipv6 start"
++#define _PATH_DHCPV6DOWN _ROOT_PATH "/etc/ppp/dhcp-ipv6 stop"
+ #endif
+ 
+ #ifdef IPX_CHANGE
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/common.c ppp-2.4.4-mod/pppd/plugins/rp-pppoe/common.c
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/common.c	2010-12-20 18:28:26.221258880 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/common.c	2010-12-20 18:20:45.152506976 +0530
+@@ -11,16 +11,21 @@
+ * This program may be distributed according to the terms of the GNU
+ * General Public License, version 2 or (at your option) any later version.
+ *
++* LIC: GPL
++*
+ ***********************************************************************/
+ 
+ static char const RCSID[] =
+ "$Id: common.c,v 1.2 2004/01/13 04:03:58 paulus Exp $";
++/* For vsnprintf prototype */
++#define _ISOC99_SOURCE 1
+ 
+ #include "pppoe.h"
+ 
+ #include <string.h>
+ #include <errno.h>
+ #include <stdlib.h>
++#include <stdarg.h>
+ 
+ #ifdef HAVE_UNISTD_H
+ #include <unistd.h>
+@@ -468,6 +473,31 @@
+     info("Sent PADT");
+ }
+ 
++/***********************************************************************
++*%FUNCTION: sendPADTf
++*%ARGUMENTS:
++* conn -- PPPoE connection
++* msg -- printf-style format string
++* args -- arguments for msg
++*%RETURNS:
++* Nothing
++*%DESCRIPTION:
++* Sends a PADT packet with a formatted message
++***********************************************************************/
++void
++sendPADTf(PPPoEConnection *conn, char const *fmt, ...)
++{
++    char msg[512];
++    va_list ap;
++
++    va_start(ap, fmt);
++    vsnprintf(msg, sizeof(msg), fmt, ap);
++    va_end(ap);
++    msg[511] = 0;
++
++    sendPADT(conn, msg);
++}
++
+ #ifdef unused
+ /**********************************************************************
+ *%FUNCTION: parseLogErrs
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/config.h ppp-2.4.4-mod/pppd/plugins/rp-pppoe/config.h
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/config.h	2001-12-14 08:25:20.000000000 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/config.h	2010-12-20 18:20:45.152506976 +0530
+@@ -1,5 +1,6 @@
+ /* config.h.  Generated automatically by configure.  */
+ /* config.h.in.  Generated automatically from configure.in by autoheader.  */
++/* LIC: GPL */
+ 
+ /* Define to empty if the keyword does not work.  */
+ /* #undef const */
+@@ -133,3 +134,8 @@
+ 
+ /* Define if bitfields are packed in reverse order */
+ #define PACK_BITFIELDS_REVERSED 1
++
++/* Solaris moans if we don't do this... */
++#ifdef __sun
++#define __EXTENSIONS__ 1
++#endif
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/debug.c ppp-2.4.4-mod/pppd/plugins/rp-pppoe/debug.c
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/debug.c	2001-12-14 08:25:20.000000000 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/debug.c	2010-12-20 18:20:45.152506976 +0530
+@@ -11,6 +11,8 @@
+ * This program may be distributed according to the terms of the GNU
+ * General Public License, version 2 or (at your option) any later version.
+ *
++* LIC: GPL
++*
+ ***********************************************************************/
+ 
+ static char const RCSID[] =
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/discovery.c ppp-2.4.4-mod/pppd/plugins/rp-pppoe/discovery.c
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/discovery.c	2010-12-20 18:28:26.241258549 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/discovery.c	2010-12-20 18:20:45.152506976 +0530
+@@ -7,6 +7,7 @@
+ * Copyright (C) 1999 by Roaring Penguin Software Inc.
+ *
+ ***********************************************************************/
++ // 612221:santosh 2006/12/22 fix for PPPoE fast reconnect
+ 
+ static char const RCSID[] =
+ "$Id: discovery.c,v 1.4 2005/03/22 10:22:32 paulus Exp $";
+@@ -36,6 +37,8 @@
+ 
+ #include <signal.h>
+ 
++ // 612221:santosh 2006/12/22 fix for PPPoE fast reconnect
++#define PPPOE_QUICK_TIMEOUT
+ /**********************************************************************
+ *%FUNCTION: parseForHostUniq
+ *%ARGUMENTS:
+@@ -589,6 +592,7 @@
+ 	    conn->discoverySocket = -1;
+ 	    return;
+ 	}
++	syslog(LOG_ERR, "sending %d PADI", padiAttempts);
+ 	sendPADI(conn);
+ 	conn->discoveryState = STATE_SENT_PADI;
+ 	waitForPADO(conn, timeout);
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/if.c ppp-2.4.4-mod/pppd/plugins/rp-pppoe/if.c
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/if.c	2010-12-20 18:28:26.221258880 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/if.c	2010-12-20 18:20:45.152506976 +0530
+@@ -684,6 +684,9 @@
+     if(strlen(ifname) > PATH_MAX) {
+ 	fatal("openInterface: interface name too long");
+     }
++    if (strlen(ifname) < 2) {
++    	fatal("socket: Interface name too short");
++    }
+ 
+     ppa = atoi(&ifname[strlen(ifname)-1]);
+     strncpy(base_dev, ifname, PATH_MAX); 
+@@ -697,6 +700,18 @@
+ 	if (errno == EPERM) {
+ 	    fatal("Cannot create raw socket -- pppoe must be run as root.");
+ 	}
++#if 1 /* [ change taken from rp-pppoe 3.5 - Ritesh */
++	/* Common error is to omit /dev/ */
++	if (errno == ENOENT) {
++	    char ifname[512];
++	    snprintf(ifname, sizeof(ifname), "/dev/%s", base_dev);
++	    if ((fd = open(ifname, O_RDWR)) < 0) {
++		if (errno == EPERM) {
++		    fatal("Cannot create raw socket -- pppoe must be run as root.");
++		}
++	    }
++	}
++#endif /* ] */
+ 	fatal("open(%s): %m", base_dev);
+     }
+ 
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/plugin.c ppp-2.4.4-mod/pppd/plugins/rp-pppoe/plugin.c
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/plugin.c	2010-12-20 18:28:26.221258880 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/plugin.c	2010-12-20 18:20:45.152506976 +0530
+@@ -144,6 +144,9 @@
+ 	discovery(conn);
+ 	if (conn->discoveryState != STATE_SESSION) {
+ 	    error("Unable to complete PPPoE Discovery");
++	   //610051: hsur , bug fix for pppd dies when adsl is not available
++	    close(conn->discoverySocket);
++	    conn->discoverySocket = -1 ;
+ 	    return -1;
+ 	}
+     }
+@@ -217,6 +220,7 @@
+     close(conn->sessionSocket);
+     /* don't send PADT?? */
+     close(conn->discoverySocket);
++    syslog(LOG_INFO,"PPPOEDisconnectDevice");
+ }
+ 
+ static void
+@@ -355,8 +359,9 @@
+ {
+     char buf[1024];
+     printErr(str);
+-    sprintf(buf, "RP-PPPoE: %.256s", str);
+-    sendPADT(conn, buf);
++    //sprintf(buf, "RP-PPPoE: %.256s", str);
++    //sendPADT(conn, buf);
++    sendPADTf(conn, "RP-PPPoE: %.256s", str);
+     exit(1);
+ }
+ /**********************************************************************
+diff -Nbaur ppp-2.4.4/pppd/plugins/rp-pppoe/pppoe.h ppp-2.4.4-mod/pppd/plugins/rp-pppoe/pppoe.h
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/pppoe.h	2010-12-20 18:28:26.221258880 +0530
++++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/pppoe.h	2010-12-20 18:20:45.152506976 +0530
+@@ -13,6 +13,8 @@
+ *
+ ***********************************************************************/
+ 
++ // 612221:santosh 2006/12/22 fix for PPPoE fast reconnect
++ 
+ #ifdef __sun__
+ #define __EXTENSIONS__
+ #endif
+@@ -160,6 +162,12 @@
+ #define CODE_PADR           0x19
+ #define CODE_PADS           0x65
+ #define CODE_PADT           0xA7
++
++/* Extensions from draft-carrel-info-pppoe-ext-00 */
++/* I do NOT like PADM or PADN, but they are here for completeness */
++#define CODE_PADM           0xD3
++#define CODE_PADN           0xD4
++
+ #define CODE_SESS           0x00
+ 
+ /* PPPoE Tags */
+@@ -174,6 +182,12 @@
+ #define TAG_AC_SYSTEM_ERROR    0x0202
+ #define TAG_GENERIC_ERROR      0x0203
+ 
++/* Extensions from draft-carrel-info-pppoe-ext-00 */
++/* I do NOT like these tags one little bit */
++#define TAG_HURL               0x111
++#define TAG_MOTM               0x112
++#define TAG_IP_ROUTE_ADD       0x121
++
+ /* Discovery phase states */
+ #define STATE_SENT_PADI     0
+ #define STATE_RECEIVED_PADO 1
+@@ -182,10 +196,19 @@
+ #define STATE_TERMINATED    4
+ 
+ /* How many PADI/PADS attempts? */
++ // 612221:santosh 2006/12/22 fix for PPPoE fast reconnect
++#define MAX_PADI_ATTEMPTS 5
++#if 0
+ #define MAX_PADI_ATTEMPTS 3
++#endif
+ 
+ /* Initial timeout for PADO/PADS */
++ // 612221:santosh 2006/12/22 fix for PPPoE fast reconnect
++#define PADI_TIMEOUT 2
++#if 0
+ #define PADI_TIMEOUT 5
++#endif
++ // 612221:santosh 2006/12/22 fix for PPPoE fast reconnect - end
+ 
+ /* States for scanning PPP frames */
+ #define STATE_WAITFOR_FRAME_ADDR 0
+@@ -297,6 +320,8 @@
+ void syncReadFromEth(PPPoEConnection *conn, int sock, int clampMss);
+ char *strDup(char const *str);
+ void sendPADT(PPPoEConnection *conn, char const *msg);
++void sendPADTf(PPPoEConnection *conn, char const *fmt, ...);
++
+ void sendSessionPacket(PPPoEConnection *conn,
+ 		       PPPoEPacket *packet, int len);
+ void initPPP(void);
+diff -Nbaur ppp-2.4.4/pppd/pppd.h ppp-2.4.4-mod/pppd/pppd.h
+--- ppp-2.4.4/pppd/pppd.h	2010-12-20 18:28:26.221258880 +0530
++++ ppp-2.4.4-mod/pppd/pppd.h	2010-12-20 18:22:06.602506799 +0530
+@@ -80,6 +80,7 @@
+ #define MAXARGS		1	/* max # args to a command */
+ #define MAXNAMELEN	256	/* max length of hostname or name for auth */
+ #define MAXSECRETLEN	256	/* max length of password or secret */
++//#define NGROUPS_MAX	32
+ 
+ /*
+  * Option descriptor structure.
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/discovery.c	2010-12-20 18:32:46.242506917 +0530
++++ ppp-2.4.4/pppd/plugins/rp-pppoe/discovery.c.new	2010-12-20 18:52:26.571256623 +0530
+@@ -592,7 +592,7 @@
+ 	    conn->discoverySocket = -1;
+ 	    return;
+ 	}
+-	syslog(LOG_ERR, "sending %d PADI", padiAttempts);
++	//syslog(LOG_ERR, "sending %d PADI", padiAttempts);
+ 	sendPADI(conn);
+ 	conn->discoveryState = STATE_SENT_PADI;
+ 	waitForPADO(conn, timeout);
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/plugin.c	2010-12-20 19:21:41.241258456 +0530
++++ ppp-2.4.4/pppd/plugins/rp-pppoe/plugin.c.new	2010-12-20 19:23:42.692506766 +0530
+@@ -220,7 +220,7 @@
+     close(conn->sessionSocket);
+     /* don't send PADT?? */
+     close(conn->discoverySocket);
+-    syslog(LOG_INFO,"PPPOEDisconnectDevice");
++    //syslog(LOG_INFO,"PPPOEDisconnectDevice");
+ }
+ 
+ static void
+--- ppp-2.4.4/pppd/Makefile.linux	2010-12-20 19:24:41.162507237 +0530
++++ ppp-2.4.4-mod/pppd/Makefile.linux	2010-12-21 12:39:56.732506721 +0530
+@@ -32,7 +32,7 @@
+ 
+ # CC = gcc
+ #
+-COPTS = -O2 -pipe -Wall -g
++COPTS = -O2 -pipe -Wall
+ LIBS =
+ 
+ # Uncomment the next 2 lines to include support for Microsoft's
+@@ -43,7 +43,11 @@
+ #MSLANMAN=y
+ # Uncomment the next line to include support for MPPE.  CHAPMS (above) must
+ # also be enabled.  Also, edit plugins/radius/Makefile.linux.
++ifeq ($(IFX_2MB_PPP_PKG),1)
++#MPPE=y
++else
+ MPPE=y
++endif
+ 
+ # Uncomment the next line to include support for PPP packet filtering.
+ # This requires that the libpcap library and headers be installed
+@@ -56,7 +60,11 @@
+ # Uncomment the next line to enable multilink PPP (enabled by default)
+ # Linux distributions: Please leave multilink ENABLED in your builds
+ # of pppd!
++ifeq ($(IFX_2MB_PPP_PKG),1)
++#HAVE_MULTILINK=y
++else
+ HAVE_MULTILINK=y
++endif
+ 
+ # Uncomment the next line to enable the TDB database (enabled by default.)
+ # If you enable multilink, then TDB is automatically enabled also.
+--- ppp-2.4.4/pppd/plugins/Makefile.linux	2006-06-04 10:34:14.000000000 +0530
++++ ppp-2.4.4-mod/pppd/plugins/Makefile.linux	2010-12-21 12:42:50.112507321 +0530
+@@ -1,7 +1,7 @@
+ CC	= gcc
+ COPTS	= -O2 -g
+ CFLAGS	= $(COPTS) -I.. -I../../include -fPIC
+-LDFLAGS	= -shared
++LDFLAGS	= -shared -nostdlib
+ INSTALL	= install
+ 
+ DESTDIR = $(INSTROOT)@DESTDIR@
+#@@ -12,7 +12,7 @@
+# SUBDIRS := rp-pppoe pppoatm
+# # Uncomment the next line to include the radius authentication plugin
+# SUBDIRS += radius
+#-PLUGINS := minconn.so passprompt.so passwordfd.so winbind.so
+#+#PLUGINS := minconn.so passprompt.so passwordfd.so winbind.so
+ 
+# # include dependencies if present
+# ifeq (.depend,$(wildcard .depend))
+#--- ppp-2.4.4/pppd/plugins/rp-pppoe/Makefile.linux	2010-12-20 18:20:45.132507888 +0530
+#+++ ppp-2.4.4-mod/pppd/plugins/rp-pppoe/Makefile.linux	2010-12-21 15:37:17.832506711 +0530
+#@@ -24,12 +24,13 @@
+# # Version is set ONLY IN THE MAKEFILE!  Don't delete this!
+# VERSION=3.3
+# 
+#-COPTS=-O2 -g
+#+COPTS=-O2
+# CFLAGS=$(COPTS) -I../../../include/linux
+#+LDFLAGS=-shared -nostdlib $(IFX_LDFLAGS)
+# all: rp-pppoe.so pppoe-discovery
+# 
+# pppoe-discovery: pppoe-discovery.o utils.o libplugin.a
+#-	$(CC) -o pppoe-discovery pppoe-discovery.o utils.o libplugin.a
+#+	$(CC) $(LDFLAGS) -o pppoe-discovery pppoe-discovery.o utils.o libplugin.a
+# 
+# pppoe-discovery.o: pppoe-discovery.c
+# 	$(CC) $(CFLAGS) '-DVERSION="$(VERSION)"' -c -o pppoe-discovery.o pppoe-discovery.c

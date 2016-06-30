@@ -1,0 +1,52 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_output20"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+remove_output()
+{
+	rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ -r /etc/rc.d/config.sh ]; then
+	. /etc/rc.d/config.sh 2>/dev/null
+fi
+
+start_wan_conns() {
+	# !!!!!!!!!!!!!!!! dependency on dual WAN
+	. /etc/rc.d/rc.bringup_wan start
+}
+
+. /etc/rc.d/init.d/oam restart &
+
+. /etc/init.d/get_wan_mode $wanphy_phymode $wanphy_tc # return value in wanMode
+g_wanMode=$wanMode
+
+if [ "$CONFIG_FEATURE_CPE_DSL_MIB" = "1" ]; then
+	killall -SIGUSR2 snmpd
+fi
+
+
+#706122 start - set status down and raise link down event
+echo "7" > /tmp/adsl_status
+
+# record previous auto-detect status
+if [ "A$CONFIG_FEATURE_WAN_AUTO_DETECT" = "A1" ]; then
+	eval status_ad=`/usr/sbin/status_oper GET autodetect_status status_ad`  
+fi
+
+# call event utility to update adsl link up status to DevM and to run WAN auto-detect as applicable
+/usr/sbin/ifx_event_util "ADSL_LINK" "UP"
+/usr/sbin/ifx_event_util "WAN" "START" "DSL" &
+
+#706122 end
+

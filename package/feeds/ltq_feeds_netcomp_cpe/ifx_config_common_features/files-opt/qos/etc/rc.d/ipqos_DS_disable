@@ -1,0 +1,316 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1
+QOS_TYPE_802_1P=2
+
+#INTF_SELECT_MASK=0x80000000
+INTF_SELECT_MASK=0x800
+#WAN_SELECT_MASK=0x40000000
+WAN_SELECT_MASK=0x400
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				LqIfTypeActive=$QOS_INTF_LAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				LqIfTypeActive=$QOS_INTF_LAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		LqIfTypeActive=$QOS_INTF_LAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		LqIfTypeActive=$QOS_INTF_LAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		LqIfTypeActive=$QOS_INTF_LAN_PTM;
+		;;
+esac
+
+####################################Upstream Classifiers########################################
+
+
+# Flush IPQOS_LAN_ING chain
+IPT_CMD="iptables -t mangle -F IPQOS_WAN_ING"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F IPQOS_WAN_ING"
+$EBT_CMD
+
+# Flush IPQOS_QUEUE_MAP chain
+#IPT_CMD="iptables -t mangle -F IPQOS_QUEUE_MAP"
+#$IPT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_QUEUE_MAP"
+#$EBT_CMD
+
+# Flush IPQOS_LAN_DSCP_ALL chain
+IPT_CMD="iptables -t mangle -F IPQOS_WAN_DSCP_ALL"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F IPQOS_WAN_DSCP_ALL"
+$EBT_CMD
+
+#Flush IPQOS_LAN_8021P_ALL
+IPT_CMD="iptables -t mangle -F IPQOS_WAN_8021P_ALL"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F IPQOS_WAN_8021P_ALL"
+$EBT_CMD
+
+
+# Setting vconfig egress map to default values 
+. /etc/rc.d/ipqos_common 2 1
+
+OUTPUT_SYSTEM_DELETE=0
+
+# Flush the INPUT_INTF_CHECK chain
+
+# Remove references to IPQOS_WAN_ING from PREROUTING chain
+#IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x40000000/0x40000000 -j IPQOS_WAN_ING"
+IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x400/0x400 -j IPQOS_WAN_ING"
+$IPT_CMD
+#EBT_CMD="ebtables -t filter -D FORWARD --mark 0x40000000/$WAN_SELECT_MASK -j IPQOS_WAN_ING"
+EBT_CMD="ebtables -t filter -D FORWARD --mark 0x400/$WAN_SELECT_MASK -j IPQOS_WAN_ING"
+$EBT_CMD
+
+# Remove references in INPUT_INTF_CHECK
+
+iptables -t mangle -D INPUT_INTF_CHECK -i nas+ -j MARK --or-mark 0x400
+iptables -t mangle -D INPUT_INTF_CHECK -i ppp+ -j MARK --or-mark 0x400
+iptables -t mangle -D INPUT_INTF_CHECK -i ptm+ -j MARK --or-mark 0x400
+iptables -t mangle -D INPUT_INTF_CHECK -i eth1+ -j MARK --or-mark 0x400
+	
+ebtables -t filter -D INPUT_INTF_CHECK -i nas+ -j mark --set-mark 0x400 --mark-target CONTINUE
+ebtables -t filter -D INPUT_INTF_CHECK -i ppp+ -j mark --set-mark 0x400 --mark-target CONTINUE
+ebtables -t filter -D INPUT_INTF_CHECK -i ptm+ -j mark --set-mark 0x400 --mark-target CONTINUE
+ebtables -t filter -D INPUT_INTF_CHECK -i eth1+ -j mark --set-mark 0x400 --mark-target CONTINUE
+
+# Remove references to PREROUTE DS DEFAULT CHAIN
+
+iptables -t mangle -D PREROUTE_DEFAULT -i nas+ -j PREROUTE_DS_DEFAULT
+iptables -t mangle -D PREROUTE_DEFAULT -i ppp+ -j PREROUTE_DS_DEFAULT
+iptables -t mangle -D PREROUTE_DEFAULT -i ptm+ -j PREROUTE_DS_DEFAULT
+iptables -t mangle -D PREROUTE_DEFAULT -i eth1+ -j PREROUTE_DS_DEFAULT
+
+ebtables -t filter -D PREROUTE_DEFAULT -i nas+ -j PREROUTE_DEFAULT_DS
+ebtables -t filter -D PREROUTE_DEFAULT -i ppp+ -j PREROUTE_DEFAULT_DS
+ebtables -t filter -D PREROUTE_DEFAULT -i ptm+ -j PREROUTE_DEFAULT_DS
+ebtables -t filter -D PREROUTE_DEFAULT -i eth1+ -j PREROUTE_DEFAULT_DS
+
+i=0
+
+# flush and delete all the chains created for adding the classifier rules
+while [ $i -lt $qosds_class_Count ]
+do
+	n=0
+	while [ $n -lt $qos_queue_Count ]
+	do
+		eval qCpeId='$'qq_${n}_cpeId
+		eval cl_qId='$'qclds_${i}_qId
+		if [ $qCpeId -eq $cl_qId ]; then
+			eval qIfType='$'qq_${n}_qIfType	
+			if [ $qIfType -eq $LqIfTypeActive ]; then
+
+				eval QOS_CPEID='$'qclds_${i}_cpeId
+        			eval QOS_TYPE='$'qclds_${i}_type
+			        eval QOS_IFTYPE='$'qclds_${i}_ifType
+
+    				# Read QOS Queue ID
+    				eval QOS_QID='$'qclds_${i}_qId
+
+    				# Delete the corresponding queue for this class
+    				eval QOS_RATELMT='$'qclds_${i}_rateLmt
+				eval QOS_RATECTRENBL='$'qclds_${i}_rateCtrlEnbl
+    				if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+        				queuecfg -x $QOS_QID/$QOS_CPEID
+    				fi
+
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+					WQOS_CHAIN="WAN_$QOS_CPEID"
+					# Flush and delete all classifier chains created for WAN traffic
+					IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+					$IPT_CMD
+					EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+					$EBT_CMD
+					IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+					$IPT_CMD
+					EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+					$EBT_CMD
+					
+				#	LQOS_CHAIN="LAN_$QOS_CPEID"
+				#	# Flush and delete all classifier chains created for LAN traffic
+				#	IPT_CMD="iptables -t mangle -F $LQOS_CHAIN"
+				#	$IPT_CMD
+				#	EBT_CMD="ebtables -t filter -F $LQOS_CHAIN"
+				#	$EBT_CMD
+				#	IPT_CMD="iptables -t mangle -X $LQOS_CHAIN"
+				#	$IPT_CMD
+				#	EBT_CMD="ebtables -t filter -X $LQOS_CHAIN"
+				#	$EBT_CMD
+
+				fi
+				if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+					if [ $QOS_IFTYPE -eq $QOS_INTF_WAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL ]; then
+						WQOS_CHAIN="IPQOS_WAN_DSCP_$QOS_CPEID"
+						# Flush and delete all classifier chains created for LAN traffic
+						IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+						$IPT_CMD
+						EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+						$EBT_CMD
+						EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+						$EBT_CMD
+						
+					fi
+				fi
+				if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+					if [ $QOS_IFTYPE -eq $QOS_INTF_WAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL ]; then
+						WQOS_CHAIN="IPQOS_WAN_8021P_$QOS_CPEID"
+
+						EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+						$EBT_CMD
+						EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+						$EBT_CMD
+						
+						IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+						$IPT_CMD
+
+					fi
+				fi
+
+			fi
+		fi
+		n=$(( $n + 1 ))
+	done
+
+	i=$(( $i + 1 ))
+done
+
+# Flush and delete IPQOS_LAN_DSCP_ALL
+#WQOS_CHAIN="IPQOS_WAN_DSCP_ALL"
+#IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+#$IPT_CMD
+#IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+#$IPT_CMD
+#EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+#$EBT_CMD
+#EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+#$EBT_CMD
+
+# Flush and delete IPQOS_LAN_8021P_ALL
+#WQOS_CHAIN="IPQOS_WAN_8021P_ALL"
+#IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+#$IPT_CMD
+#IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+#$IPT_CMD
+#EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+#$EBT_CMD
+#EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+#$EBT_CMD
+
+i=0
+while [ $i -lt $qos_queue_Count ]
+do
+	eval qIfType='$'qq_${i}_qIfType	
+	if [ $qIfType -eq $LqIfTypeActive ]; then
+
+		eval QOS_CPEID='$'qq_${i}_cpeId
+		QOS_CHAIN="IPQOS_QUEUE_$QOS_CPEID"
+		# Flush and delete all queue priority chains
+		IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+		$IPT_CMD
+		IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+		$IPT_CMD
+		EBT_CMD="ebtables -t filter -F $QOS_CHAIN"
+		$EBT_CMD
+		EBT_CMD="ebtables -t filter -X $QOS_CHAIN"
+		$EBT_CMD
+	fi
+	i=$(( $i + 1 ))
+done
+
+#Disable downstream queuing
+Queue_Direction=2
+. /etc/rc.d/ipqos_q_disable $Queue_Direction
+
+iptables -t mangle -D POSTROUTING -o br0 -j IMQ --todev 1
+
+echo "IPQOS_DS_DISABLE=\"1\"" >> /tmp/ipqos_disable_status 	
+
+#Disable HW Classifiers
+queuecfg -t 2/0
+
+i=0
+while [ $i -lt $qos_queue_Count ]
+do
+	eval QOS_ORDER='$'qclds_${i}_order
+	if [ $QOS_ORDER != -1 ]; then
+		nORDER=$(( $QOS_ORDER + 10 ))
+		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_PCE_RULE_DELETE nIndex=$nORDER"
+		$cmd >> /tmp/ipqos_tmp.log
+	fi
+
+i=$(( $i + 1 ))
+done
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+	if [ "$target" == "GRX2" -o "$target" == "RT2" -o "$target" == "VRX2" -o "$target" == "VRX3" ]; then
+
+#switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=5 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+#		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=6 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_1 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_1 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_1 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_1 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+	fi
+
+#delete default rule
+#def_ORDER=63
+#cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_PCE_RULE_DELETE nIndex=$def_ORDER"
+#$cmd >> /tmp/ipqos_tmp.log
+####################################Upstream Classifiers########################################
+

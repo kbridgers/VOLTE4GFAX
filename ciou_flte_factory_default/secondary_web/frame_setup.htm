@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<style type='text/css'>
+			body {
+			  overflow-x: hidden!important;
+			  font-family: 'Source Sans Pro', sans-serif;
+			  -webkit-font-smoothing: antialiased;
+			  min-height: 100%;
+			  background: #f9f9f9;
+			  font-size:14px;
+			}
+			fieldset
+			{
+				padding: 20px 0 20px 20px;
+				 border:1px solid #D0D0D0;
+			}
+			#header{
+				width:102%;
+				height:60px;
+				background: #187fba;
+				margin-left: -8px;
+				margin-top: -8px;
+			}
+		</style>
+		
+		<script type='text/javascript'>
+			var formSubmit=function()
+			{
+				var file=document.getElementById('file_config').value;
+				if (file == "")
+				{
+					alert("No File Selected.Please select firmware and upgrade again!!");
+					return false;
+				}
+				if(confirm("Do you want to upgrade the Firmware?"))
+				{
+					document.getElementById('status_div').innerHTML="Loading...";
+					document.getElementById('file_div').style.display="none";
+					document.frmRoot.submit();
+				}
+			};
+		
+		</script>
+	</head>
+	<body>
+		<div id="header">&nbsp;
+			<!-- <a href="index.html" >
+                <img src="images/logo1.png" style='width:220px; height:50px;'/>
+			</a>-->
+			<label style="font-size:43px">ConnectedIO - CIOU_FLTE Ver - 1.0.1</label>
+		</div>
+		<div style="width:50%;height:20%">&nbsp;</div>
+		<div style="width:100%;height:100%">
+			<div style="width:50%;border:none;margin-left: auto;margin-right: auto; ">
+				<fieldset style="align:center">
+				<table>
+					<tr>
+						<td style="font-size:17px"><b>System Details</b></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+                                        <tr>
+                                                <td>Boot Mode</td><td><Secondary></td>
+                                        </tr>
+<!--
+					<tr>
+						<td>Fax Number</td><td><%ifx_get_FAXnumber("-b");%></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+					<tr>
+						<td>IMEI Number</td><td><%ifx_get_IMEInumber("-b");%></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+					<tr>
+						<td>IMSI Number</td><td><%ifx_get_IMSInumber("-b");%></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+					<tr>
+						<td>System Firmware Version &nbsp;&nbsp;&nbsp;</td><td><%ifx_get_FirmwareVer("-b");%></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+					<tr>
+						<td>Signal Strength</td><td><%ifx_get_SignalStrength("-b");%></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+-->
+				</table>
+				</fieldset>
+			</div>
+			<div style="width:50%;height:20%">&nbsp;</div>
+			<div style="width:50%;border:none;margin-left: auto;margin-right: auto;">
+				<fieldset style="align:center">
+				<form name='frmRoot' action="/goform/ifx_set_system_upgrade" enctype='multipart/form-data' method='POST' >
+					<div id='file_div' >
+					<table>
+					<tr>
+						<td><b>Firmware Upgrade</b></td>
+					</tr>
+					<tr>
+						<td>&nbsp;</td>
+					</tr>
+					<tr></tr>
+					<tr>
+						<td><input type="file" id="file_config"  name='uploadfile'></td>
+						<td>&nbsp;&nbsp;&nbsp;&nbsp;<input id="fw_upgrade" type="button" value="Upgrade" onclick='formSubmit()'  /></td>
+					</tr>
+					</table>
+					</div>
+					<div style='font-weight:bold' id='status_div'></div>
+				</form>
+				</fieldset>
+			</div>			
+		</div>	
+	</body>
+</html>

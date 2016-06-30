@@ -1,0 +1,16 @@
+diff -Naur ppp-2.4.4/pppd/plugins/rp-pppoe/discovery.c ppp-2.4.4-new/pppd/plugins/rp-pppoe/discovery.c
+--- ppp-2.4.4/pppd/plugins/rp-pppoe/discovery.c	2012-04-14 00:09:32.700557000 +0530
++++ ppp-2.4.4-new/pppd/plugins/rp-pppoe/discovery.c	2012-04-14 00:09:46.247408000 +0530
+@@ -543,8 +543,12 @@
+ 
+     /* Don't bother with ntohs; we'll just end up converting it back... */
+     conn->session = packet.session;
++    pid_t pid = getpid();
+ 
++    char sessbuf[512];
++	sprintf (sessbuf, "/usr/sbin/status_oper SET \"WanPPP_pid_%d\" SESSIONID %d",pid, ntohs(conn->session));
+     info("PPP session is %d", ntohs(conn->session));
++    system (sessbuf);
+ 
+     /* RFC 2516 says session id MUST NOT be zero or 0xFFFF */
+     if (ntohs(conn->session) == 0 || ntohs(conn->session) == 0xFFFF) {

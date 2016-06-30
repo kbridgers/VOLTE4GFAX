@@ -1,0 +1,343 @@
+*** ./ifx_cgi_system.c	2013-06-03 23:05:17.000000000 -0700
+--- ../new_ifx_httpd-2.3.0.85/ifx_cgi_system.c	2015-06-10 09:05:49.936293518 -0700
+***************
+*** 15,21 ****
+  #define PART_MAX 100
+  //#include "ifx_snmp_api.h"
+  //#include "ifx_api_ipt_common.h"
+! 
+  //#include <sys/ioctl.h>
+  
+  extern int nIdleTime;
+--- 15,21 ----
+  #define PART_MAX 100
+  //#include "ifx_snmp_api.h"
+  //#include "ifx_api_ipt_common.h"
+! #include <string.h>
+  //#include <sys/ioctl.h>
+  
+  extern int nIdleTime;
+***************
+*** 43,48 ****
+--- 43,53 ----
+  void ltq_cgi_web_config_set(httpd_t wp, char_t * path, char_t * query);	//autologout.asp
+  int ifx_get_SystemHostName(int eid, httpd_t wp, int argc, char_t ** argv);
+  int ifx_get_SystemDomainName(int eid, httpd_t wp, int argc, char_t ** argv);
++ int ifx_get_SignalStrength(int eid, httpd_t wp, int argc, char_t ** argv);
++ int ifx_get_IMEInumber(int eid, httpd_t wp, int argc, char_t ** argv);
++ int ifx_get_IMSInumber(int eid, httpd_t wp, int argc, char_t ** argv);
++ int ifx_get_FAXnumber(int eid, httpd_t wp, int argc, char_t ** argv);
++ 
+  int ifx_get_FirmwareVer(int eid, httpd_t wp, int argc, char_t ** argv);
+  int ifx_get_Autologouttime(int eid, httpd_t wp, int argc, char_t ** argv);
+  #ifdef CONFIG_PACKAGE_NTPCLIENT
+***************
+*** 60,67 ****
+  uint16 usb_ret_status = 0;
+  #endif
+  
+- int user_status = 0;
+  
+  static CGI_ENUMSEL_S web_Enum_TimeZoneList[] = {
+  	{-720, "(GMT-12:00) Eniwetok, Kwajalein, International Date Line West"},
+  	{-660, "(GMT-11:00) Midway Island, Samoa"},
+--- 65,74 ----
+  uint16 usb_ret_status = 0;
+  #endif
+  
+  
++ 
++ int user_status = 0;
++ static int sig_read=0;
+  static CGI_ENUMSEL_S web_Enum_TimeZoneList[] = {
+  	{-720, "(GMT-12:00) Eniwetok, Kwajalein, International Date Line West"},
+  	{-660, "(GMT-11:00) Midway Island, Samoa"},
+***************
+*** 110,116 ****
+--- 117,280 ----
+  	 "(GMT+12:00) Auckland, Wellington, Fiji, Kamchatka, Marshall Is."},
+  	{+780, "(GMT+13:00) Nuku'alofa"}
+  };
++ #if 0
++ int ifx_get_SignalStrength(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	if(0==sig_read)
++ 	{
++ 		ifx_httpdWrite(wp, "%s", "13%");
++ 		sig_read=1;
++ 	}
++ 	else
++ 	{
++ 		ifx_httpdWrite(wp, "%s", "58%");
++ 		sig_read=0;
++ 	}
++ 	return 0;
++ }
++ 
++ int ifx_get_IMEInumber(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	ifx_httpdWrite(wp, "%s", "123456789012345");
++ 	trace(8,"In IMEI Number\n");
++ 	return 0;
++ }
++ 
++ int ifx_get_IMSInumber(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	ifx_httpdWrite(wp, "%s", "123451234512345");
++ 	return 0;
++ }
++ 
++ int ifx_get_FAXnumber(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	ifx_httpdWrite(wp, "%s", "+915");
++ 	return 0;
++ }
++ #else
++ #define CIOU_FLTE  1
++ #if CIOU_FLTE
++ #include<stdio.h>
++ #include <sys/types.h>
++ #include <fcntl.h>
++ #include <unistd.h>
++ #include <string.h>
++ #include <sys/ioctl.h>
++ #define MAX_DEVICE_NUM_LEN  20
++ #define MAX_IMSI_LEN  20
++ #define MAX_IMEI_LEN  20
++ 
++ typedef struct
++ {
++         unsigned char FLTEDeviceNo[MAX_DEVICE_NUM_LEN];                         //data asociated with cmd
++         unsigned char FLTEimsiNo[MAX_IMSI_LEN];                                         //Address to be written
++         unsigned char FLTEimeiNo[MAX_IMEI_LEN];                                         //Data to be read
++ }LTEDeviceInfo_t;
++ 
++ typedef struct
++ {
++         unsigned char SignalStrength;
++         unsigned char SystemStatus;
++ }LTEDevicesignalstrength_t;
++ 
++ #define READ_DEVICE_SIGNAL_STRENGTH _IOWR('w', 1, LTEDevicesignalstrength_t *)
++ #define READ_DEVICE_IMEI_NUMBER _IOWR('w', 2, LTEDeviceInfo_t *)
++ #define READ_DEVICE_IMSI_NUMBER _IOWR('w', 3, LTEDeviceInfo_t *)			/*Setting Device Address to the driver*/
++ #define READ_DEVICE_NUMBER _IOWR('w',4,LTEDeviceInfo_t *)
++ #define READ_DEVICE_QUERY_ALL _IOWR('w',5,LTEDeviceInfo_t *)
++ 
++ /*IOCTL Commands*/
++ #define WRITE_DEVICE_SIGNAL_STRENGTH _IOWR('w',6, LTEDevicesignalstrength_t *)
++ #define WRITE_DEVICE_IMEI_NUMBER _IOWR('w', 7, LTEDeviceInfo_t *)
++ #define WRITE_DEVICE_IMSI_NUMBER _IOWR('w', 8, LTEDeviceInfo_t *)			/*Setting Device Address to the driver*/
++ #define WRITE_DEVICE_NUMBER _IOWR('w',9,LTEDeviceInfo_t *)
++ #define WRITE_DEVICE_QUERY_ALL _IOWR('w',10,LTEDeviceInfo_t *)
++ 
++ LTEDeviceInfo_t DeviceInfo;
++ LTEDevicesignalstrength_t LTEDeviceSignalStrength;
++ #endif
++ 
++ 
++ 
++ #if 1				//Added By sanju
++ int ifx_get_SignalStrength(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	sig_read=1;
++ #if 0
++ 	if(0==sig_read)
++ 	{
++ 		ifx_httpdWrite(wp, "%s", "13%");
++ 		sig_read=1;
++ 	}
++ 	else
++ 	{
++ 		ifx_httpdWrite(wp, "%s", "58%");
++ 		sig_read=0;
++ 	}
++ #endif
++ 	int fd;
++ 	fd=open("/dev/LTEDeviceInfo", O_RDWR |O_NONBLOCK);
++ 	if(fd<0)
++ 	{
++ 		printf("No Device Found.\n");
++ 	}
++ 	ioctl(fd,READ_DEVICE_SIGNAL_STRENGTH,&LTEDeviceSignalStrength);
++ 	ifx_httpdWrite(wp, "%d", LTEDeviceSignalStrength.SignalStrength);		/*Writing Signal Strength*/
++ 	//return 0;
++ 	close(fd);
++ 	return 0;
++ }
++ 
++ int ifx_get_IMEInumber(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++         int fd;
++         fd=open("/dev/LTEDeviceInfo", O_RDWR |O_NONBLOCK);
++         if(fd<0)
++         {
++                 printf("No Device Found.\n");
++         }
++         ioctl(fd,READ_DEVICE_IMEI_NUMBER,&DeviceInfo);
++         ifx_httpdWrite(wp, "%s",DeviceInfo.FLTEimeiNo);             /*Writing Signal Strength*/
++         //return 0;
++         close(fd);
++ 	//ifx_httpdWrite(wp, "%s", "123456789012345");
++ 	return 0;
++ }
++ 
++ int ifx_get_IMSInumber(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	//ifx_httpdWrite(wp, "%s", "123451234512345");
++ 	        int fd;
++         fd=open("/dev/LTEDeviceInfo", O_RDWR |O_NONBLOCK);
++         if(fd<0)
++         {
++                 printf("No Device Found.\n");
++         }
++         ioctl(fd,READ_DEVICE_IMSI_NUMBER,&DeviceInfo);
++         ifx_httpdWrite(wp, "%s",DeviceInfo.FLTEimsiNo);             /*Writing Signal Strength*/
++         //return 0;
++         close(fd);
+  
++ 	return 0;
++ }
++ 
++ int ifx_get_FAXnumber(int eid, httpd_t wp, int argc, char_t ** argv)
++ {
++ 	//ifx_httpdWrite(wp, "%s", "+91456233456699998");
++ 	int fd;
++         fd=open("/dev/LTEDeviceInfo", O_RDWR |O_NONBLOCK);
++         if(fd<0)
++         {
++                 printf("No Device Found.\n");
++         }
++         ioctl(fd,READ_DEVICE_NUMBER,&DeviceInfo);
++         ifx_httpdWrite(wp, "%s",DeviceInfo.FLTEDeviceNo);             /*Writing Signal Strength*/
++         //return 0;
++         close(fd);
++ 	return 0;
++ }
++ #endif
++ #endif
+  #ifdef CONFIG_FEATURE_IPv6
+  int ifx_set_lan_addr_radvd_opt(httpd_t wp, char_t * path, char_t * query)
+  {
+***************
+*** 1496,1524 ****
+  	//    system(sCommand);
+  }
+  
+! //end system_reset.htm
+! 
+! //system_upgrade.asp
+  void ifx_set_system_upgrade(httpd_t wp, char_t * path, char_t * query)
+  {
+! 	char_t img_type[16];
+! 	int iExapndDir = 0;
+  	char errorMsg[128];
+! 
+  	memset(errorMsg, 0x00, sizeof(errorMsg));
+! 	if (ifx_chkImage(FILE_IMAGE_KERNEL, errorMsg, img_type, &iExapndDir)) {
+  		reboot_status = 2;
+  		ifx_httpdRedirect(wp, "reboot_cpe.html");	//sleep(15);
+  		system("/etc/rc.d/rebootcpe.sh 10 &");
+  //           ifx_httpdError(wp, 500,"%s",errorMsg);
+! //           system("reboot");
+! 		return;
+! 	}
+  	// Display update result
+! 	websNextPage(wp);
+! 	reboot_status = 1;
+! 	ifx_httpdRedirect(wp, T("reboot_cpe.html"));
+! 	ifx_invokeUpgd(FILE_IMAGE_KERNEL, img_type, iExapndDir);
+  	return;
+  }
+  
+--- 1660,1749 ----
+  	//    system(sCommand);
+  }
+  
+! //end syistem_reset.htm
+! //FILE *TestFile;
+! //FILE *NewFile;
+! //char datac[512];
+! //system_upgrade.asp : sanju
+  void ifx_set_system_upgrade(httpd_t wp, char_t * path, char_t * query)
+  {
+! 	//char_t img_type[16];
+! 	//int iExapndDir = 0;
+  	char errorMsg[128];
+!         //int len=0;
+  	memset(errorMsg, 0x00, sizeof(errorMsg));
+! 	//ifx_httpdError(wp, 400, " printf from sanju\n");
+! 	//system("echo printf from sanju");
+! 	//if(path!=NULL)
+! 	//{
+! 	//	ifx_httpdError(wp, 400, "path of the file\n");
+! 	//	puts("Name of File ----\n");
+! 	//	puts(FILE_IMAGE_KERNEL);
+! 	//	puts("--------");
+! 		//system("echo printf from sanju");
+! //	}
+! //	if (ifx_chkImage(FILE_IMAGE_KERNEL, errorMsg, img_type, &iExapndDir)) {
+! //#define BOOTMODE 0              //Added by sanju 0- Pirimary,1-secondary
+! #if 1
+! 		system("/etc/rc.d/bootmodeset.sh");	//setting the bootmode
+  		reboot_status = 2;
+  		ifx_httpdRedirect(wp, "reboot_cpe.html");	//sleep(15);
++ //		 ifx_httpdRedirect(wp, T("reboot_cpe.html"));
++                 sleep(5);
+  		system("/etc/rc.d/rebootcpe.sh 10 &");
+  //           ifx_httpdError(wp, 500,"%s",errorMsg);
+!            	system("killall FAXManager LTEManager");
+! 		system("reboot");
+! #else
+! 		/*Write the upgrade section and boot reset section here*/
+! 		reboot_status=2;
+!                 system("echo 8 > /dev/fifo_led");
+! 		ifx_httpdRedirect(wp, "reboot_cpe.html");       //sleep(15);
+!                 sleep(5);
+! 		system("/etc/rc.d/upgradeimage.sh");     //setting the bootmode
+! 		system("echo 9 > /dev/fifo_led");
+! 		system("/etc/rc.d/rebootcpe.sh 10 &");
+! 		ifx_httpdRedirect(wp, "upgradesuccess.html");
+! 		sleep(5);
+! 		system("reboot");
+! 
+! #endif
+! //		return;
+! //	}
+! //	NewFile=fopen(FILE_IMAGE_KERNEL,"r");
+! //	puts(FILE_IMAGE_KERNEL);
+! //	TestFile=fopen("/tmp/newfile","ab");
+! //	if(NewFile>0)
+! //	{
+! //		while(1)
+! //		{
+! //			len=fread(datac,512,1,NewFile);
+! //			if(len>0)
+! //			{
+! ////				fwrite(datac,len,1,TestFile);
+! //				puts("Written data-----\n");
+! //				//puts(datac);
+! //				puts("---------------");
+! //			}
+! //			else
+! //			{
+! //				puts("Copying Successful: sanju\n");
+! //				break;
+! //			}
+! //		}
+! 
+! //	}
+! 	
+! 	//fprintf(TestFile,"This is the test printing Now\n");
+! //	fclose(TestFile);
+! //	fclose(NewFile);
+  	// Display update result
+! 	//websNextPage(wp);
+! 	//reboot_status = 1;
+! //	ifx_httpdRedirect(wp, T("reboot_cpe.html"));
+! //	ifx_invokeUpgd(FILE_IMAGE_KERNEL, img_type, iExapndDir);
+! //	ifx_httpdError(wp, 400, "exiting file\n");
+! 	//system("echo printf from sanju");
+  	return;
+  }
+  

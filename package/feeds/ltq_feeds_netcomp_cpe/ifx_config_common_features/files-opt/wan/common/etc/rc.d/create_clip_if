@@ -1,0 +1,56 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# create clip interface
+# create_clip_if if_index VCC_VALUE MAC_ADDR IP_ADDR DEFAULT_ROUTE
+
+	ENC=`echo $2 | cut -f1 -d "_"`
+	VPI=`echo $2 | cut -f2 -d "_" | cut -f1 -d "/"`
+	VCI=`echo $2 | cut -f2 -d "_" | cut -f2 -d "/"`
+	QOS=`echo $2 | cut -f3- -d "_"`
+	if [ "`echo $QOS | cut -b 2`" = "," ]; then
+		QOSNAME=`echo $QOS | cut -f1 -d','`
+		QOS=`/usr/sbin/get_atmqos_name $QOSNAME`",aal5:"`echo $QOS | cut -f2- -d','` 
+	else
+		QOS=`/usr/sbin/get_atmqos_name $QOS`
+	fi
+
+	eval wanip_pcpeid='$'wanip_${1}_pcpeId
+	i=0
+	while [ $i -lt $adsl_vcchannel_Count ]; do
+		eval adsl_pcpeid='$'VCChannel_${i}_pcpeId
+		if [ "A$adsl_pcpeid" = "A$wanip_pcpeid" ]; then
+			break
+		fi
+		i=`expr $i + 1`
+	done
+	i=`expr $i + 1`
+	/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS CONNECTING
+
+	eval atm_iface='$'wanip_${1}_iface
+	status=`/sbin/ifconfig -a | grep -i $atm_iface`
+	if [ "$status" = "" ]; then
+		/usr/sbin/atmarp -c $atm_iface
+	fi
+
+	/sbin/ifconfig $atm_iface $4 up
+	if [ "$ENC" = "1" ]; then
+		/usr/sbin/atmarp -s $5 $VPI.$VCI qos $QOS null
+	else
+		/usr/sbin/atmarp -s $5 $VPI.$VCI qos $QOS
+	fi
+
+	/usr/sbin/status_oper SET VCChannel${i}_Info VCC "$adsl_vcc" STATUS CONNECTED

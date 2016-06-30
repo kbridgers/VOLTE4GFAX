@@ -1,0 +1,312 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+#		. /etc/rc.d/model_config.sh 2>/dev/null
+		CONFIGLOADED="1"
+        fi
+fi
+
+
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+
+case "$wanphy_phymode" in
+	0)
+		ADSL_MODE_ON=1 #Denotes ADSL Mode
+		case "$wanphy_tc" in
+			0)
+
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+		esac
+		;;
+	1)
+		ADSL_MODE_ON=0
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+                	DEF_UPSTREAM_RATE="1048576"
+	                DEF_DOWNSTREAM_RATE="1048576"
+		else
+       		        DEF_UPSTREAM_RATE="102400"
+                	DEF_DOWNSTREAM_RATE="102400"
+                fi
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	2)
+		ADSL_MODE_ON=0
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+               	DEF_UPSTREAM_RATE="1048576"
+	        DEF_DOWNSTREAM_RATE="1048576"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	3)
+		ADSL_MODE_ON=0
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="60000"
+                DEF_DOWNSTREAM_RATE="100000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="99800kbit"
+                RATE_UNIT=kbit
+		;;
+esac
+
+ACTUAL_UPSTREAM_RATE=$DEF_UPSTREAM_RATE
+ACTUAL_DOWNSTREAM_RATE=$DEF_DOWNSTREAM_RATE
+
+# read queue rates from file /tmp/ipqos_rates
+if [ -f /tmp/ipqos_rates ]; then
+	. /tmp/ipqos_rates
+	if [ ! -z $IPQOS_UP_RATE ]; then
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+		fi
+	fi
+	if [ ! -z $IPQOS_DOWN_RATE ]; then
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+		fi
+	fi
+fi
+
+#TCP ACK PRIO MACROS
+
+#Manamohan
+#UPLINK_PERCENTAGE=50
+#DOWNLINK_PERCENTAGE=60
+
+UPLINK_PERCENTAGE=30
+DOWNLINK_PERCENTAGE=60
+
+MAX_UPSTREAM_RATE_TMP=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+MAX_DOWNSTREAM_RATE_TMP=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "up_link_rate" "$MAX_UPSTREAM_RATE_TMP" "down_link_rate" "$MAX_DOWNSTREAM_RATE_TMP" "queue_method" "0"
+#if [ $qm_portRateLimEnab -ne 1 ]; then
+#/bin/sed -i -e "s,^qm_upPortRateLim=.*,qm_upPortRateLim=\"$MAX_UPSTREAM_RATE_TMP\",g" /ramdisk/flash/rc.conf
+#/etc/rc.d/backup
+#	/usr/sbin/status_oper -u -f /etc/rc.conf SET "qos_queuemgmt" "qm_upPortRateLim" "$MAX_UPSTREAM_RATE_TMP"
+#fi
+MAX_UPSTREAM_RATE=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+MAX_DOWNSTREAM_RATE=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+
+# Calculating TCP ACK Prioritization Rates
+#TCP_ACK_RATE_TMP=`expr $MAX_UPSTREAM_RATE_TMP \* $UPLINK_PERCENTAGE \* $DOWNLINK_PERCENTAGE / 10000`
+#TCP_ACK_RATE=`expr $MAX_UPSTREAM_RATE_TMP \* $UPLINK_PERCENTAGE  / 10000`$RATE_UNIT
+TCP_ACK_RATE_TMP=`expr $MAX_UPSTREAM_RATE_TMP \* $UPLINK_PERCENTAGE / 100`
+TCP_ACK_RATE=`expr $MAX_UPSTREAM_RATE_TMP \* $UPLINK_PERCENTAGE  / 100`$RATE_UNIT
+RATE_FOR_REST_UPSTREAM=`expr $MAX_UPSTREAM_RATE_TMP - $TCP_ACK_RATE_TMP`$RATE_UNIT
+
+#TCP ACK PRIO MACROS
+
+RATE_UNIT=kbit
+UPSTREAM_DEV=imq0
+
+BFIFO_LIMIT=30000k
+U32_MASK_FULL=0xffff
+#TCP_TOTAL_IP_DATA_MASK=0xffc0
+TCP_TOTAL_IP_DATA_MASK=0xff80
+TCP_TOTAL_IP_DATA=0x0000
+U8_MASK_FULL=0xff
+U8_MASK_LSB=0x0f
+PROTOCOL_TCP=6
+TCP_ACK_BIT_SET=0x10
+TCP_HEADER_LENGTH=0x05
+
+if [ $ADSL_MODE_ON -eq 1 ]; then
+
+#if [ $qm_enable -eq 0 ]; then	
+
+	case "$1" in
+        	0)
+                	TC_ACTION=add #Denotes ADD action for TC rules
+                	IPT_ACTION=A # Denotes iptables ADD action
+                	ifconfig $UPSTREAM_DEV up
+                  ppacmd control --disable-lan --enable-wan
+                	;;
+        	1)
+                	TC_ACTION=change # Denotes CHANGE action for TC rules
+                	;;
+        	2)
+                	TC_ACTION=del # Denotes DELETE action for TC Rules
+                	IPT_ACTION=D # Denotes DELETE action for iptable rules
+                	ifconfig $UPSTREAM_DEV down
+                  ppacmd control --enable-wan --enable-lan
+                	;;
+	esac
+
+
+	if [ $1 -eq 2 ]; then
+		tc qdisc $TC_ACTION dev $UPSTREAM_DEV root handle 1: htb
+		ifconfig $UPSTREAM_DEV down
+	else
+		tc qdisc $TC_ACTION dev $UPSTREAM_DEV root handle 1: htb
+		
+		tc class $TC_ACTION dev $UPSTREAM_DEV parent 1: classid 1:1 htb rate $MAX_UPSTREAM_RATE
+		tc class $TC_ACTION dev $UPSTREAM_DEV parent 1:1 classid 1:22 htb rate $TCP_ACK_RATE ceil $MAX_UPSTREAM_RATE
+		tc class $TC_ACTION dev $UPSTREAM_DEV parent 1:1 classid 1:33 htb rate $RATE_FOR_REST_UPSTREAM ceil $MAX_UPSTREAM_RATE
+		
+		tc qdisc $TC_ACTION dev $UPSTREAM_DEV parent 1:22 handle 22: bfifo limit $BFIFO_LIMIT
+		tc qdisc $TC_ACTION dev $UPSTREAM_DEV parent 1:33 handle 33: bfifo limit $BFIFO_LIMIT
+		
+		tc filter $TC_ACTION dev $UPSTREAM_DEV parent 1:0 protocol ip u32 \
+        		match ip protocol $PROTOCOL_TCP $U8_MASK_FULL \
+        		match u8 $TCP_HEADER_LENGTH $U8_MASK_LSB at 0 \
+        		match u16 $TCP_TOTAL_IP_DATA $TCP_TOTAL_IP_DATA_MASK at 2 \
+        		match u8 $TCP_ACK_BIT_SET $U8_MASK_FULL at 33 flowid 1:22
+		tc filter $TC_ACTION dev $UPSTREAM_DEV parent 1:0 protocol ip u32 match mark 33 $U32_MASK_FULL flowid 1:33
+	fi
+
+	if [ $1 -eq 0 -o $1 -eq 2 ]; then
+        	#iptables -t mangle -$IPT_ACTION POSTROUTING -p tcp -m length --length :66 -j MARK --set-mark 22
+        	iptables -t mangle -$IPT_ACTION POSTROUTING -m length --length 67: -j MARK --set-mark 33
+        	#iptables -t mangle -$IPT_ACTION POSTROUTING -o $default_wan_conn_iface -j IMQ --todev 0
+         #ppacmd control --disable-wan
+         #ppacmd control --disable-lan
+         
+         i=0
+         while [ $i -lt $wan_ppp_Count ]
+         do
+		   eval wanmode='$'wanppp_${i}_wanMode
+		   if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+            . /etc/rc.d/get_wan_if $i "ppp"
+           eval iface=${WAN_IFNAME}
+           echo " iface = $iface "
+           iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+           #echo " grep o/p = $? "
+#           if [ $? -ne 0 ]; then
+               cmd="iptables -t mangle -$IPT_ACTION POSTROUTING -o ${iface} -j IMQ --todev 0"
+               echo " $cmd "
+               $cmd
+#           fi
+           fi
+               i=$(($i + 1))
+          done
+
+         i=0
+         while [ $i -lt $wan_ip_Count ]
+         do
+		   eval wanmode='$'wanppp_${i}_wanMode
+		   if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+            . /etc/rc.d/get_wan_if $i "ip"
+           eval iface=${WAN_IFNAME}
+           iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+          # if [ $? -ne 0 ]; then
+               cmd="iptables -t mangle -$IPT_ACTION POSTROUTING -o ${iface} -j IMQ --todev 0"
+               $cmd
+          # fi
+           fi
+               i=$(($i + 1))
+          done
+
+	fi
+#fi
+
+#------------------------------------------------------------------------------------------------------------------------
+
+#if [ $qm_enable -eq 1 ]; then	
+
+#   case "$1" in
+#        	0)
+#                	act=add #Denotes ADD action for TC rules
+#                  IPT_ACTION=A 
+#                	;;
+#        	1)
+#                	act=change # Denotes CHANGE action for TC rules
+#                	;;
+#        	2)
+#                	act=del # Denotes DELETE action for TC Rules
+#                  IPT_ACTION=D 
+#                	;;
+#   esac
+
+
+#      tc class $act dev $UPSTREAM_DEV parent 1:1 classid 1:88 htb rate 1kbit ceil $MAX_UPSTREAM_RATE prio 7 
+
+#      tc qdisc $act dev $UPSTREAM_DEV parent 1:88 handle 88: htb 
+
+#      tc class $act dev $UPSTREAM_DEV parent 88: classid 88:88 htb rate $MAX_UPSTREAM_RATE 
+
+#      tc class $act dev $UPSTREAM_DEV parent 88:88 classid 88:3 htb rate $TCP_ACK_RATE ceil $MAX_UPSTREAM_RATE
+#      tc qdisc $act dev $UPSTREAM_DEV parent 88:3 handle 883: bfifo limit $BFIFO_LIMIT
+
+#	   tc filter $act dev $UPSTREAM_DEV parent 1:0 prio 1 protocol ip u32 \
+#        		match ip protocol $PROTOCOL_TCP $U8_MASK_FULL \
+#        		match u8 $TCP_HEADER_LENGTH $U8_MASK_LSB at 0 \
+#        		match u16 $TCP_TOTAL_IP_DATA $TCP_TOTAL_IP_DATA_MASK at 2 \
+#        		match u8 $TCP_ACK_BIT_SET $U8_MASK_FULL at 33 flowid 1:88
+#      tc filter $act dev $UPSTREAM_DEV parent 88:0  prio 1 protocol ip u32 \
+#        		match ip protocol $PROTOCOL_TCP $U8_MASK_FULL \
+#        		match u8 $TCP_HEADER_LENGTH $U8_MASK_LSB at 0 \
+#        		match u16 $TCP_TOTAL_IP_DATA $TCP_TOTAL_IP_DATA_MASK at 2 \
+#        		match u8 $TCP_ACK_BIT_SET $U8_MASK_FULL at 33 flowid 88:3
+
+
+
+#      tc class $act dev $UPSTREAM_DEV parent 88:88 classid 88:4 htb rate $RATE_FOR_REST_UPSTREAM ceil $MAX_UPSTREAM_RATE
+#      tc qdisc $act dev $UPSTREAM_DEV parent 88:4 handle 884: bfifo limit $BFIFO_LIMIT
+
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x80 0xff80 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x100 0xff00 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x200 0xfe00 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x400 0xfc00 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x800 0xf800 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x1000 0xf000 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x2000 0xe000 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x4000 0xc000 at 2 flowid 1:88
+#tc filter $act dev imq0 parent 1:0  prio 1  protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x8000 0x8000 at 2 flowid 1:88
+
+
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x80 0xff80 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x100 0xff00 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x200 0xfe00 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x400 0xfc00 at 2 flowid 88:4 
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x800 0xf800 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x1000 0xf000 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x2000 0xe000 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x4000 0xc000 at 2 flowid 88:4
+#tc filter $act dev imq0 parent 88:0  prio 1 protocol ip u32 match ip appl_group ftp appl_proto data match ip protocol 0x6 0xff match u16 0x8000 0x8000 at 2 flowid 88:4
+
+
+#fi
+#-------------------------------------------------------------------------------------------------------------------------
+
+
+fi

@@ -1,0 +1,32 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+	 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+	. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+case "$1" in
+	start)
+		. /etc/rc.d/init.d/sip_alg_start  
+		;;
+	stop)
+		. /etc/rc.d/init.d/sip_alg_stop
+		;;
+	restart)
+		shift
+		#stop
+		. /etc/init.d/sip_alg_stop #510251:sumedh
+		#start
+		. /etc/init.d/sip_alg_start #510251:sumedh
+		;;
+esac
+#exit $?

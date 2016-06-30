@@ -1,0 +1,47 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# this has been handled inside /etc/ppp/ip-down
+if [ "`/usr/sbin/status_oper GET bringup_wanppp${1}_if status`" = "start" ]; then 
+	. /etc/rc.d/rc.bringup_wanppp_services_stop $1
+fi
+
+	. /etc/rc.d/init.d/kill_ppp_proc $1 "OE"
+	if  [ "$CONFIG_PACKAGE_RP_PPPOE" = "1" ]; then
+		eval PPP_RELAY='$'wanppp_${1}_connType
+		eval lan_iface='$'lan_main_0_interface
+		eval nas_iface='$'wanppp_${1}_iface
+		if [ "$PPP_RELAY" = "4" ]; then
+			GREP_STRING="/usr/sbin/pppoe-relay -C $lan_iface -S $nas_iface"
+			ps > /tmp/psf
+			
+			while read line
+			do
+				case $line in
+					*"$GREP_STRING"*)	break ;;
+					*) line="" ;;
+				esac
+			done < /tmp/psf
+			PID=${line%% [a-z]*}
+			if [ -n "$PID" ]; then
+				kill -TERM $PID
+			fi
+		fi
+	fi
+	/usr/sbin/status_oper SET "WanPPP${1}_DNS_SERVER" DNS1 0
+	/usr/sbin/status_oper SET WanPPP${1}_IF_Info STATUS DISCONNECTED
+	#sleep 2
+	/usr/sbin/status_oper SET bringup_wanppp$1_pppoe status stop

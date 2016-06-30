@@ -1,0 +1,2149 @@
+-------------------------------------------------------------------------------
+  version 5.1.1.32  | 2012-08-08 | DxT System Package 4.5
+-------------------------------------------------------------------------------
+NEW Command line argument to set polling mode for DxT devices:
+    '--polling-mode' or '-P'
+CHG Added support for PCM codec Linear 16bit WB with split time slots.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.31  | 2012-07-12 |
+-------------------------------------------------------------------------------
+CHG Board driver includes are not mandatory for XT-16.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.30  | 2012-07-10 |
+-------------------------------------------------------------------------------
+NEW Using board driver for configuring PCM interface for xT-16.
+    [VOICECPE_SW-510]
+CHG Change of handling dialing sequence for PCM external call.
+    Now estabilishing PCM external call between boards with different count of
+    digits in dialed number is possible. [VOICECPE_SW-510]
+
+-------------------------------------------------------------------------------
+  version 5.1.1.29  | 2012-06-29 |
+-------------------------------------------------------------------------------
+FIX PCM external call dialing for XT-16.
+FIX PCM external call between two boards for EASY3201 and EASY3201_EVS.
+    [VOICECPE_SW-492]
+FIX Compilation for SVIP and VxT after adding PCM codec change feature.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.28  | 2012-06-08 |
+-------------------------------------------------------------------------------
+NEW Changing codec for PCM transmission from command line and with DTMF code.
+    [VOICECPE_SW-488]
+    program argument: '--pcm_coder_type' or '-u'.
+    DTMF commands: *1900 - G.711 A-law, 8 bits, NB,
+                   *1901 - G.711 u-law, 8 bits, NB,
+                   *1902 - Linear 16 bits, NB,
+                   *1903 - G.711 A-law, 8 bits, WB,
+                   *1904 - G.711 u-law, 8 bits, WB,
+                   *1905 - Linear 16 bits, WB,
+                   *1906 - G.722 16 bits, WB,
+                   *1907 - G.726 16 kbit/s, NB,
+                   *1908 - G.726 24 kbit/s, NB,
+                   *1909 - G.726 32 kbit/s, NB,
+                   *1910 - G.726 40 kbit/s, NB.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.27  | 2012-05-28 |  EASY 3201 DUSLIC-xT Evaluation Package V4.1
+-------------------------------------------------------------------------------
+NEW IPv6 support for SVIP(EASY336).
+
+-------------------------------------------------------------------------------
+  version 5.1.1.26  | 2012-05-15 |
+-------------------------------------------------------------------------------
+CHG VoIP initialization structure filled using defines.
+FIX Fixed problem in makefile preventing the build of distribution tarballs.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.25  | 2012-05-11 |
+-------------------------------------------------------------------------------
+CHG LOCAL_BOARD_PCM_CALL connection type uses CID.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.24  | 2012-04-25 |
+-------------------------------------------------------------------------------
+CHG Removed workaround for Easy3210_EVS. Now function from voice_board_drv
+    are used to set the device and PCM.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.23  | 2012-04-15 |  Voice SP 4.24        UGW 5.2
+-------------------------------------------------------------------------------
+FIX Corrected search for firmware and BBD files on the XRX300 boards that was
+    broken since version 5.1.1.20. [VOICECPE_SW-468]
+
+-------------------------------------------------------------------------------
+  version 5.1.1.22  | 2012-04-10 |  DxT EP 4.0
+-------------------------------------------------------------------------------
+NEW Added support for EASY3201_EVS
+
+-------------------------------------------------------------------------------
+  version 5.1.1.21  | 2012-03-23 |  DxT SP 4.1
+-------------------------------------------------------------------------------
+FIX Fixed problem in makefile preventing the build of distribution tarballs.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.20  | 2012-03-08 |  DxT SP 4.1 RC2
+-------------------------------------------------------------------------------
+NEW Chip version independent startup for DuSLIC-xT. Now tapidemo is able
+    to start for DuSLIC-xT chip V1.3 and V1.4.
+    New filenames for FW files are used:
+    -dxt_v1.3_firmware.bin for DuSLIC-xT V1.3
+    -dxt_v1.4_firmware.bin for DuSLIC-xT V1.4
+    If not available then prevoiusly used FW filenames are used.
+FIX Handling of CID events for DuSLIC-xT.
+FIX LINE FAULT Events handling for DuSLIC-xT.
+
+-------------------------------------------------------------------------------
+  version 5.1.1.19  | 2012-03-02 |  DxT SP 4.1 RC1
+-------------------------------------------------------------------------------
+FIX All traces from initialisation are redirected to Event Logger
+FIX Deregistration from Event Logger when Tapidemo is finished.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.18  |  2012-02-03 |
+--------------------------------------------------------------------------------
+FIX State machine block when dialing timeout detected.
+NEW Out-Of-Band configuration for DTMF with command line arguments.
+CHG Ground Start support available for all platforms.
+NEW Workaround for events from teridian driver - overwite dev and module
+    fields, because random values are received for teridian version 2.7.3lq6
+    and below.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.17  |  2012-01-20 |
+--------------------------------------------------------------------------------
+NEW Handling of IFX_TAPI_EVENT_KPI_SOCKET_FAILURE by playing error tone.
+FIX QoS local for VMMC boards compiled with DxT support.
+CHG Reporting module type of events for TAPI v3.
+FIX Crasch for canceled incoming FXO call for VMMC boards compiled
+    with DxT support.
+FIX Corrected inconsistency between the PCM frequency and number of timeslots
+    for SVIP. Number of timeslots set according to PCM configuration.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.16  |  2011-12-20 |
+--------------------------------------------------------------------------------
+FIX XRX300 errors on CleanUp related to number of PCM channels equal 0.
+CHG QoS on socket - Unconnect socket at end of call.
+NEW Handle module field for event IFX_TAPI_EVENT_TONE_GEN_END.
+NEW Set default BBD file for VMMC device with configure argument
+    --enable-bbd-file=name.
+NEW Set default FW file for VMMC device with configure argument
+    --enable-fw-file=name.
+NEW Added trace redirection to Event Logger.
+CHG Resource Manager (SVIP) debug level is not set to the Tapidemo debug level.
+    Default debug level is HIGH. To change it '--rm_dbg' parameter should be
+    used.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.15  |  2011-11-30 |
+--------------------------------------------------------------------------------
+CHG Adapted to start without PCM support if the driver reports 0 PCM channels.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.14  |  2011-11-16 |
+--------------------------------------------------------------------------------
+FIX Fix compilation warning for Duslic-xT.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.13  |  2011-11-10 |
+--------------------------------------------------------------------------------
+FIX FIO_DXT_FW_DOWNLOAD and FIO_DXT_BBD_DOWNLOAD used instead of FIO_DXT_INIT
+    for Duslic-xT.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.12  |  2011-10-27 |
+--------------------------------------------------------------------------------
+NEW Support for XWAY XRX300 board.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.11  |  2011-10-14 |
+--------------------------------------------------------------------------------
+FIX Fix problems reported by klocwork.
+FIX Cleanup automake from warnings reported by "autoreconf -Wall"
+    JIRA_RND [VOICECPE_SW-328]
+
+--------------------------------------------------------------------------------
+  version 5.1.1.10  |  2011-09-30 |
+--------------------------------------------------------------------------------
+NEW Print FW version for SVIP and VxT with use of IFX_TAPI_VERSON_DEV_ENTRY_GET.
+CHG Print FW version number for VMMC device with nEDSPHotFix number.
+FIX Svip and VxT tapidemo will start up even if initialization device fails.
+    Failing device number must be other than first. JIRA - VINETICLCSW-717.
+NEW Special trace when releasing last occurence of Sequential ConnID.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.9   |  2011-09-29 |
+--------------------------------------------------------------------------------
+FIX Initial line feeding mode is set to DETECT for Duslic-xT
+
+--------------------------------------------------------------------------------
+  version 5.1.1.8   |  2011-09-23 |
+--------------------------------------------------------------------------------
+NEW BBD download can be disabled with --no_bbd_download argument.
+CHG Now also DXT_NO_ASDSP_DWLD flag is set when DxT device FW file loading
+    is disabled.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.7   |  2011-09-22 |
+--------------------------------------------------------------------------------
+FIX Removing conn ID for FXO.
+FIX Printing CAP read error for unexisting device (svip and vxt).
+NEW Disable loading of FW file for DxT device with --dxt_rom_fw argument.
+    Additionaly FW file is now not mandatory for DxT device.
+    JIRA VOICECPE_SW-353.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.6   |  2011-09-09 |
+--------------------------------------------------------------------------------
+FIX Compilation for VxWorks.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.5   |  2011-09-09 |
+--------------------------------------------------------------------------------
+FIX Compilation for fax test module.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.4   |  2011-09-08 |
+--------------------------------------------------------------------------------
+NEW Called ioctl info is printed now when "-T" argument is used.
+NEW Connection ID number is printed for prefix before each trace.
+    Prefix printing can be disabled with "-C" argument.
+CHG 3 CPTDs on one channel support is enabled by default.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.3   |  2011-08-11 |
+--------------------------------------------------------------------------------
+NEW 3 CPTDs on one channel support.
+CHG Now CPTD detection is enabled only after HOOK-OFF on FXO.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.2   |  2011-08-10 |
+--------------------------------------------------------------------------------
+FIX Corrected configuration option - FXS Phone Detection enabled by default.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.1   |  2011-07-19 |
+--------------------------------------------------------------------------------
+FIX ABSTRACT_CustomMapping() function.
+
+--------------------------------------------------------------------------------
+  version 5.1.1.0   |  2011-07-08 |                  Voice SP 4.21 W6
+--------------------------------------------------------------------------------
+FIX Compilation failure when teridain support is disabled. Problem was detected
+    when DECT support was on.
+FIX Enabled Pulse Digit event detection for TAPI 4.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.98  |  2011-07-05 |                  Voice SP 4.21 W6
+--------------------------------------------------------------------------------
+CHG Unified configure arguments across drivers and applications.
+    Following arguments should be now used:
+    --with-dect-incl instead of --enable-dect-incl,
+    --with-dect-lib instead of --enable-dect-lib,
+    --with-voip-common-incl instead of --enable-voip-common-incl,
+    --with-voip-common-lib instead of --enable-voip-common-lib.
+FIX Disabling DTMF detection for TAPI V4 when IE_END_CONNECTION event detected.
+FIX Removed workaround to enable event detection on all devices.
+FIX Play busy tone if dialing external call, but no coder channel is available.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.97  |  2011-06-22 |
+--------------------------------------------------------------------------------
+FIX Compilation for SVIP without VXT extension board.
+CHG Restored '--with-vxt' configuration option for EASY336 board
+CHG Added error generation for missed mandatory options during configuration
+    of system EASY3201 and EASY3332
+FIX Compilation for Dv3.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.96  |  2011-06-16|
+--------------------------------------------------------------------------------
+FIX Fix problems reported by klocwork.
+CHG Replaced configuration option '--with-drvincl' by the target specified:
+      --with-tapi-incl     - for drv_tapi includes
+      --with-svip-incl     - for drv_svip includes
+      --with-ethsw-incl    - for drv_ethsw includes
+      --with-vxt-incl      - for drv_vxt includes
+      --with-easy3332-incl  - for drv_easy3332 includes
+      --with-vinetic-incl  - for drv_vinetic includes
+      --with-dxt-incl       - for drv_duslic_xt includes
+      --with-easy3201-incl  - for drv_easy3201 includes
+      --with-teridian-incl  - for drv_ter1x66 includes
+      --with-vmmc-incl      - for drv_vmmc includes
+      --with-duslic-incl    - for drv_duslic includes
+      --with-daa-incl       - for drv_daa includes
+CHG Replaced '--enable-svip-include' and '--enable-svip-library' by
+      --with-libsvip-incl  - for libsvip library includes
+      --with-libsvip-lib   - for libsvip library binaries
+CHG Using common for applications functions for includes path setting,
+    m4 macros are used.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.95  |  2011-05-16|
+--------------------------------------------------------------------------------
+CHG Enabling event detection for TAPI V4.
+NEW vxWorks  BBD downloading from ram filesystem for SVIP and XT16
+    [VINETICLCSW-603]
+
+--------------------------------------------------------------------------------
+  version 5.1.0.94  |  2011-04-19|
+--------------------------------------------------------------------------------
+CHG For reading capabilities now by default old way is used.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.93  |  2011-04-15|
+--------------------------------------------------------------------------------
+CHG Jitter buffer settings adapted.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.92  |  2011-04-14|
+--------------------------------------------------------------------------------
+NEW Setting FW and BBD filenames with command line argument and
+    from .tapidemorc file.
+NEW Setting RM debug level with command line argument and DTMF codes *802X.
+CHG Multiple BBD support for different SLICs [VINETICLCSW-629]
+    bbd_svip.bin renamed to bbd_svip_r.bin
+    bbd_vxt.bin renamed to bbd_vxt_r.bin
+
+--------------------------------------------------------------------------------
+  version 5.1.0.91  |  2011-03-25|
+--------------------------------------------------------------------------------
+NEW FXO support for conference. DTMF code *2050 added for calling flash-hook on
+    FXO channel.
+FIX Printig line feed mode name.
+FIX Fixed compilation for TAPI v4 mode.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.90  |  2011-03-21|
+--------------------------------------------------------------------------------
+NEW IPv6 support.
+NEW Multicast and broadcast for phonebook functionality. DTMF code *8062 can be
+    for used for sending multicast and broadcast messages.
+FIX Minor fixes for phonebook functionality.
+CHG DTMF code *8060 can be used for printing phonebook. DTMF code *8061 can be
+    used for reading from phonebook file.
+NEW Name and directory of phonebook file can be changed with --file_phonebook
+    command line argument.
+NEW File td_socket.c with functions for handling address structures and socket
+    operations added.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.89  |  2011-03-17|
+--------------------------------------------------------------------------------
+NEW Removed the FXS Phone Pug Detection State Machine.
+NEW Added support for FXS Phone Plug Detection which is implemented in TAPI.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.88  |  2011-02-24|
+--------------------------------------------------------------------------------
+FIX Included dummy functions for few features that are not implemented
+    in the tapidemo. Eg: Call Intrusion and Call interception.
+FIX Removed CLI Fifos in the cleanup function. This was creating issues
+    in the kill and restart case.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.87  |  2011-02-23|
+--------------------------------------------------------------------------------
+FIX Fix compilation for SVIP.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.86  |  2011-02-15|
+--------------------------------------------------------------------------------
+FIX Compilation warnings.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.85  |  2011-02-15|
+--------------------------------------------------------------------------------
+NEW Phonebook support.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.84  |  2011-02-08|
+--------------------------------------------------------------------------------
+FIX Stop allocating memory for sockets when sockets aren't used (only for TAPI4).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.83  |  2011-02-02|
+--------------------------------------------------------------------------------
+FIX Checking data channel availabilty in Common_DTMF_SIG_Enable() for EASY 508XX
+    with EASY 3111 (DxT) extension board.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.82  |  2011-01-31|
+--------------------------------------------------------------------------------
+NEW Handle signal SIGPIPE.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.81  |  2011-01-20|
+--------------------------------------------------------------------------------
+CHG Only local (TX) DTMF detection is enabled on off-hook - caused by driver
+    modification.
+CHG FEATURES file update.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.80  |  2011-01-11|
+--------------------------------------------------------------------------------
+FIX Stop printing incorrect trace "QoS support not available"
+    while option '-ql' is used for TAPI4.
+FIX Fix conference with local call with coders for TAPI4.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.79  |  2010-12-31|
+--------------------------------------------------------------------------------
+CHG Workaround for EASY508XX regarding external calls and droping first packet
+    is now by default disabled. To enable this workaround TAPIDEMO must be
+    compiled with --enable-ext-call-workaround flag.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.78  |  2010-12-30|
+--------------------------------------------------------------------------------
+CHG Modified TD_ASSERT macro to use TRACE macro instead of printf().
+CHG Changed DTMF commands:
+         *2030 - disable echo suppressor for DECT handsets (was *8011),
+         *2031 - enable echo suppressor for DECT handsets (was *8012).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.77  |  2010-12-27|
+--------------------------------------------------------------------------------
+CHG For DECT RFPI number first and last bytes are set to 0. 4th byte is set
+    according to used IP address.
+NEW JUMPER file updated with settings for AR9 (EASY 508XX) to connect EASY 3111.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.76  |  2010-12-21|
+--------------------------------------------------------------------------------
+FIX Fix issue with externall call (Tapidemo crashed during exeternal call)
+    on VxWorks - increase stack size to 20000.
+CHG Change trace which is printed when Tapidemo receives message with incorrect
+    size on admin socket.
+FIX Add extra checking to function Common_IsNumber().
+FIX Set field nFeatureID from communication message to 0 during dialing
+    external number.
+CHG Don't close thread, when receive unknown message from synchronization pipe.
+CHG Use write() instead of vfprintf() for writing to pipe (VxWorks only).
+CHG Use read() instead of fread() for reading from pipe (VxWorks only).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.75  |  2010-12-15 |
+--------------------------------------------------------------------------------
+FIX Fixed in "prepare board" setting FDs to -1 for all used channels
+    instead of setting only for coders (data channels).
+FIX Fixed loading empty bbd with disabled file-system feature on xT16
+FIX Fixed segmentation fault during device select call
+FIX Fixed device skipping during device select call
+FIX Fixed usage of zero value for file descriptors
+NEW Implemented library mode using '--enable-library-mode' option
+
+--------------------------------------------------------------------------------
+  version 5.1.0.74  |  2010-12-07 |
+--------------------------------------------------------------------------------
+FIX Fix compilation for VxWorks.
+NEW Enable echo suppressor for DECT handsets by default.
+NEW Add program argument: --es_dect.
+NEW Add DTMF commands: *8011 - disable echo suppressor for DECT handsets,
+                       *8012 - enable echo suppressor for DECT handsets.
+
+-------------------------------------------------------------------------------
+  version 5.1.0.73  |  2010-12-01|
+--------------------------------------------------------------------------------
+FIX Fix compilation for VxWorks.
+FIX Fix creating a new thread/task for VxWorks
+    (set stack size and lower priority).
+
+-------------------------------------------------------------------------------
+  version 5.1.0.72  |  2010-11-23|
+--------------------------------------------------------------------------------
+FIX Fix compilation for VxWorks.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.71  |  2010-11-17 |
+--------------------------------------------------------------------------------
+CHG Enabled DECT support for EASY 50712 V3 (Danube V3).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.70  |  2010-11-15 |
+--------------------------------------------------------------------------------
+CHG Changed the default downloads path to "/opt/lantiq/downloads" for SVIP and XT16.
+    If "/opt/lantiq/downloads" is empty then previous downloads
+    path ("/opt/ifx/downloads/") is used.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.69  |  2010-11-15 |
+--------------------------------------------------------------------------------
+FIX Fix problems reported by klocwork (for SVIP and XT16).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.68  |  2010-11-10 |
+--------------------------------------------------------------------------------
+FIX Fax T.38 support for VR9.
+CHG changing repeating sequences into macros in configure.in.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.67  |  2010-11-09 |
+--------------------------------------------------------------------------------
+CHG C-measurement is started during Tapidemo initialization. This solution saves
+    time during power measurement - no need to wait 1 hour (this is default
+    time) until system detects no phone.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.66  |  2010-11-04 |
+--------------------------------------------------------------------------------
+NEW Enabled support of conferences for DECT handsets.
+FIX Compilation for XT-16.
+FIX Problems reported by klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.65  |  2010-11-03 |                   TAPI 3.13.0 RC
+--------------------------------------------------------------------------------
+FIX Fixed instability problem for Phone Plug Detection.
+CHG Timer module - timout callback sends messages to FIFO queue.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.64  |  2010-10-28 |                   TAPI 3.13.0 RC
+--------------------------------------------------------------------------------
+NEW Added debug traces (debug level NORMAL) to indicates when phone is detected.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.63  |  2010-10-22 |                   TAPI 3.13.0 RC
+--------------------------------------------------------------------------------
+NEW Added arguments to modify timeouts value for Phone Plug Detection State
+    Machine (--t1, --t2, --t3, --t4).
+CHG Phone Plug Detection and DECT functionalities are split. Now can be compiled
+    independently.
+CHG Phone Plug Detection State Machine addapted to the new concept.
+CHG 'q' option is automatically enabled when Tapidemo started with DECT. Without
+    this there was no voice for external calls FXS<->DECT.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.62b |  2010-10-21 |
+--------------------------------------------------------------------------------
+FIX Problems reported by klocwork (for VR9).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.62a |  2010-10-19 |
+--------------------------------------------------------------------------------
+FIX Problems reported by klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.62  |  2010-10-18 |                   TAPI 3.13.0 RC1
+--------------------------------------------------------------------------------
+FIX Check for allocated memory in board_easy3111.c.
+CHG EASY 3111 as extension baord for AR9 by default uses IFX_TAPI_DEV_START
+    instead of IFX_TAPI_CH_INIT.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.61  |  2010-10-15 |
+--------------------------------------------------------------------------------
+NEW Phone Plug Detection support added.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.60  |  2010-10-15 |
+--------------------------------------------------------------------------------
+FIX FXO line on SLIC121 FXO is disabled when TAPIDEMO is started without
+    SLIC121 FXO support.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.59  |  2010-10-14 |
+--------------------------------------------------------------------------------
+FIX TD_OS_MemCalloc().
+
+--------------------------------------------------------------------------------
+  version 5.1.0.58  |  2010-10-13 |
+--------------------------------------------------------------------------------
+FIX Compilation warnings for legacy streams.
+FIX Remove redundant EOL in log redirection.
+CHG Replace calloc() with TD_OS_MemCalloc().
+
+--------------------------------------------------------------------------------
+  version 5.1.0.57  |  2010-10-11 |
+--------------------------------------------------------------------------------
+NEW Support for EASY 3111 (DxT) extension board for EASY 508XXX (AR9/GR9)
+    and EASY 80910 (VR9). To enable this feature compilation flag must be used:
+    --enable-dxt-ext.
+FIX Problems reported by klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.56  |  2010-09-28 |
+--------------------------------------------------------------------------------
+FIX Compilation without filesystem support.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.55  |  2010-09-23 |
+--------------------------------------------------------------------------------
+FIX XT16 configuration was using resource manager header file.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.54  |  2010-09-23 |
+--------------------------------------------------------------------------------
+FIX Minor fixes after adaptation to IFX OS library:
+   - Replace inet_aton() by TD_OS_SocketAton() in ReadOptions_Network()
+
+--------------------------------------------------------------------------------
+  version 5.1.0.53  |  2010-09-21 |
+--------------------------------------------------------------------------------
+FIX Corrected check if DECT part is ready
+CHG Country code handling for Teridian FXO. Now Tapidemo supports both
+    solution for passing country code:
+    - by IFX_TAPI_CH_INIT_t->nCountry
+    - by M1966_CH_INIT_STRUCT_t->country_code which is passed by
+      IFX_TAPI_CH_INIT_t->pProc
+
+--------------------------------------------------------------------------------
+  version 5.1.0.52  |  2010-09-21 |
+--------------------------------------------------------------------------------
+FIX Minor fixes after adaptation to IFX OS library:
+   - compilation issues for buildroot 2.6
+
+--------------------------------------------------------------------------------
+  version 5.1.0.51  |  2010-09-21 |
+--------------------------------------------------------------------------------
+FIX Compilation for EASY 80910 (VR9).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.50  |  2010-09-20 |
+--------------------------------------------------------------------------------
+FIX Problems reported by klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.49  |  2010-09-17 |
+--------------------------------------------------------------------------------
+FIX Minor fixes after adaptation to IFX OS library.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.48  |  2010-08-31 |
+--------------------------------------------------------------------------------
+FIX Minor fixes after adaptation to IFX OS library regarding:
+    -warnings in control_pc.c,
+    -code formating.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.47  |  2010-08-27 |
+--------------------------------------------------------------------------------
+NEW Integrated IFXOS library. Use --with-ifxos-include=<path> to specify the
+    path to the library includes (option is mandatory)
+
+--------------------------------------------------------------------------------
+  version 5.1.0.46  |  2010-08-20 |
+--------------------------------------------------------------------------------
+FIX Added missing IFX_TAPI_PKT_RTP_CFG_SET call for TAPIv4.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.45  |  2010-08-17 |
+--------------------------------------------------------------------------------
+CHG If <board_name>_bbd_fxs.bin file is used to initilize FXS port, then
+    file <board_name>_bbd_fxo.bin is used to initialize SLIC121 FXO.
+    If common for FXS and FXO file <board_name>_bbd.bin is availale,
+    then it is used for both FXS and FXO.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.44  |  2010-08-11 |
+--------------------------------------------------------------------------------
+CHG Removed compilation flag for ITM (Internal Test Module).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.43  |  2010-08-09 |
+--------------------------------------------------------------------------------
+NEW Support for SLIC121 FXO also added for AR9/GR9.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.42  |  2010-08-06 |
+--------------------------------------------------------------------------------
+NEW Support for SLIC121 FXO for VR9.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.41  |  2010-08-03 |
+--------------------------------------------------------------------------------
+FIX Corrected country code handling for Teridian FXO
+
+--------------------------------------------------------------------------------
+  version 5.1.0.40  |  2010-07-30 |
+--------------------------------------------------------------------------------
+FIX Handling busy tone on FXO port.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.39  |  2010-07-22 |
+--------------------------------------------------------------------------------
+FIX DECT functionality after changes in stack. Added handling of state
+    IFX_DECT_WORKING in callaback function TD_DECT_STACK_InitDownload().
+FIX Errors reported by Klocwork after adding CID for external calls
+    functionality.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.38  |  2010-07-15 |
+--------------------------------------------------------------------------------
+NEW Sending CID data for external calls.
+NEW Receiving CID in ETSI DTMF standard on FXO channel.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.37  |  2010-07-08 |
+--------------------------------------------------------------------------------
+NEW Add --lec argument which allow to set LEC type configuration.
+CHG Default LEC type configuration: IFX_TAPI_WLEC_TYPE_NE.
+CHG On SVIP and XT16 boards, wait calibration time depends on number of analog
+    channel.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.36  |  2010-07-06 |
+--------------------------------------------------------------------------------
+FIX Fix compilation with DECT. BMC and Call parameters has been changed in
+    DECT toolkit.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.35  |  2010-06-18 |
+--------------------------------------------------------------------------------
+FIX Fix using --encoder_type argument.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.34  |  2010-06-17 |
+--------------------------------------------------------------------------------
+CHG Set new names for BBD files:
+    - EASY50712: danube_bbd.bin
+    - EASY508xx: ar9_bbd.bin
+    - EASY80910: vr9_bbd.bin
+    - EASY3201: dxt_bbd.bin
+    - EASY3332: vin-cpe_bbd.bin
+    Old names can be still used.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.33  |  2010-06-14 |
+--------------------------------------------------------------------------------
+NEW DECT configuration read from rc.conf file.
+NEW CLI application messages handling  - DECT diagnostic tool.
+CHG Displayed copyrights to Lantiq
+
+--------------------------------------------------------------------------------
+  version 5.1.0.32  |  2010-06-04 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX SVIP_RM_ConnIdRelease() is called only when no LineID is assigned to ConnID.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.31  |  2010-06-01 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix compatibility with old BSP (LXDB).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.30  |  2010-05-28 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Conference unampping local connections.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.29  |  2010-05-26 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix compilation error for EASY3332.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.28  |  2010-05-26 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Remove compilation issues for Vxworks.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.27  |  2010-03-25  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix error reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.26  |  2010-05-24 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix bugs in input arguments.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.25  |  2010-05-21 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Remove compilation warnings for Vxworks
+
+--------------------------------------------------------------------------------
+  version 5.1.0.24  |  2010-05-21 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Enable LEC for TAPI V3.
+CHG For SVIP and XT16compilation flag "--eable-channel-init" can be used to
+    initalize board with IFX_TAPI_CH_INIT. By default IFX_TAPI_DEV_START
+    is used.
+CHG Removed EASY334 support.
+FIX Releasing connection ID (ConnID) for SVIP.
+CHG Added new cappabilities enums (IFX_TAPI_CAP_TYPE_t).
+
+--------------------------------------------------------------------------------
+  version 5.1.0.23  |  2010-05-21 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix ReadOptions_Syslog() for Vxworks
+
+--------------------------------------------------------------------------------
+  version 5.1.0.22  |  2010-05-20 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+CHG Code cleanup
+CHG Increase the conference limitation for SVIP - 16 conferences allowed.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.21  |  2010-05-10 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW Support for KPN CID standards for TAPI V3.
+FIX Using channel init compilation flag for TAPI V4.
+CHG Timeout for FXO set to 7s.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.20  |  2010-05-07 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX No voice for external VoIP connections on one board for SVIP.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.19  |  2010-04-29 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX IFX_TAPI_CH_INIT replaced with IFX_TAPI_DEV_START for SVIP.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.18  |  2010-04-28 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Disable the DTMF detectors when there is error during TAPIDEMO startup.
+FIX Unmap phone channels when local call is finished.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.17  |  2010-04-22 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Printing used options and help list.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.16  |  2010-04-16 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW Add program arguments: --version and --configure.
+NEW Autodetection for extension board.
+NEW Add compilation flag: --enable-old-bsp.
+FIX Fix compilation with QoS support in configure.in.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.15  |  2010-03-26 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW added compilation flag --with-ifxos-lib
+
+--------------------------------------------------------------------------------
+  version 5.1.0.14  |  2010-03-24 |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+CHG Replace lib_vos with lib_ifxos
+
+--------------------------------------------------------------------------------
+  version 5.1.0.13  |  2010-03-24  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix error reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.12  |  2010-03-23  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix compilation error.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.11  |  2010-03-23  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Fix error reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.10  |  2010-03-22  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Handle errors in ST_FXS_InRingingHookOff.
+FIX Fix error reported by Klockwok.
+NEW Print information about using Fax T.38 or/and Fax/Modem flag at the startup.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.9  |  2010-03-18  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW Added support for DANUBE GPIO of new BSP
+
+--------------------------------------------------------------------------------
+  version 5.1.0.8  |  2010-03-15  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+CHG Replace --with-ifxos-include -> --with-ifxos-incl
+
+--------------------------------------------------------------------------------
+  version 5.1.0.7  |  2010-03-11  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW Add default DECT library directory path.
+NEW Add default DECT include directory path.
+NEW Check if DECT library directory contains required libraries.
+NEW Check if DECT include directory contains required headers.
+FIX Fix error reported by Klocwork.
+CHG Busy tone is played for incoming FXO call, when all phones are unavailable.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.6  |  2010-03-11  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW added compilation flag --with-ifxos-include
+
+--------------------------------------------------------------------------------
+  version 5.1.0.5  |  2010-03-08  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX DECT code cleanup.
+NEW CID is working with DECT (CID is only send to analog phones).
+FIX Playing CPT for DECT phones.
+NEW Wideband call for DECT phones.
+FIX Minor fixes for DECT calls.
+FIX Calculating timeslots number for SVIP an XT-16.
+CHG Usage of new DECT library structure.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.4  |  2010-02-22  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW Workaround for VR9. If vr9_bbd_fxs.bin and vr9_firmware.bin are missing,
+    tapidemo uses files ar9_bbd_fxs.bin and ar9_firmware.bin
+
+--------------------------------------------------------------------------------
+  version 5.1.0.3  |  2010-02-19  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NEW Added command line argument to enable dect support, long form "--dect",
+    short form "-t". Without it tapidemo will run without DECT support.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.2  |  2010-02-16  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX Dect calls
+NEW CPT working
+
+--------------------------------------------------------------------------------
+  version 5.1.0.1  |  2010-02-11  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+FIX DECT-FXO outgoing calls fixed.
+
+--------------------------------------------------------------------------------
+  version 5.1.0.0  |  2010-02-10  |  engineering snapshot, coding/verifiaction in progress
+--------------------------------------------------------------------------------
+NOTE this version of tapidemo is an early engineering snapshot with the intention
+          to demonstrate basic DECT / FXO integration on VR9. Not all call
+          scenarios have been verified yet. Please refer to the following list of
+          known issues and tested scenarios:
+
+          FXS-DECT ok, error message is shown. In some cases IFX_DECT_CSU_CallInitiate
+                   fails when when FXS phone calls DECT phone -> to unblock start
+                   call from DECT phone
+          DECT-VoIP at least one call can be established, disconnecting must be
+                    improved, making FXS-DECT calls can unblock DECT-VOIP calls
+          FXO-DECT incoming calls ok
+          DECT-FXO outgoing calls, problem in configuration for DTMF generation.
+
+          During compilation warning messages with todo notes are printed.
+          Debug traces for developers are printed for normal debug level.
+
+          Non DECT call scenarios have not been verified yet and might be impacted
+          due to DECT related changes in the state machines.
+
+--------------------------------------------------------------------------------
+  version 5.0.2.3  |  2010-02-08 |
+--------------------------------------------------------------------------------
+FIX Fix the local connections with codecs on SVIP
+
+--------------------------------------------------------------------------------
+  version 5.0.2.2  |  2010-02-04 |
+--------------------------------------------------------------------------------
+FIX fix of XT16 compilation.
+
+--------------------------------------------------------------------------------
+  version 5.0.2.1  |  2010-02-02 |
+--------------------------------------------------------------------------------
+NEW Ground Start support for xT-16.
+CHG FXO made more generic. Removed board_teridian73M1866.c/h.
+CHG In configure.in and Makefile.am - compilation improvements, removing unused
+    flags and includes, more generic setting of driver include path. Fixed
+    compilation for SVIP on OpenWRT.
+NEW Fax/modem transparent and fax T.38 support for SVIP board(EASY336).
+FIX JB and RTCP statistics compilation warnings with invalid data type formating.
+FIX Invalid read of cappabilities (number of coder and PCM channels) for SVIP
+    board, it needed IFX_TAPI_CH_INIT before reading cappabilities.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.33  |  2010-03-03  |
+--------------------------------------------------------------------------------
+CHG For FXO IFX_TAPI_PCM_IF_CFG_SET usage moved before IFX_TAPI_CH_INIT.
+NEW Compilations flags for SVIP and XT16 to use IFXOS lib:
+    --enable-ifxos-library and --enable-ifxos-include
+
+--------------------------------------------------------------------------------
+  version 5.0.1.32  |  2010-02-22  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.31  |  2010-02-19  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.30  |  2010-01-26  |
+--------------------------------------------------------------------------------
+FIX Handling of DTMF events generated by phone on xT-16 in shared LCC mode.
+CHG changes affecting EASY336 system, related to interface change of function
+    SVIP_libVoIP_CFG_Set.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.29  |  2010-01-14  |
+--------------------------------------------------------------------------------
+FIX Fix external dialing when dialed number exceeds maximum length.
+FIX Fix parsing file .tapidemorc and setting download directory.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.28  |  2009-12-17  |
+--------------------------------------------------------------------------------
+CHG Changed default do downloads path to "/lib/firmware/", if "/lib/firmware/"
+    is empty then previous downloads path ("/opt/ifx/downloads/") is used.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.27 |  2009-11-23  |
+--------------------------------------------------------------------------------
+CHG Timeout for FXO set to 5s.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.26 |  2009-11-19  |
+--------------------------------------------------------------------------------
+FIX Configuration of FAX sessions.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.25 |  2009-11-09  |
+--------------------------------------------------------------------------------
+FIX Select error on program end when FXO used.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.24 |  2009-11-06  |
+--------------------------------------------------------------------------------
+FIX Adaptation of easy50712 for openWRT
+FIX Codec resource was not released on transition from S_BUSYTONE to S_READY
+    state.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.23 |  2009-11-03  |
+--------------------------------------------------------------------------------
+FIX lib_bbd dependencys
+
+--------------------------------------------------------------------------------
+  version 5.0.1.22 |  2009-10-28  |
+--------------------------------------------------------------------------------
+FIX Fix compilation error
+
+--------------------------------------------------------------------------------
+  version 5.0.1.21 |  2009-10-23  |
+--------------------------------------------------------------------------------
+CHG Isolate Clare/Duslic code - new flag added --enable-duslic-fxo, without it
+    Duslic FXO is disabled for Danube board (EASY50712).
+
+--------------------------------------------------------------------------------
+  version 5.0.1.20 |  2009-10-21  |
+--------------------------------------------------------------------------------
+NEW Codec availability check with IFX_TAPI_CAP_CHECK.
+FIX CID for local calls was played without checking hook state.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.19 |  2009-10-16  |
+--------------------------------------------------------------------------------
+FIX Function names in common.c file.
+CHG Trace indention memory allocation and trace indention structures names.
+FIX Setting present date and time before sending CID.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.18 |  2009-10-15  |
+--------------------------------------------------------------------------------
+FIX Fix compilation error for EASY80800
+
+--------------------------------------------------------------------------------
+  version 5.0.1.17 |  2009-10-13  |
+--------------------------------------------------------------------------------
+CHG Set new names for firwmare files:
+    - EASY50712: voice_danube_firmware.bin
+    - EASY508xx: voice_ar9_firmware.bin
+    - EASY80910: voice_vr9_firmware.bin
+    - EASY3201: voice_dxt_firmware.bin
+    - EASY3332: voice_vin-cpe_firmware.bin
+    - EASY80800: voice_vinax_firmware.bin
+    Old names can be still used.
+
+
+--------------------------------------------------------------------------------
+  version 5.0.1.16 |  2009-10-13  |
+--------------------------------------------------------------------------------
+FIX VoIP calls behind router for SVIP.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.15 |  2009-10-01  |
+--------------------------------------------------------------------------------
+CHG Select timeout is used only when needed (during FXO calls and external calls
+    dialing).
+
+--------------------------------------------------------------------------------
+  version 5.0.1.14 |  2009-09-29  |
+--------------------------------------------------------------------------------
+CHG Improve traces and log's redirection
+
+--------------------------------------------------------------------------------
+  version 5.0.1.13 |  2009-09-28  |
+--------------------------------------------------------------------------------
+FIX - compilation fix - SYS_VR9 missing
+
+--------------------------------------------------------------------------------
+  version 5.0.1.12 |  2009-09-25  |
+--------------------------------------------------------------------------------
+NEW VR9 support
+
+--------------------------------------------------------------------------------
+  version 5.0.1.11 |  2009-09-18  |
+--------------------------------------------------------------------------------
+NEW Separate error backtrace for each chip available using ioctl
+    IFX_TAPI_LASTERR (TAPI4 enhancement).
+
+--------------------------------------------------------------------------------
+  version 5.0.1.10 |  2009-09-17  |
+--------------------------------------------------------------------------------
+FIX Tapidemo initilialization with IFX_TAPI_DEV_START for Duslic-XT.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.9  |  2009-09-16  |
+--------------------------------------------------------------------------------
+NEW Event counters for each device added (debug feature). Enable with
+    --enable-event-counter
+
+--------------------------------------------------------------------------------
+  version 5.0.1.8  |  2009-09-15  |
+--------------------------------------------------------------------------------
+NEW For EASY3201(Duslic-XT), EASY50712(Danube), EASY508XX(AR9, GR9) and
+    EASY3332(Vinetic-CPE) support of TAPI Reset funcionalty was added.
+    Tapidemo for those boards by default uses IFX_TAPI_DEV_START to initialize
+    TAPI. To use IFX_TAPI_CH_INIT, tapidemo must be compiled with
+    "--enable-channel-init" flag.
+CHG Improve searching for drivers in configure.in.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.7  |  2009-09-14  |
+--------------------------------------------------------------------------------
+NEW External LCC for SVIP support.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.6  |  2009-09-03  |
+--------------------------------------------------------------------------------
+FIX Removed TAPI driver error log entry caused by getting number of connected
+    devices (chips).
+
+--------------------------------------------------------------------------------
+  version 5.0.1.5  |  2009-09-02  |
+--------------------------------------------------------------------------------
+FIX Compilation without --enable-fs flag error for EASY336
+
+--------------------------------------------------------------------------------
+  version 5.0.1.4  |  2009-09-02  |
+--------------------------------------------------------------------------------
+CHG Trace update for svip in voip.c
+
+--------------------------------------------------------------------------------
+  version 5.0.1.3  |  2009-09-02  |
+--------------------------------------------------------------------------------
+CHG Documentation update
+
+--------------------------------------------------------------------------------
+  version 5.0.1.2  |  2009-08-11  |
+--------------------------------------------------------------------------------
+NEW DTMF codes for G7.26 codec with ITU-T I366.2 Bit Alignment.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.1  |  2009-08-10  |
+--------------------------------------------------------------------------------
+FIX CID during FXO calls handling.
+
+--------------------------------------------------------------------------------
+  version 5.0.1.0  |  2009-08-03  |
+--------------------------------------------------------------------------------
+FIX External connection between EASY508xx boards.
+
+--------------------------------------------------------------------------------
+  version 5.0.0.4  |  2009-07-29  |
+--------------------------------------------------------------------------------
+FIX Solving problem with sending logs to external syslog. For every message
+    The Priority part (PRI) is added (according to RFC3164).
+
+--------------------------------------------------------------------------------
+  version 5.0.0.3  |  2009-07-29  |
+--------------------------------------------------------------------------------
+FIX FXO event handling.
+
+--------------------------------------------------------------------------------
+  version 5.0.0.2  |  2009-07-28  |
+--------------------------------------------------------------------------------
+FIX Reduce function complexity (acording to Klocwork report).
+
+--------------------------------------------------------------------------------
+  version 5.0.0.1  |  2009-07-27  |
+--------------------------------------------------------------------------------
+FIX Log redirection for internal syslog.
+
+--------------------------------------------------------------------------------
+  version 5.0.0.0  |  2009-07-24  |
+--------------------------------------------------------------------------------
+CHG Compiler flag upadte for fax/modem, instead of --enable-vbd two separate
+    flags will be used:
+    --enable-fax-modem - transparent fax/modem support.
+    --enable-fax-t38 - t38 support and transparent fax/modem support.
+CHG Merge with supervip stream - CHANGELOG and NEWS files merge, common version
+    number for svip and vinetic_1_2.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.14 |  2009-07-23  |
+--------------------------------------------------------------------------------
+CHG Default tapidemo settings change - CID is by default on,
+    VAD is by default off.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.13 |  2009-07-22  |
+--------------------------------------------------------------------------------
+CHG Merge with supervip stream - files in m4 directory added.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.12 |  2009-07-21  |
+--------------------------------------------------------------------------------
+CHG Merge with supervip stream - tapidemo 4.1.17.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.11 |  2009-07-20  |
+--------------------------------------------------------------------------------
+CHG Merge with supervip stream.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.10 |  2009-07-08  |
+--------------------------------------------------------------------------------
+NEW Support for terididian FXO on EASY50712_V3, new --enable-boardname option:
+    EASY50712_V3.
+CHG BBD and firmware bin/*.c files for DUSLIC-XT update.
+FIX Compilator fault caused by -funit-at-a-time flag for DUSLIC-XT with
+    usage of BBD and firmware from bin/*.c files.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.9  |  2009-07-02  |
+--------------------------------------------------------------------------------
+FIX Workaround which fix problem with first external connection on EASY508xx.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.8  |  2009-07-01  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.7  |  2009-06-29  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.6  |  2009-06-26  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.5  |  2009-06-25  |
+--------------------------------------------------------------------------------
+NEW Registration for FXO devices.
+FIX Fix errors reported by Klocwork.
+NEW DTMF codes availability logs.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.4  |  2009-06-24  |
+--------------------------------------------------------------------------------
+FIX Improvment log redirection.
+CHG Change misleading names in COMM_MSG_t.
+CHG merge with supervip stream.
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.3  |  2009-06-22  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.2  |  2009-06-22  |
+--------------------------------------------------------------------------------
+CHG Improvment log redirection. Add support for TAPI4.
+
+--------------------------------------------------------------------------------
+  version 1.5.1.1  |  2009-06-19  |
+--------------------------------------------------------------------------------
+
+CHG Fix bug in function checkHeader() in configure.in
+
+--------------------------------------------------------------------------------
+  version 1.5.1.0  |  2009-06-18  |
+--------------------------------------------------------------------------------
+
+CHG !IMORTANT! Bitfield event handling support removed - also removed
+    event_handling_bitfield.* files. !IMORTANT!
+
+NEW PCM settings for duslic fxo and board easy50510
+CHG State names enum numeration changed.
+CHG for compilation --enable-boardname=EASY508XX is now used instead of
+    --enable-boardname=EASY50812, also file name is changed
+FIX minor changes to fax/modem handling
+FIX TAPIDEMO_StateMachine() improvement.
+FIX Compilation of tapidemo for SVIP due to FAX/Modem changes.
+
+--------------------------------------------------------------------------------
+  version 4.1.17    |  2009-06-16 |
+--------------------------------------------------------------------------------
+FIX Voice connections are now built using RTP streams, both for Master/Slave
+    calls, as well as Slave/Slave calls if tapidemo is started with the '-ql'
+    option.
+
+--------------------------------------------------------------------------------
+  version 1.5.0.12  |  2009-05-25 |                  TAPI 3.10.0 release
+--------------------------------------------------------------------------------
+NEW Fax T.38 stack support (curerntly only AR9 supported)
+
+--------------------------------------------------------------------------------
+  version 1.5.0.11  |  2009-05-21 |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.10  |  2009-05-20 |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.9   |  2009-05-19  |
+--------------------------------------------------------------------------------
+FIX QoS call termination during TAPIDEMO_ClearPhone()
+
+--------------------------------------------------------------------------------
+  version 1.5.0.8   |  2009-05-15  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.7   |  2009-05-12  |
+--------------------------------------------------------------------------------
+FIX PCM timeslots traces on call end
+
+--------------------------------------------------------------------------------
+  version 1.5.0.6   |  2009-05-08  |                  TAPI 3.10 RC1
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.5   |  2009-05-08  |
+--------------------------------------------------------------------------------
+FIX TAPIDEMO_ClearPhone() improvement
+
+--------------------------------------------------------------------------------
+  version 1.5.0.4   |  2009-05-06  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.3   |  2009-05-04  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.2   |  2009-05-04  |
+--------------------------------------------------------------------------------
+FIX Initialization for XT16
+FIX Compilation errors for XT16
+CHG Added macro for playing CPT (call progress tones) that checks if ioctl()
+    was successfully called
+
+--------------------------------------------------------------------------------
+  version 1.5.0.1   |  2009-04-29  |
+--------------------------------------------------------------------------------
+FIX Fix errors reported by Klocwork
+
+--------------------------------------------------------------------------------
+  version 1.5.0.0   |  2009-04-20  |
+--------------------------------------------------------------------------------
+CHG version changed
+
+--------------------------------------------------------------------------------
+  version 1.0.8.1   |  2009-04-10  |
+--------------------------------------------------------------------------------
+NEW --nolec option to disable LEC.
+CHG DTMF feature enable/disable LEC on PCM was removed.
+
+--------------------------------------------------------------------------------
+  version 1.0.8.0   |  2009-04-08  |
+--------------------------------------------------------------------------------
+CHG Improvement of tapidemo state machine.
+NEW Dynamical timeslot allocation.
+NEW External Voip connections between board from stream vinetic and svip are
+    possible.
+
+--------------------------------------------------------------------------------
+  version 1.0.7.12  |  2009-04-03  |
+--------------------------------------------------------------------------------
+FIX Sending CID through FXO needed change of gain settings
+
+--------------------------------------------------------------------------------
+  version 1.0.7.11  |  2009-04-01  |
+--------------------------------------------------------------------------------
+NEW LEC enable on PCM for FXO calls (only teridian).
+NEW Set volume on teridian FXO.
+NEW DTMF feature enable/disable LEC on PCM (*83xx - enable. *84xx - disable)
+    xx - PCM channel number
+
+--------------------------------------------------------------------------------
+  version 1.0.7.10  |  2009-03-30  |
+--------------------------------------------------------------------------------
+NEW QoS: drv_tapi_qos_io.h file check in configure.in
+
+--------------------------------------------------------------------------------
+  version 1.0.7.9   |  2009-03-27  |
+--------------------------------------------------------------------------------
+CHG Documentation update
+
+--------------------------------------------------------------------------------
+  version 1.0.7.8   |  2009-03-19  |
+--------------------------------------------------------------------------------
+FIX PCM_EndConnection() returned IFX_SUCCESS when not PCM call.
+
+--------------------------------------------------------------------------------
+  version 1.0.7.7   |  2009-03-18  |
+--------------------------------------------------------------------------------
+FIX Unmapping default.
+
+--------------------------------------------------------------------------------
+  version 1.0.7.6   |  2009-03-06  |
+--------------------------------------------------------------------------------
+NEW BBD file for Teridian FXO is read from file system
+
+--------------------------------------------------------------------------------
+  version 1.0.7.5   |  2009-03-06  |
+--------------------------------------------------------------------------------
+NEW Device specific get lest error functions.
+FIX Compilation with VBD flag.
+FIX FXO call termination.
+FIX Tapidemo crash when CID used during FXO call.
+
+--------------------------------------------------------------------------------
+  version 1.0.7.4   |  2009-02-26  |
+--------------------------------------------------------------------------------
+NEW DxT: searching drv_dxt when drv_duslic_xt is missing.
+FIX Representation of dialed digits in tapidemo traces.
+FIX DxT initialization - initialization of /dev/dxt20.
+
+--------------------------------------------------------------------------------
+  version 1.0.7.3   |  2009-02-19  |
+--------------------------------------------------------------------------------
+FIX Added PCM configuration for Easy3201 board.
+FIX Easy3201 board by default uses local loop.
+
+--------------------------------------------------------------------------------
+  version 4.1.16    |  2009-02-19 |
+--------------------------------------------------------------------------------
+FIX "Dummy" PCM activation for xT-16 removed (cause - FW enhancement).
+
+--------------------------------------------------------------------------------
+  version 1.0.7.2   |  2009-02-17  |
+--------------------------------------------------------------------------------
+FIX Remove outdated enum - IFX_TAPI_LINE_HOOK_STATUS_OFFHOOK.
+
+--------------------------------------------------------------------------------
+  version 1.0.7.1   |  2009-02-17  |
+--------------------------------------------------------------------------------
+FIX FXO timeout increased from 2s to 3s (time between ring stop and ring start
+    on FXO must be less than 3s).
+FIX Removed checking of PCM activation (caused delay during FXO calls).
+
+--------------------------------------------------------------------------------
+  version 1.0.7.0   |  2009-02-13  |
+--------------------------------------------------------------------------------
+CHG Tapidemo initialization traces.
+FIX FXO calls.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.16  |  2009-02-10  |
+--------------------------------------------------------------------------------
+FIX Deleted error trace that was printed without error.
+
+---------------------------------------------------------------------------------
+  version 1.0.6.15  |  2009-02-10  |
+--------------------------------------------------------------------------------
+FIX initialization od EASY3201 with extension board.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.14  |  2009-02-09  |
+--------------------------------------------------------------------------------
+CHG Workaround removed when switching NB-WB on DxT.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.13  |  2009-02-09  |
+--------------------------------------------------------------------------------
+FIX Compilation for Duslic-XT.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.12  |  2009-02-09  |
+--------------------------------------------------------------------------------
+FIX Change dowload file according to .tapidemorc file was done twice when using
+    extension board.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.11  |  2009-02-06  |
+--------------------------------------------------------------------------------
+CHG FXO traces improvement
+NEW New name for Teridian devices '/dev/ter<number>'
+
+--------------------------------------------------------------------------------
+  version 1.0.6.10  |  2009-02-06  |
+--------------------------------------------------------------------------------
+FIX Event handling when Teridian73M1866 is used
+
+--------------------------------------------------------------------------------
+  version 1.0.6.9   |  2009-02-06  |
+--------------------------------------------------------------------------------
+NEW Debug messages for event handling
+NEW Workaround to not use DuSLIC FXO on EASY50712 - parameter '-g'
+
+--------------------------------------------------------------------------------
+  version 1.0.6.8   |  2009-02-05  |
+--------------------------------------------------------------------------------
+FIX State machine when used extension board which does not have control device.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.7   |  2009-02-05  |
+--------------------------------------------------------------------------------
+FIX Teridian reset.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.6   |  2009-02-05  |
+--------------------------------------------------------------------------------
+FIX Teridian reset.
+CHG the name of the board (file) board_easy1111 changed to board_teridian73M1866.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.5   |  2009-02-04  |
+--------------------------------------------------------------------------------
+NEW Added board combination to support extension board with Teridian FXO.
+    Support for EASY50712, EASY50812 and EASY80800.
+NEW Added board and device registration.
+CHG Removed workaround for Teridian FXO (added in 1.0.6.3 version).
+
+--------------------------------------------------------------------------------
+  version 1.0.6.4   |  2009-02-04  |
+--------------------------------------------------------------------------------
+NEW Configure VAD with cmd line - use option --vad with argument(check tapidemo
+    help for more info).
+NEW Configure VAD with DTMF code *202x, where x is VAD setting.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.3   |  2009-02-03  |
+--------------------------------------------------------------------------------
+FIX Workaround for Teridian FXO - only one fd is used.
+NEW Changing to WideBand during LOCAL_PCM_CALL for Duslic-XT with DTMF code
+    *9011 - change to WideBand, *9010 - Change to NarrowBand.
+NEW PCM Interface configured as SLAVE for Teridian.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.2   |  2009-01-29  |
+--------------------------------------------------------------------------------
+CHG Function to reset Teridian @ EASY50812 (AR9) is not used. Reset is done by
+    drivers - IFX_TAPI_CH_INIT
+NEW Detection of Teridian drivers in configure.in - 'FXO' flag is set when
+    drivers are present.
+
+--------------------------------------------------------------------------------
+  version 1.0.6.1   |  2009-01-27  |
+--------------------------------------------------------------------------------
+NEW Added device list.
+CHG Files device_ar9.*, device_danube.*, device_vinax.* replaced by
+    device_vmmc.*
+CHG Removed file 73m1966.h
+FIX EASY3201 (DxT) initialization.
+
+--------------------------------------------------------------------------------
+  version 4.1.15    |  2009-01-27 |
+--------------------------------------------------------------------------------
+CHG Cope with variable count of SLIC channels
+FIX WLEC configuration for PCM (wrong ioctl was used).
+FIX "optarg" variable replaced with "ifx_optarg" (needed for VxWorks 6.6
+    bringup).
+FIX Number of available PCM timeslots increased to 64 (enables 2 xT-16 with a
+    --with-system=XT16 configuration).
+
+--------------------------------------------------------------------------------
+  version 1.0.6.0   |  2009-01-20  |
+--------------------------------------------------------------------------------
+FIX Conference with QoS (KPI2UDP).
+FIX Conference - reset internal counter if '#' is dialed next time.
+NEW Added trace (NORMAL level) for starting and stopping the QoS.
+
+--------------------------------------------------------------------------------
+  version 1.0.5.0   |  2009-01-15  |
+--------------------------------------------------------------------------------
+no changes - just version adaption
+
+--------------------------------------------------------------------------------
+  version 1.0.4.5   |  2009-01-15  |
+--------------------------------------------------------------------------------
+FIX Wrong port number when making conference with qos externall call.
+
+--------------------------------------------------------------------------------
+  version 1.0.4.4   |  2009-01-13  |
+--------------------------------------------------------------------------------
+NEW Reading downloads path from file (more info in README)
+
+--------------------------------------------------------------------------------
+  version 1.0.4.3   |  2009-01-12  |
+--------------------------------------------------------------------------------
+FIX distcheck
+NEW Support for FXO Teridian on the Extension board. Temp. name of the board's
+    file is board_easy1111. GPIO port and pin must be defined. Supported boards:
+    EASY50712 and EASY50812.
+
+--------------------------------------------------------------------------------
+  version 1.0.4.2   |  2009-01-09  |
+--------------------------------------------------------------------------------
+NEW Initialization improvement
+NEW Teridian FXO support
+
+--------------------------------------------------------------------------------
+  version 1.0.4.1   |  2008-12-xx  |
+--------------------------------------------------------------------------------
+FIX autoconf version requirements
+
+--------------------------------------------------------------------------------
+  version 1.0.4.1   |  2008-12-19  |
+--------------------------------------------------------------------------------
+NEW Full IP dialing for external voip calls.
+
+--------------------------------------------------------------------------------
+  version 1.0.4.0   |  2008-12-19  |                  TAPI 3.8.2 release
+--------------------------------------------------------------------------------
+NEW set socket priority for call setup packets to 4
+NEW set IP TOS field to 0x68 for call setup packets
+CHG rename NEW to CHANGELOG
+
+--------------------------------------------------------------------------------
+  version 1.0.3.12  |  2008-12-04  |                  internal release
+--------------------------------------------------------------------------------
+FIX bypassing local IP address retrieve process if option -i is given
+
+--------------------------------------------------------------------------------
+  version 1.0.3.11  |  2008-11-27  |                  internal release
+--------------------------------------------------------------------------------
+FIX Fix problem with board combination which occured after daemon
+    implementation
+
+--------------------------------------------------------------------------------
+  version 1.0.3.10  |  2008-11-25  |                  internal release
+--------------------------------------------------------------------------------
+CHG External connection with QOS feature: -q (remove letter e)
+CHG Local UDP feature: -ql
+
+--------------------------------------------------------------------------------
+  version 1.0.3.9  |  2008-11-21  |                  internal release
+--------------------------------------------------------------------------------
+FIX Standby mode after hook-on
+
+--------------------------------------------------------------------------------
+  version 1.0.3.8  |  2008-11-20  |                  internal release
+--------------------------------------------------------------------------------
+FIX Fix problem with compilation Tapidemo for board Easy3332
+
+--------------------------------------------------------------------------------
+  version 1.0.3.7  |  2008-11-14  |                  internal release
+--------------------------------------------------------------------------------
+NEW Tapidemo can work as a daemon with logs redirection to file or syslog
+
+--------------------------------------------------------------------------------
+  version 4.1.14    |  2008-11-14  |                  internal release
+--------------------------------------------------------------------------------
+NEW Analog line calibration added for xT-16 and SVIP.
+
+--------------------------------------------------------------------------------
+  version 4.1.13    |  2008-11-11  |                  internal release
+--------------------------------------------------------------------------------
+FIX Not working "busy tone" on 16 channel on xT-16.
+FIX If on channel X terminate "US_RINGBACK" state by hookon event. No
+possibility to start tones again on that channel without tapidemo restarting on
+xT-16.
+NEW CID added to xT-16.
+
+--------------------------------------------------------------------------------
+  version 1.0.3.6  |  2008-10-31  |                  internal release
+--------------------------------------------------------------------------------
+FIX Jitter buffer printout feature - data channel and phone number printout
+
+--------------------------------------------------------------------------------
+  version 1.0.3.5  |  2008-10-30  |                  internal release
+--------------------------------------------------------------------------------
+NEW Jitter buffer printout feature (*81xx - printout, *82xx - reset)
+
+--------------------------------------------------------------------------------
+  version 1.0.3.4  |  2008-10-30  |                  internal release
+--------------------------------------------------------------------------------
+FIX QOS feature for local calls
+
+--------------------------------------------------------------------------------
+  version 1.0.3.3  |  2008-10-15  |                  internal release
+--------------------------------------------------------------------------------
+NEW powersawing - LEC and DTMF detection used only when if necessary
+CHG removed configure option --enable-linux26
+
+--------------------------------------------------------------------------------
+  version 4.1.12    |  2008-10-13  |                  internal release
+--------------------------------------------------------------------------------
+FIX Conference resource managment.
+--------------------------------------------------------------------------------
+  version 4.1.--    |  2008-  -    |                  internal release
+--------------------------------------------------------------------------------
+NEW Tone generation and detection added to xT-16.
+
+--------------------------------------------------------------------------------
+  version 1.0.3.2  |  2008-09-26  |                  internal release
+--------------------------------------------------------------------------------
+FIX QOS feature for extension board
+FIX External connection for extension board
+FIX Error on hook on for extension board
+
+--------------------------------------------------------------------------------
+  version 4.1.11    |  2008-09-24  |                  internal release
+--------------------------------------------------------------------------------
+FIX CID message sending error.
+
+--------------------------------------------------------------------------------
+  version 1.0.3.1  |  2008-09-23  |                  internal release
+--------------------------------------------------------------------------------
+FIX Using CID.
+
+--------------------------------------------------------------------------------
+  version 1.0.3.0  |  2008-xx-xx  |                  internal release
+--------------------------------------------------------------------------------
+FIX GPIO/port driver interface handling
+
+--------------------------------------------------------------------------------
+  version 4.1.10    |  2008-09-16  |                  internal release
+--------------------------------------------------------------------------------
+NEW --with-vxt parameter added to EASY336. SVIP and XT16 work together on a
+    single board.
+
+--------------------------------------------------------------------------------
+  version 1.0.2.9  |  2008-09-15  |                  TAPI 3.8.0/AR9
+--------------------------------------------------------------------------------
+NEW remove --prefix option from distcheck configure options to avoid removal
+    of installed binaries on distcheck
+FIX Traces for FXO.
+
+--------------------------------------------------------------------------------
+  version 4.1.9    |  2008-09-12  |                  internal release
+--------------------------------------------------------------------------------
+FIX External calls between phones on one board for svip.
+
+--------------------------------------------------------------------------------
+  version 4.1.9    |  2008-09-02  |                  internal release
+--------------------------------------------------------------------------------
+FIX FXO traces.
+
+--------------------------------------------------------------------------------
+  version 1.0.2.8  |  2008-08-27  |                  internal release
+--------------------------------------------------------------------------------
+CHG UDP port number for QOS feature (alias UDP redirect, alias KPI2UDP)
+
+--------------------------------------------------------------------------------
+  version 1.0.2.7  |  2008-08-26  |                  internal release
+--------------------------------------------------------------------------------
+FIX Compilation Tapidemo without flag --enable-qos for kernel 2.6
+
+--------------------------------------------------------------------------------
+  version 1.0.2.6  |  2008-08-25  |                  internal release
+--------------------------------------------------------------------------------
+FIX External connection with QOS feature (alias UDP redirect, alias KPI2UDP)
+FIX No codec available problem on local bulk call with 8 calls simultaneously.
+
+--------------------------------------------------------------------------------
+  version 1.0.2.5  |  2008-08-22  |                  internal release
+--------------------------------------------------------------------------------
+FIX DuSLIC reset problem
+FIX FXO connection
+NEW added flag --enable-linux-26 for configuration
+
+--------------------------------------------------------------------------------
+  version 1.0.2.4  |  2008-08-19  |                  internal release
+--------------------------------------------------------------------------------
+FIX VxWorks compilation for EASY336
+FIX Linux compilation for XT
+FIX Traces for debug level normal
+
+--------------------------------------------------------------------------------
+  version 4.1.6    |  2008-08-14  |                  internal release
+--------------------------------------------------------------------------------
+FIX XT16 compilation
+
+--------------------------------------------------------------------------------
+  version 1.0.2.3  |  2008-08-14  |                  internal release
+
+--------------------------------------------------------------------------------
+
+NEW Merge Tapidemo 1.0.2.2 for Vinetic with Tapidemo 4.1.5 for SVIP
+
+--------------------------------------------------------------------------------
+  version 4.1.4    |  2008-08-12  |
+--------------------------------------------------------------------------------
+FIX Used wrong BBD file for SVIP
+FIX Local and remote calls (including conference) to/from and between SVIP
+    extensioin boards fixed.
+--------------------------------------------------------------------------------
+  version 1.0.2.2  |  2008-07-29  |                  internal release
+--------------------------------------------------------------------------------
+NEW Add new options --enable-boardname=x to configure.in
+
+--------------------------------------------------------------------------------
+  version 4.1.3    |  2008-07-24  |
+--------------------------------------------------------------------------------
+CHG Printout for debug level normal.
+FIX Compilation for XT16.
+
+--------------------------------------------------------------------------------
+  version 1.0.2.1  |  2008-07-18  |                  internal release
+--------------------------------------------------------------------------------
+NEW Traces for encoder change, CID and fault events.
+--------------------------------------------------------------------------------
+  version 1.0.2.0  |  2008-07-08  |                  internal release
+--------------------------------------------------------------------------------
+CHG Change of printout for debug level normal.
+NEW Change of codecs during call.
+--------------------------------------------------------------------------------
+  version 1.0.1.4  |  2008-05-15  |                  internal release
+--------------------------------------------------------------------------------
+NEW Adaptation for AR9.
+--------------------------------------------------------------------------------
+  version 1.0.1.3  |  2008-05-09  |                  internal release
+--------------------------------------------------------------------------------
+FIX Conference for external voip calls and local calls improvement.
+FIX Code cleanup.
+
+--------------------------------------------------------------------------------
+  version 1.0.1.2  |  2008-05-07  |                  internal release
+--------------------------------------------------------------------------------
+FIX Compilation improvement
+
+--------------------------------------------------------------------------------
+  version 4.1.2    |  2008-05-05  |
+--------------------------------------------------------------------------------
+CHG Voice streaming adapted to NAT version 2.4
+
+--------------------------------------------------------------------------------
+  version 1.0.1.1  |  2008-04-28  |                  internal release
+--------------------------------------------------------------------------------
+FIX FXO improvement
+
+--------------------------------------------------------------------------------
+  version 1.0.1.0  |  2008-04-25  |                  internal release
+--------------------------------------------------------------------------------
+CHG Increase version of Tapidemo
+
+--------------------------------------------------------------------------------
+  version 1.0.0.4  |  2008-04-24  |                  internal release
+--------------------------------------------------------------------------------
+FIX FXO improvement - fix problem with mapping and unmapping
+
+--------------------------------------------------------------------------------
+  version 1.0.0.3  |  2008-04-22  |                  internal release
+--------------------------------------------------------------------------------
+FIX problem resulting of version 1.0.0.2 for non FXO targets
+
+--------------------------------------------------------------------------------
+  version 1.0.0.2  |  2008-04-22  |                  internal release
+--------------------------------------------------------------------------------
+FIX reset fFirstStopRingEvent=1 on CleanPhone
+
+--------------------------------------------------------------------------------
+  version 1.0.0.1  |  2008-04-17  |                  internal release
+--------------------------------------------------------------------------------
+FIX FXO improvement. Busy Tone is detected during FXO call by CPTD
+
+--------------------------------------------------------------------------------
+  version 1.0.0.0  |  2008-04-14  |                  internal release
+--------------------------------------------------------------------------------
+FIX FXO improvement.
+
+--------------------------------------------------------------------------------
+  version 0.9.9.4  |  2008-03-31  |                  internal release
+--------------------------------------------------------------------------------
+FIX Voice in calls between Danube and 2CPE extension board ports was only
+    unidirectional.
+FIX UDP sockets for data channels on extension boards where stored in incorrect
+    location and so not usable. So IP calls to extension boards did not work.
+
+--------------------------------------------------------------------------------
+  version 0.9.9.3  |  2008-03-25  |                  internal release
+--------------------------------------------------------------------------------
+NEW Add header file drv_config.h with all flags which are set during compilation
+CHG Remove all -D flags from configure.in
+CHG During compilation configure.in checks if all require driver's directories/symbolic links
+    exist. If not script tries to find correct driver and either create symbolic link to it
+    or prints possible path.
+
+--------------------------------------------------------------------------------
+  version 0.9.9.2  |  2008-02-19  |                  internal release
+--------------------------------------------------------------------------------
+NEW Modem signaling support.
+
+--------------------------------------------------------------------------------
+  version 0.9.9.1  |  2008-01-31  |                  internal release
+--------------------------------------------------------------------------------
+NEW Fax signaling support.
+CHG More codecs added to Common_ConfigureTAPI().
+CHG Added payload types for more codecs to payload types tables.
+
+--------------------------------------------------------------------------------
+  version 0.9.9.0  |  2008-01-23  |                  internal release
+--------------------------------------------------------------------------------
+NEW Support for CID RX FSK over FXO on the DANUBE board was added.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.9  |  2007-11-30  |                  internal release
+--------------------------------------------------------------------------------
+CHG Cleanup was improved.
+CHG Timeslot handling was improved, cleaned and moved to PCM module.
+CHG Again working on VxWorks.
+NEW Timeslots are now calculated with multiplier that depends on the
+    configuration of the Wideband/Narrowband mode and different PCM
+    resources (A-law, Linear 16 bit, ...).
+CHG Phone number is now used to get right timeslot, or called phone, instead of
+    using phone channel.
+CHG Timeslot pairs array is now global for tapidemo application.
+FIX PCM connection between some channels was not working correctly.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.8  |  2007-11-27  |                  internal release
+--------------------------------------------------------------------------------
+CHG In case of DXT mapping of the phone(alm) and pcm channels is not perform,
+    because its already done in HW.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.7  |  2007-10-17  |                  internal release
+--------------------------------------------------------------------------------
+FIX IP addressdetection for Danube Linux 2.6 BSP
+CHG '-k 0' turns conferencing of and using coders for local connection
+FIX 'STAR' is now restarting FEATURE selection
+CHG Display dialing sequence at start.
+FIX Wideband can be configured also over external connection.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.6  |  2007-10-16  |                  internal release
+--------------------------------------------------------------------------------
+CHG default to DTMF suppression (was inband DTMF transmission before)
+FIX -n command line option
+
+--------------------------------------------------------------------------------
+  version 0.9.8.5  |  2007-10-10  |                  internal release
+--------------------------------------------------------------------------------
+CHG default PT types synchronized with drv_tapi
+
+--------------------------------------------------------------------------------
+  version 0.9.8.4  |  2007-10-03  |                  internal release
+--------------------------------------------------------------------------------
+FIX Better memory allocation error handling.
+CHG Cleanup sequence was improved.
+NEW Support for WLEC added.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.3  |  2007-09-17  |                  internal release
+--------------------------------------------------------------------------------
+NEW Can switch between wideband, narrowband by using dial sequence
+    '* 2000' (narrowband) or '* 2001' (wideband) There are more dial sequences
+    available on WIKI.
+NEW Abacus support
+NEW Added default DXT FW and BBD files, which are used when tapidemo is started
+    without filesystem support. This happens when we are working on VxWorks.
+
+Code cleanup and deeply testing required.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.2  |  2007-08-08  |                  internal release
+--------------------------------------------------------------------------------
+CHG Cleanup and improving compiling.
+CHG GPIO port handling for the reference board 2CPE in the file board_vinetic.c
+    was moved to the file board_danube.c
+NEW Support for VINAX board added.
+FIX FXO connection was not completely released in case of onhook.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.1  |  2007-07-16  |                  internal release
+--------------------------------------------------------------------------------
+CHG Removed #if 0 stuff
+CHG GPIO port handling was moved from duslic_fxo.c to board_danube.c
+CHG Documentation updated, organizated
+CHG CID is also supported under local PCM calls
+NEW PCM initialization (set as master) over GPIO port is added. From
+    the BSP version 3.0.5.4.2.2 it must be done by the application.
+
+--------------------------------------------------------------------------------
+  version 0.9.8.0  |  2007-07-04  |                  DxT System Package 1.0
+--------------------------------------------------------------------------------
+NEW New error handling added, but its not used yet
+CHG Modification of event handling according to the latest changes
+FIX Loading of the FW or BBD files
+FIX Using the 'IFX_TAPI_TONE_STOP' ioctl command to stop ringing on the phone
+FIX tapidemo initializes DxT PCM i/f now properly as slave
+
+--------------------------------------------------------------------------------
+  version 0.9.7.2  |  2007-06-15  |                         beta release
+--------------------------------------------------------------------------------
+FIX On a local call via PCM the PCM interface was not correctly deactivated
+    (no second call could be established).
+
+--------------------------------------------------------------------------------
+  version 0.9.7.1  |  2007-05-31  |                         beta release
+--------------------------------------------------------------------------------
+CHG Call administration in case of local PCM call was fixed.
+NEW Support for reference Duslic-XT added (ringing, event detection working)
+
+TODO: PCM Streaming not tested yet (stable reference DXT board)
+
+--------------------------------------------------------------------------------
+  version 0.9.7.0  |  2007-05-03  |                         beta release
+--------------------------------------------------------------------------------
+NEW Support for Duslic-XT added.
+
+--------------------------------------------------------------------------------
+  version 0.9.6.4  |  2007-03-14  |                         beta release
+--------------------------------------------------------------------------------
+NEW Flag to specify path to kernel sources can be either --enable-sysincl (old
+    one) OR --enable-kernelincl (new one)
+NEW Display trace when mailbox congestion in downstream direction occur and
+    packet is dropped (event IFX_TAPI_EVENT_INFO_MBX_CONGESTION received)
+
+--------------------------------------------------------------------------------
+  version 0.9.6.3  |  2007-02-26  |                         beta release
+--------------------------------------------------------------------------------
+NEW usage of set reset/clear reset of DuSLIC over GPIO when FXO is used
+FIX bug fix, when start tapidemo without any arguments
+
+--------------------------------------------------------------------------------
+  version 0.9.6.2  |  2007-01-12  |                         beta release
+--------------------------------------------------------------------------------
+NEW major rework to support multiple boards
+CHG bug fixing (ending call connections, argument parsing, ...)
+NEW outgoing FXO calls working
+
+    To use FXO start tapidemo with option "-x". To test FXO connection first
+    dial "05<1>" (<1> - in future this will be FXO channel), FXO connection
+    will be established and dialtone will be heard again. Now phones can be
+    called with normal call sequences.
+
+Known issues:
+-------------
+- outgoing FXO call, can dial out only if there is no dialtone after FXO
+  connection was established
+- incoming FXO call, called party hears noise when picking up during ring burst
+
+--------------------------------------------------------------------------------
+  version 0.9.6.1  |  2007-01-08  |                         beta release
+--------------------------------------------------------------------------------
+NEW major rework to support multiple boards
+CHG DANUBE board - 2CPE board PCM connection tested and was working
+CHG basic test for conference with 2 external was working
+NEW incoming FXO call working
+
+    To use FXO start tapidemo with option "-x", then on 2CPE board call channel
+    which is connected over FXO to DANUBE board.
+
+Known issues:
+-------------
+- outgoing FXO calls not implemented
+- incoming FXO call, called party hears noise when picking up during ring burst
+- on Danube option "-b 2" is required on some boards, on others it starts
+  properly with default values, in analysis
+
+
+--------------------------------------------------------------------------------
+  version 0.9.6.0  |  2007-01-03  |                         beta release
+--------------------------------------------------------------------------------
+NEW major rework to support multiple boards
+CHG basic test for conference with 1 local and 1 external was working
+NEW retrieve IP address on DANUBE board
+NEW incoming FXO call working
+
+    To use FXO start tapidemo with option "-x", then on 2CPE board call channel
+    which is connected over FXO to DANUBE board.
+
+Known issues:
+-------------
+- outgoing FXO calls not implemented
+- conferencing with 2 external parties not connected properly together to all
+  parties
+- incoming FXO call, called party hears noise when picking up during ring burst
+- on Danube option "-b 2" is required on some boards, on others it starts
+  properly with default values, in analysis
+
+
+--------------------------------------------------------------------------------
+  version 0.9.5.2  |  2006-12-20  |                         beta release
+--------------------------------------------------------------------------------
+CHG PCM working (tested vip <--> cpe)
+CHG VIP working
+CHG Old stream support working
+
+--------------------------------------------------------------------------------
+  version 0.9.5.1  |  2006-12-07  |                         beta release
+--------------------------------------------------------------------------------
+NEW Major rework to support multiple boards.
+NEW Command line argument parsing in VxWorks.
+NEW Signal handler for CTL+C combination, to end program correctly.
+FIX Conference support, testing
+FIX PCM support, testing
+FIX CID support, testing.
+FIX 4VIP support, testing.
+FIX Code cleanup, update documentation, doxygen support.
+
+--------------------------------------------------------------------------------
+  version 0.9.3.0  |  2006-11-29  |                         beta release
+--------------------------------------------------------------------------------
+NEW FXO support.
+
+
+--------------------------------------------------------------------------------
+  version 0.9.1.2  |  2006-10-06  |                         beta release
+--------------------------------------------------------------------------------
+NEW set ILBC 13.3 kBit/s payload type
+CHG use pBBDbuf pointers in TAPI_CH_Init
+
+--------------------------------------------------------------------------------
+  version 0.9.1.1  |  2006-09-28  |                         beta release
+--------------------------------------------------------------------------------
+FIX CID support on DANUBE (one linefeed to standby removed).
+CHG Init (base address, irq, ...) is now done in BSP for DANUBE.
+
+--------------------------------------------------------------------------------
+  version 0.9.1.0  |  2006-08-17  |                         beta release
+--------------------------------------------------------------------------------
+CHG Improved loading of FW files.
+FIX Warning messages were cleared.
+
+--------------------------------------------------------------------------------
+  version 0.9.0.6  |  2006-07-28  |                         beta release
+--------------------------------------------------------------------------------
+CHG No remove of default mapping (Data/Phone Channels) required anymore
+    Attention - requires latest TAPI v3 version.
+
+--------------------------------------------------------------------------------
+  version 0.9.0.5  |  2006-07-20  |                         beta release
+--------------------------------------------------------------------------------
+NEW Calling boards on different networks added.
+FIX Ringing should not start, when CID is used.
+CHG Displaying of help usage improved.
+FIX Mixed channel mapping usage.
+
+--------------------------------------------------------------------------------
+  version 0.9.0.4  |  2006-05-05  |                         beta release
+--------------------------------------------------------------------------------
+CHG Bug calling ip address like 230 - solved
+CHG Bug calling other phone and when ringing on other phone we go onhook. The
+    other phone was still ringing - solved
+NEW StartCodec() added setting encoder type and packetisation time
+NEW At start LEC, Payload Type Table and Jitter buffer are configured.
+
+--------------------------------------------------------------------------------
+  version 0.9.0.3  |  2006-04-06  |                         beta release
+--------------------------------------------------------------------------------
+CHG Event handling is now support either for bitfield events (stream ver 1.1 )
+    or for messages (stream ver 1.2)
+NEW PCM support added (still missing for conferencing)
+NEW Feature AGC added
+CHG Code cleanup
+
+--------------------------------------------------------------------------------
+  version 0.8.0.5  |  2006-03-14  |                         beta release
+--------------------------------------------------------------------------------
+CHG CID was adopted to new version and is working now
+NEW Conferencing added
+NEW Working on VxWorks
+NEW Automatically retrieve ip address of board
+NEW Abstraction added
+CHG Code cleanup
+NEW At the moment working on easy3332 and easy334

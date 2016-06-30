@@ -1,0 +1,5 @@
+config FLTE_gpio_driver
+	tristate "FLTE gpio driver"
+	help
+	  This is a GPIO driver to register control the gpio lines.
+

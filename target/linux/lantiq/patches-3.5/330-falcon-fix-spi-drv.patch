@@ -1,0 +1,22 @@
+The queue handling of the spi core requires to call spi_finalize_current_message() from .transfer_one_message.
+Also make sure the core knows about the half-duplex restriction.
+
+--- a/drivers/spi/spi-falcon.c
++++ b/drivers/spi/spi-falcon.c
+@@ -397,7 +397,7 @@ static int falcon_sflash_xfer_one(struct
+ 	}
+ 
+ 	m->status = ret;
+-	m->complete(m->context);
++	spi_finalize_current_message(master);
+ 
+ 	return 0;
+ }
+@@ -423,6 +423,7 @@ static int __devinit falcon_sflash_probe
+ 
+ 	master->mode_bits = SPI_MODE_3;
+ 	master->num_chipselect = 1;
++	master->flags = SPI_MASTER_HALF_DUPLEX;
+ 	master->bus_num = -1;
+ 	master->setup = falcon_sflash_setup;
+ 	master->prepare_transfer_hardware = falcon_sflash_prepare_xfer;

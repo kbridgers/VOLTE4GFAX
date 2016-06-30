@@ -1,0 +1,61 @@
+#!/bin/sh /etc/rc.common
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+flush_previous_tunnels () {
+        setkey -F
+        setkey -FP
+}
+
+
+start_ipsec_tunnel () {
+        spmd -f /var/racoon2.conf >/dev/null
+        sleep 2
+        iked -f /var/racoon2.conf >/dev/null
+}
+
+create_ipsec_tunnel () {
+        flush_previous_tunnels
+}
+
+kill_ipsec_utility () {
+        killall spmd
+        #killing iked is not necessary as we already killed spmd
+}
+
+ipsec_tunnel_start () {
+        create_ipsec_tunnel
+        eval ipsec_count='$'ipsec_tunnel_Count
+        if [ $ipsec_count != "0" ];then
+            start_ipsec_tunnel
+        fi
+}
+
+ipsec_tunnel_stop () {
+        kill_ipsec_utility
+        flush_previous_tunnels
+}
+
+start () {
+                eval ipsec_count='$'ipsec_tunnel_Count
+                if [ $ipsec_count != "0" ];then
+                    kill_ipsec_utility
+                    flush_previous_tunnels
+                    ipsec_tunnel_start
+                fi
+}               
+stop () { 
+                    ipsec_tunnel_stop
+}            

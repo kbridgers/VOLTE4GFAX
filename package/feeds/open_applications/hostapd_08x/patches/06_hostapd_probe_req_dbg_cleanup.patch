@@ -1,0 +1,13 @@
+diff -Nur hostap-78debc7-patch_05/src/ap/drv_callbacks.c hostap-78debc7-patch_06/src/ap/drv_callbacks.c
+--- hostap-78debc7-patch_05/src/ap/drv_callbacks.c	2012-02-11 09:45:24.000000000 +0100
++++ hostap-78debc7-patch_06/src/ap/drv_callbacks.c	2013-02-14 10:53:51.003979000 +0100
+@@ -483,6 +483,9 @@
+ 			level = MSG_EXCESSIVE;
+ 	}
+ 
++	if (event == EVENT_RX_PROBE_REQ) {
++		level = MSG_MSGDUMP;
++	}
+ 	wpa_dbg(hapd->msg_ctx, level, "Event %s (%d) received",
+ 		event_to_string(event), event);
+ #endif /* CONFIG_NO_STDOUT_DEBUG */

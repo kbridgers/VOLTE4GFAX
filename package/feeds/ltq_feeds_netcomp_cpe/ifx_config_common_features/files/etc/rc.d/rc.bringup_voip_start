@@ -1,0 +1,95 @@
+#!/bin/sh
+
+# NOTE : VoIP service needs interface with valid ip address to run
+# in case of IP Bridge WAN, interface should be br0 (not actual WAN interface)
+# in case of IP Routed WAN, interface will be actual WAN interface
+
+# $1 : index {>= 0}, $2 : type {IP,PPP}
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+
+if [ "$CONFIG_FEATURE_IFX_VOIP" = "1" ]; then
+	if [ "$1" = "default" ]; then
+		SIP_IF="br0"
+		sipiface=$SIP_IF
+		WAN_IFNAME=$SIP_IF
+	else
+		if [ ! "$ENVLOADED" ]; then
+        		if [ -r /etc/rc.conf ]; then
+		                . /etc/rc.conf 2> /dev/null
+		                ENVLOADED="1"
+		        fi
+		fi
+
+		if [ "$2" = "ip" ]; then
+			sipiface=WANIP${1}
+			eval ipType='$'wanip_${1}_addrType
+			if [ "$ipType" != "0" ]; then
+			      . /etc/rc.d/get_wan_if $1 $2
+			else
+			      WAN_IFNAME="br0"
+			  fi
+		else
+			sipiface=WANPPP${1}
+			. /etc/rc.d/get_wan_if $1 $2
+		fi
+	fi
+
+	if [ "$SIP_IF" = "$sipiface" ]; then
+		PID="`cat /var/run/ifxsip.pid 2> /dev/null`"
+		if [ -z "$PID" ]; then
+			if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_DANUBE" -a $CONFIG_TARGET_LTQCPE_PLATFORM_DANUBE = "1" ]; then
+				echo 1 > /sys/class/leds/vdsl2_reset/brightness
+			fi
+
+			if [ "$CONFIG_IFX_CONFIG_CPU" = "XRX3XX" ]; then
+				# mem -s 0x1e100bb8 -w 0x00091d00 -u
+				# mem -s 0x1e100bb0 -w 0x8f000000 -u
+				# mem -s 0x1e100bb8 -w 0x00099c08 -u
+				if [ ! -f /sys/class/leds/COSIC_reset/ ] ; then
+					echo 1 > /sys/class/leds/COSIC_reset/brightness
+				fi
+			fi
+
+			export WAN="$WAN_IFNAME"
+			# for netdev budget 10
+			echo 10 > /proc/sys/net/core/netdev_budget
+			sleep 5
+    	PID="`cat /var/run/ifxsip.pid 2> /dev/null`"
+			#voip didnt started from some another interface within 5 sec sleep.
+    	if [ -z "$PID" ]; then
+				/usr/sbin/ifxsip &
+				echo $! > /var/run/ifxsip.pid
+				echo "Running VOIP on interface --- $WAN"	
+			#voip started from some another interface within 5 sec sleep.
+			else
+				ChangeVoipInterface="1"
+			fi
+		else
+			export WAN="$WAN_IFNAME"
+			ChangeVoipInterface="1"
+		fi
+		#change of voip interface required
+		if [ -n "$ChangeVoipInterface" ];then
+			Voipup="`ps|grep Fax`"
+			if [ -n "$Voipup" ];then
+				echo "Stopping VOIP for change of interface"
+				rm /tmp/sipip 2>/dev/null
+				sleep 1
+				kill -SIGUSR1 $PID >&- 2>&-
+				sleep 3
+				echo $WAN > /tmp/sipip
+				echo "Changing VOIP interface to --- $WAN"
+				kill -SIGUSR1 $PID >&- 2>&- 
+			else
+				/etc/rc.d/rc.restart_voip.sh &
+			fi
+		fi
+	fi
+fi

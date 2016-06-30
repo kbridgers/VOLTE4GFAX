@@ -1,0 +1,134 @@
+--- /dev/null
++++ b/include/linux/udp_redirect.h
+@@ -0,0 +1,30 @@
++#ifndef _UDP_REDIRECT_H
++#define _UDP_REDIRECT_H
++
++/* udp_redirect.h: Hook to receive packets directly from the network stack.
++ *
++ * Copyright (C) 2011  Lantiq Deutschland GmbH (www.lantiq.com)
++ */
++
++/* ============================= */
++/* Includes                      */
++/* ============================= */
++#ifndef _LINUX_TYPES_H
++#include <linux/types.h>
++#endif
++#include <linux/skbuff.h>
++
++
++/* ============================= */
++/* Definitions                   */
++/* ============================= */
++#define UDP_REDIRECT_MAGIC (void*)0x55445052L
++#define UDP_REDIRECT_LOC_MAGIC ((unsigned long)(UDP_REDIRECT_MAGIC) | 0x00010000L)
++#define UDP_REDIRECT_REM_MAGIC ((unsigned long)(UDP_REDIRECT_MAGIC) | 0x00020000L)
++
++/* ============================= */
++/* Global variable declaration   */
++/* ============================= */
++extern int (*udp_do_redirect_fn)(struct sock *sk, struct sk_buff *skb);
++
++#endif
+--- a/net/Kconfig
++++ b/net/Kconfig
+@@ -72,6 +72,12 @@ config INET
+ 
+ 	  Short answer: say Y.
+ 
++config LTQ_UDP_REDIRECT
++        bool "LTQ Kernel Packet Interface for UDP re-direction"
++        help
++          You can say Y here if you want to use hooks from kernel for
++          UDP re-direction (KPI2UDP redirection)
++
+ if INET
+ source "net/ipv4/Kconfig"
+ source "net/ipv6/Kconfig"
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -133,6 +133,12 @@
+ 
+ #include "net-sysfs.h"
+ 
++#if defined(CONFIG_LTQ_UDP_REDIRECT) || defined(CONFIG_LTQ_UDP_REDIRECT_MODULE)
++#include <net/udp.h>
++#include <linux/udp_redirect.h>
++#endif
++
++
+ /* Instead of increasing this, you should create a hash table. */
+ #define MAX_GRO_SKBS 8
+ 
+--- a/net/core/sock.c
++++ b/net/core/sock.c
+@@ -130,6 +130,11 @@
+ #include <net/tcp.h>
+ #endif
+ 
++#if defined(CONFIG_LTQ_UDP_REDIRECT) || defined(CONFIG_LTQ_UDP_REDIRECT_MODULE)
++#include <linux/udp_redirect.h>
++#endif
++
++
+ /*
+  * Each address family might have different locking rules, so we have
+  * one slock key per address family:
+@@ -295,6 +300,15 @@ int sock_queue_rcv_skb(struct sock *sk, 
+ 		goto out;
+ 	}
+ 
++        /* UDPREDIRECT */
++#if defined(CONFIG_LTQ_UDP_REDIRECT) || defined(CONFIG_LTQ_UDP_REDIRECT_MODULE)
++       if(udp_do_redirect_fn && sk->sk_user_data == UDP_REDIRECT_MAGIC) {
++               udp_do_redirect_fn(sk,skb);
++               kfree_skb(skb);
++               return 0;
++       }
++#endif
++
+ 	skb->dev = NULL;
+ 	skb_set_owner_r(skb, sk);
+ 
+--- a/net/ipv4/Makefile
++++ b/net/ipv4/Makefile
+@@ -13,6 +13,9 @@ obj-y     := route.o inetpeer.o protocol
+ 	     fib_frontend.o fib_semantics.o \
+ 	     inet_fragment.o
+ 
++ifneq ($(CONFIG_LTQ_UDP_REDIRECT),)
++obj-$(CONFIG_LTQ_UDP_REDIRECT) += udp_redirect_symb.o
++endif
+ obj-$(CONFIG_SYSCTL) += sysctl_net_ipv4.o
+ obj-$(CONFIG_IP_FIB_HASH) += fib_hash.o
+ obj-$(CONFIG_IP_FIB_TRIE) += fib_trie.o
+--- /dev/null
++++ b/net/ipv4/udp_redirect_symb.c
+@@ -0,0 +1,26 @@
++/* udp_redirect_symb.c: Hook to receive packets directly from the network stack.
++ *
++ * Copyright (C) 2011  Lantiq Deutschland GmbH (www.lantiq.com)
++ */
++
++#if defined(CONFIG_LTQ_UDP_REDIRECT) || defined(CONFIG_LTQ_UDP_REDIRECT_MODULE)
++/* ============================= */
++/* Includes                      */
++/* ============================= */
++#include <linux/module.h>
++#include <linux/udp_redirect.h>
++
++
++/* ============================= */
++/* Global variable definition    */
++/* ============================= */
++int (*udp_do_redirect_fn)(struct sock *sk, struct sk_buff *skb) = NULL;
++
++
++/* ============================= */
++/* Global function definition    */
++/* ============================= */
++
++EXPORT_SYMBOL(udp_do_redirect_fn);
++
++#endif /* CONFIG_LTQ_UDP_REDIRECT* */

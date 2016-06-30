@@ -1,0 +1,7 @@
+#!/bin/sh
+
+#stop() {
+	/etc/rc.d/killproc ripd
+#	/etc/rc.d/killproc zebra
+	#naptcfg --Servicesinit
+#}	

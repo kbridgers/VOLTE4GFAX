@@ -1,0 +1,48 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then
+	. /tmp/mtlk_init_platform.sh
+fi
+
+apIndex=$1
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+WPS_ON=`get_wps_on $apIndex $wlan`
+
+if [ "$WPS_ON" = "$NO" ]
+then
+	print2log DBG "wave_wlan_wps_trigger_pin_pairing: WPS disabled"
+	return
+fi
+
+Enrollee_PIN=$2
+Enrollee_mac=$3
+Enrollee_type=2
+
+
+NETWORK_TYPE=`host_api get $$ $apIndex network_type`
+
+if [ "$NETWORK_TYPE" = "$STA" ]
+then
+	echo "The button 'Connect' for PIN connection was activated" > /dev/console
+	if [ -z "$Enrollee_PIN" ]
+	then
+		Enrollee_PIN="12345670"
+		# writing PIN code to rc.conf
+		host_api set $$ $apIndex WPS_PIN $Enrollee_PIN
+		host_api commit $$
+		print2log INFO1 "wave_wlan_wps_trigger_pin_pairing.sh: updated WPS-PIN to $Enrollee_PIN"
+	fi
+	$ETC_PATH/mtlk_wps_cmd.sh get_conf_via_pin $apIndex $Enrollee_PIN
+else
+	echo "The button 'Connect' for PIN connection was activated for $wlan with PIN=$Enrollee_PIN" and MAC=$Enrollee_mac > /dev/console
+	# Save PIN and MAC of STA in temp files
+	echo "$Enrollee_PIN" > $WPS_PIN_TEMP_FILE
+	echo "$Enrollee_mac" > $WPS_MAC_TEMP_FILE
+	$ETC_PATH/mtlk_wps_cmd.sh conf_via_pin $apIndex $Enrollee_PIN $Enrollee_type $Enrollee_mac
+fi
+
+print2log DBG "wave_wlan_wps_trigget_pin done"

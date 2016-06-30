@@ -1,0 +1,16 @@
+#!/bin/sh
+if [ -r /etc/rc.conf ]; then
+       . /etc/rc.conf 2> /dev/null
+fi
+
+wan_idx=`cat /etc/rc.conf | grep "ifppp=\"${2}\"" | cut -d '_' -f 2`
+
+
+case "$1" in 
+      start)
+               . /etc/rc.d/create_and_run_dhcp6c_cfg start $2 $wan_idx "ppp"
+      ;;
+      stop)
+               . /etc/rc.d/create_and_run_dhcp6c_cfg stop $2 $wan_idx "ppp"
+      ;;
+esac   

@@ -1,0 +1,184 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+		CONFIGLOADED="1"
+fi
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+
+#$1 = 1 ; ADD
+#$1 = 0 ; DEL
+
+# Creating chain INPUT_INTF_CHECK
+#if [ $qm_enable -eq 1 ]; then
+
+if [ $1 -eq 1 -a $qm_AccelMngr -eq 1 ]; then
+
+	if [ "$target" != "ARX1" ]; then
+		insmod /lib/modules/*/ip6_tables.ko
+		insmod /lib/modules/*/ip6t_ipv6header.ko
+		insmod /lib/modules/*/ip6table_mangle.ko
+	fi
+
+	#iptables -t mangle -N CLASS_ACCEL_DISABLE
+	iptables -t mangle -N US_CLASS_ACCEL_DISABLE
+	iptables -t mangle -N DS_CLASS_ACCEL_DISABLE
+	#iptables -t mangle -N US_CLASS_ACCEL_DISABLE_DSCP
+	#iptables -t mangle -N DS_CLASS_ACCEL_DISABLE_DSCP
+
+	iptables -t mangle -A PREROUTING -i br0 -j US_CLASS_ACCEL_DISABLE
+	iptables -t mangle -A PREROUTING -i eth0 -j US_CLASS_ACCEL_DISABLE
+	
+	iptables -t mangle -A PREROUTING -i nas+ -j DS_CLASS_ACCEL_DISABLE
+	iptables -t mangle -A PREROUTING -i ppp+ -j DS_CLASS_ACCEL_DISABLE
+	iptables -t mangle -A PREROUTING -i ptm+ -j DS_CLASS_ACCEL_DISABLE
+	iptables -t mangle -A PREROUTING -i eth1+ -j DS_CLASS_ACCEL_DISABLE
+	
+
+	#adding ip6table rules
+
+	#iptables -t mangle -N CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -N US_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -N DS_CLASS_ACCEL_DISABLE
+	#iptables -t mangle -N US_CLASS_ACCEL_DISABLE_DSCP
+	#iptables -t mangle -N DS_CLASS_ACCEL_DISABLE_DSCP
+
+	ip6tables -t mangle -A PREROUTING -i br0 -j US_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -A PREROUTING -i eth0 -j US_CLASS_ACCEL_DISABLE
+	
+	ip6tables -t mangle -A PREROUTING -i nas+ -j DS_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -A PREROUTING -i ppp+ -j DS_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -A PREROUTING -i ptm+ -j DS_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -A PREROUTING -i eth1+ -j DS_CLASS_ACCEL_DISABLE
+	
+
+	# For AR10, atm mode, disable early_drop_flag in ppa to disable priority for CPE traffic
+	if [ "$target" == "ARX3" -a $wanphy_phymode -eq 0 ]; then
+
+		ppacmd setvalue -n early_drop_flag -v 0
+	fi
+
+	echo " Acceleration manager is Enabled, Add all classifier rules"
+        n_count=0
+	while [ $n_count -lt $qos_class_Count ]
+	do
+		eval QOS_ACCEL_DISABLE='$'qcl_${n_count}_disableAccel
+		if [ $QOS_ACCEL_DISABLE -eq 1 ]; then
+			#echo "add class $n_count"
+			. /etc/rc.d/US_class_accel_add $n_count
+		fi
+	n_count=$(( $n_count + 1 ))
+
+	done
+        n_count=0
+	while [ $n_count -lt $qosds_class_Count ]
+	do
+		eval QOS_ACCEL_DISABLE='$'qclds_${n_count}_disableAccel
+		if [ $QOS_ACCEL_DISABLE -eq 1 ]; then
+			#echo "add class $n_count"
+			. /etc/rc.d/DS_class_accel_add $n_count
+		fi
+	n_count=$(( $n_count + 1 ))
+
+	done
+fi
+
+#if [ $1 -eq 0 -a $qm_AccelMngr -eq 0 ]; then
+if [ $1 -eq 0 ]; then
+
+	echo " Acceleration manager is disabled, remove all classifier rules and chains"
+	#first delete all accel disable chains in classifier
+	#call class_accel_delete scripts
+        n_count=0
+	while [ $n_count -lt $qos_class_Count ]
+	do
+		eval QOS_ACCEL_DISABLE='$'qcl_${n_count}_disableAccel
+		if [ $QOS_ACCEL_DISABLE -eq 1 ]; then
+			#echo "delete class $n_count"
+			. /etc/rc.d/US_class_accel_delete $n_count
+		fi
+	n_count=$(( $n_count + 1 ))
+
+	done
+        n_count=0
+	while [ $n_count -lt $qosds_class_Count ]
+	do
+		eval QOS_ACCEL_DISABLE='$'qclds_${n_count}_disableAccel
+		if [ $QOS_ACCEL_DISABLE -eq 1 ]; then
+			#echo "delete class $n_count"
+			. /etc/rc.d/DS_class_accel_delete $n_count
+		fi
+	n_count=$(( $n_count + 1 ))
+
+	done
+
+	iptables -t mangle -F US_CLASS_ACCEL_DISABLE
+	iptables -t mangle -F DS_CLASS_ACCEL_DISABLE
+	#iptables -t mangle -F US_CLASS_ACCEL_DISABLE_DSCP
+	#iptables -t mangle -F DS_CLASS_ACCEL_DISABLE_DSCP
+	
+	#iptables -t mangle -D PREROUTING -j CLASS_ACCEL_DISABLE
+	iptables -t mangle -D PREROUTING -i br0 -j US_CLASS_ACCEL_DISABLE
+	iptables -t mangle -D PREROUTING -i eth0 -j US_CLASS_ACCEL_DISABLE
+	
+	iptables -t mangle -D PREROUTING -i nas+ -j DS_CLASS_ACCEL_DISABLE
+	iptables -t mangle -D PREROUTING -i ppp+ -j DS_CLASS_ACCEL_DISABLE
+	iptables -t mangle -D PREROUTING -i ptm+ -j DS_CLASS_ACCEL_DISABLE
+	iptables -t mangle -D PREROUTING -i eth1+ -j DS_CLASS_ACCEL_DISABLE
+	
+	iptables -t mangle -X US_CLASS_ACCEL_DISABLE
+	iptables -t mangle -X DS_CLASS_ACCEL_DISABLE
+	#iptables -t mangle -X US_CLASS_ACCEL_DISABLE_DSCP
+	#iptables -t mangle -X DS_CLASS_ACCEL_DISABLE_DSCP
+
+
+
+
+	ip6tables -t mangle -F US_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -F DS_CLASS_ACCEL_DISABLE
+	#iptables -t mangle -F US_CLASS_ACCEL_DISABLE_DSCP
+	#iptables -t mangle -F DS_CLASS_ACCEL_DISABLE_DSCP
+	
+	#iptables -t mangle -D PREROUTING -j CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -D PREROUTING -i br0 -j US_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -D PREROUTING -i eth0 -j US_CLASS_ACCEL_DISABLE
+	
+	ip6tables -t mangle -D PREROUTING -i nas+ -j DS_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -D PREROUTING -i ppp+ -j DS_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -D PREROUTING -i ptm+ -j DS_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -D PREROUTING -i eth1+ -j DS_CLASS_ACCEL_DISABLE
+	
+	ip6tables -t mangle -X US_CLASS_ACCEL_DISABLE
+	ip6tables -t mangle -X DS_CLASS_ACCEL_DISABLE
+	#iptables -t mangle -X US_CLASS_ACCEL_DISABLE_DSCP
+	#iptables -t mangle -X DS_CLASS_ACCEL_DISABLE_DSCP
+
+	# For AR10, atm mode, enable early_drop_flag in ppa to disable priority for CPE traffic
+	if [ "$target" == "ARX3" -a $wanphy_phymode -eq 0 ]; then
+
+		ppacmd setvalue -n early_drop_flag -v 1
+	fi
+
+
+fi
+
+
+

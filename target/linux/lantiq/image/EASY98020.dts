@@ -1,0 +1,104 @@
+
+/include/ "falcon.dtsi"
+
+/ {
+	model = "lantiq,easy98020";
+
+	chosen {
+		// don't set bootargs
+		// bootargs = "console=ttyLTQ0,115200 init=/etc/preinit";
+	};
+
+	memory@0 {
+		reg = <0x0 0x4000000>;  // 64M at 0x0
+	};
+
+	localbus@10000000 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "lantiq,sflash-falcon", "simple-bus";
+		busnum = <0>;
+
+		m25p80@0 {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			compatible = "s25fl129p0";
+			reg = <0 0>;
+			linux,modalias = "m25p80", "s25fl129p0";
+			linux,mtd-name = "sflash";
+			spi-max-frequency = <10000000>;
+
+			partition@0 {
+				reg = <0x0 0x00080000>;
+				label = "SPI (RO) U-Boot Image";
+				read-only;
+			};
+
+			partition@80000 {
+				reg = <0x00080000 0x00080000>;
+				label = "SPI (RO) DTB Image";
+				read-only;
+			};
+
+			partition@100000 {
+				reg = <0x00100000 0x00400000>;
+				label = "SPI (RO) Linux Kernel Image";
+				read-only;
+			};
+		};
+	};
+
+	easy98020-leds {
+		compatible = "gpio-leds";
+
+		LED_0 {
+			label = "easy98020:green:0";
+			gpios = <&gpio0 9 0>;
+			default-state = "keep";
+		};
+		LED_1 {
+			label = "easy98020:green:1";
+			gpios = <&gpio0 10 0>;
+			default-state = "keep";
+		};
+		LED_2 {
+			label = "easy98020:green:2";
+			gpios = <&gpio0 11 0>;
+			default-state = "keep";
+		};
+		LED_3 {
+			label = "easy98020:green:3";
+			gpios = <&gpio0 12 0>;
+			default-state = "keep";
+		};
+	};
+
+	easy98020-phy-leds {
+		/* extra group, as currently pinctrl-falcon has a bug
+		   and detects "gpio0 10" and "gpio1 10" as conflict.
+		   To avoid unregistering of all leds from the group on error,
+		   we define an extra group here! */
+		compatible = "gpio-leds";
+
+		GE0_ACT {
+			label = "easy98020:ge0_act";
+			gpios = <&gpio1 10 0>;
+			default-state = "keep";
+		};
+		GE0_LINK {
+			label = "easy98020:ge0_link";
+			gpios = <&gpio1 9 0>;
+			default-state = "keep";
+		};
+		GE1_ACT {
+			label = "easy98020:ge1_act";
+			gpios = <&gpio1 6 0>;
+			default-state = "keep";
+		};
+		GE1_LINK {
+			label = "easy98020:ge1_link";
+			gpios = <&gpio1 5 0>;
+			default-state = "keep";
+		};
+	};
+};

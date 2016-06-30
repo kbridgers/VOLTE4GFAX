@@ -1,0 +1,123 @@
+#!/bin/sh 
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+#i is index
+i=$1
+wan_connection_name=$2
+wan_connection_index=`echo $wan_connection_name |sed -n 's|WAN[A-Z]*\(.*\)|\1|p'`
+wan_type=`echo $wan_connection_name |grep -q WANIP;echo $?`
+
+if [ "$wan_type" = "0" ]; then
+	. /etc/rc.d/get_wan_if $wan_connection_index "ip"
+else
+	. /etc/rc.d/get_wan_if $wan_connection_index "ppp"
+fi
+
+wan_interface=$WAN
+
+if [ ! -z $wan_interface ];then
+    /etc/init.d/ipsec_create_wan_interface_file $wan_interface $i
+    /etc/init.d/ipsec_interface_add
+    RACOON_FILE=/var/ipsec_policies_"$i"_$wan_interface
+    eval leftip=`cat /var/ipsec_wan_interface_"$i"_$wan_interface`
+    if [ ! -z $leftip ];then       
+        eval rightip='$'ipsec_tunnel_${i}_rightip
+        eval leftsubnet='$'ipsec_tunnel_${i}_leftsubnet
+        eval rightsubnet='$'ipsec_tunnel_${i}_rightsubnet
+        eval ikecipher='$'ipsec_tunnel_${i}_ikecipher
+        eval kmpprfalg='$'ipsec_tunnel_${i}_kmpprfalg
+        eval ikehash=hmac_'$'ipsec_tunnel_${i}_ikehash
+        eval ikedh='$'ipsec_tunnel_${i}_ikedh
+        eval espcipher='$'ipsec_tunnel_${i}_espcipher
+        eval esphash=hmac_'$'ipsec_tunnel_${i}_esphash
+        eval lifetime='$'ipsec_tunnel_${i}_lifetime
+        eval retry='$'ipsec_tunnel_${i}_retry
+        eval psksecret='$'ipsec_tunnel_${i}_psksecret
+        eval ikemode='$'ipsec_tunnel_${i}_ikemode
+        
+        echo "remote lethe_$i {" > $RACOON_FILE
+        echo "acceptable_kmp $ikemode;">> $RACOON_FILE
+        echo "	$ikemode { ">> $RACOON_FILE
+        echo "		my_id ipaddr $leftip; ">> $RACOON_FILE
+        echo "		peers_id ipaddr $rightip;" >>$RACOON_FILE
+        echo "		peers_ipaddr $rightip;" >> $RACOON_FILE
+        echo "		kmp_enc_alg $ikecipher;" >>$RACOON_FILE
+        if [ $ikemode == "ikev2" ];then
+		echo "		kmp_prf_alg $kmpprfalg;" >> $RACOON_FILE
+        	echo "		kmp_hash_alg $ikehash;" >> $RACOON_FILE
+        fi
+        if [ $ikemode == "ikev1" ];then
+		if [ $ikehash == "hmac_sha1" ];then
+        		echo "		kmp_hash_alg sha1;" >> $RACOON_FILE
+		fi
+		if [ $ikehash == "hmac_md5" ];then
+        		echo "		kmp_hash_alg md5;" >> $RACOON_FILE
+		fi
+        	echo "		exchange_mode main;" >> $RACOON_FILE
+	fi
+		
+			
+        echo "		kmp_dh_group $ikedh;" >> $RACOON_FILE
+        echo "		kmp_auth_method psk;" >> $RACOON_FILE
+        echo "		pre_shared_key /var/passwd_$i.psk;" >> $RACOON_FILE
+        echo "  };" >>$RACOON_FILE
+        echo "  selector_index lethe_"$i"_out;" >> $RACOON_FILE
+        echo "};" >> $RACOON_FILE
+        echo "selector lethe_"$i"_out {" >> $RACOON_FILE
+        echo "  direction outbound;" >> $RACOON_FILE
+        echo "  src $leftsubnet;">> $RACOON_FILE
+        echo "  dst $rightsubnet;" >> $RACOON_FILE
+        echo "  upper_layer_protocol "any";" >> $RACOON_FILE
+        echo "  policy_index lethe_$i;" >>$RACOON_FILE
+        echo "};" >> $RACOON_FILE
+        echo "selector lethe_"$i"_in {" >> $RACOON_FILE
+        echo "  direction inbound;" >> $RACOON_FILE
+        echo "  src $rightsubnet; ">> $RACOON_FILE
+        echo "  dst $leftsubnet;" >> $RACOON_FILE
+        echo "  upper_layer_protocol "any";" >> $RACOON_FILE
+        echo "  policy_index lethe_$i;" >> $RACOON_FILE
+        echo "};" >> $RACOON_FILE
+        echo "policy lethe_$i { ">> $RACOON_FILE
+        echo "  action auto_ipsec;" >> $RACOON_FILE
+        echo "  remote_index lethe_$i;" >> $RACOON_FILE
+        echo "  ipsec_mode tunnel;" >> $RACOON_FILE
+        echo "  ipsec_index ipsec_esp;" >> $RACOON_FILE
+        echo "  ipsec_level require;" >> $RACOON_FILE
+        echo "  peers_sa_ipaddr $rightip;" >> $RACOON_FILE
+        echo "  my_sa_ipaddr $leftip;" >> $RACOON_FILE
+        echo "};" >> $RACOON_FILE
+    
+        echo "ipsec ipsec_esp { ">>$RACOON_FILE
+        echo "  ipsec_sa_lifetime_time $lifetime min;">>$RACOON_FILE
+        echo "sa_index esp_$i;">>$RACOON_FILE
+        echo "};" >> $RACOON_FILE
+    
+        echo "sa esp_$i {" >> $RACOON_FILE
+        echo "  sa_protocol esp;" >>$RACOON_FILE
+        echo "  esp_enc_alg $espcipher;" >> $RACOON_FILE
+        echo "  esp_auth_alg $esphash;" >> $RACOON_FILE
+        echo "};" >> $RACOON_FILE
+
+        #adding route is not necessary?
+        iptables -t nat -A IFX_IPSEC_TERMINATION -s $leftsubnet -d $rightsubnet -m policy --dir out --pol ipsec --proto esp --mode tunnel -j ACCEPT 2>/dev/null
+        iptables -A IFX_IPSEC_TERMINATION -s $rightip -d $leftip -j ACCEPT 2>/dev/null
+        echo -n $psksecret > /var/passwd_$i.psk
+        chmod 600 /var/passwd_$i.psk
+        cp -f /etc/spmd.pwd /var/
+        chmod 600 /var/spmd.pwd
+        /etc/init.d/ipsec restart
+    fi
+fi

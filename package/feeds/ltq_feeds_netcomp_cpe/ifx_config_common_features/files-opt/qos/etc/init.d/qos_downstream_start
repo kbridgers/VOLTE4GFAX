@@ -1,0 +1,246 @@
+#!/bin/sh
+# T-604071:sumedh re-organised script (from qos_alg_start to qos_downstream_start)
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# Ritesh : Source VoIP port information 
+if [ -r /etc/rc.d/init.d/voip_ports_cfg ]; then
+        . /etc/rc.d/init.d/voip_ports_cfg
+fi
+#Sumedh - if QOS_ENABLE = 0, exit script, do not create imqs, calculate rates, etc
+if [ "$QOS_ENABLE" != "1" ]; then #[
+	echo "QoS is not enabled"
+else
+
+## Debug
+echo "#################### Calling qos_alg_start ##############################"
+echo "#########################################################################"
+
+
+# totol downstream bandwidth in Kbites
+DOWNSTREAM_RATE="`/usr/sbin/get_adsl_rate 1`"
+DOWNSTREAM_IF="imq0"
+
+# total upstream bandwidth in Kbites
+UPSTREAM_RATE="`/usr/sbin/get_adsl_rate 0`"
+UPSTREAM_IF="imq2"
+
+# Ration in %
+BANDWIDTH_RATIO=80
+DOWNSTREAM_RATE=$(( $DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100 ))
+
+#TC="/usr/sbin/tc"
+TC="/etc/init.d/tc.sh"
+IPTABLES="/usr/sbin/iptables"
+
+#if [ "$DOWNSTREAM_RATE" -eq "0" ]; then
+#	DOWNSTREAM_RATE="28000"
+#fi
+#if [ "$UPSTREAM_RATE" -eq "0" ]; then
+#	UPSTREAM_RATE="1300"
+#fi
+if [ "$DOWNSTREAM_RATE" -eq "0" -o "$UPSTREAM_RATE" -eq "0" ]; then
+	echo "ADSL link seems to be down, cannot configure QoS"
+	#exit
+#fi
+else #[
+
+
+#------------------- downstream -------------------------
+#				                         	QOS Tree
+#   +------------------------------------------------------------------------------------+
+#   |                    				root 1:0 htb   					    			 |
+#   +------------------------------------------------------------------------------------+
+#	 	      		                           |
+#   +------------------------------------------------------------------------------------+
+#   |                                        1:1 htb	      				             |
+#   +------------------------------------------------------------------------------------+
+#	              |					  |				   |					|
+#   +-------------------------+	+-------------+ +----------------+ +---------------------+
+#   |    1:4 htb(ALG)         | | 1.12 (VoIP) | |  1:3 (Other)   | | 1:11 (web flow)     |
+#   +-------------------------+	+-------------+ +----------------+ +---------------------+
+#         |				|             |
+#   +-----------+ +-----------+ +----------------+
+#   | 1:41 (htb)| | 1:4N (htb)| |   30:  pfifo   |
+#   +-----------+ +-----------+	+----------------+
+#	      |       		|
+#   +-----------+ +-----------+
+#	| 410(pfifo)| | 4N0(pfifo)|
+#   +-----------+ +-----------+ 
+	
+DWN_RTSP_MINBW=10
+DWN_NETMEETING_MINBW=10
+DWN_PPTP_MINBW=10
+DWN_FTP_MINBW=10
+DWN_IPSEC_MINBW=10
+DWN_ICMP_MINBW=10
+DWN_SIP_MINBW=10
+DWN_OTHER_MIN_BW=10
+
+	DWN_TC_CLASS_ADD="$TC class add dev $DOWNSTREAM_IF parent "
+	DWN_TC_QDISC_ADD="$TC qdisc add dev $DOWNSTREAM_IF parent"
+	#DWN_TC_FILTER_ADD="$TC filter add dev $DOWNSTREAM_IF parent 1: protocol ip"
+	DWN_TC_FILTER_ADD="$TC filter add dev $DOWNSTREAM_IF parent 1: protocol ip"
+
+	${TC} qdisc add dev $DOWNSTREAM_IF handle 1: root htb default 3
+	${DWN_TC_CLASS_ADD} 1:0 classid 1:1 htb rate ${DOWNSTREAM_RATE}kbit
+
+	SERVICE_OTHERS=100
+	if [ "$QOS_ALG" = "1" ]; then
+	 	#sumedh --calculate minimun b/w based on individual minimums for each alg
+		rtsp_min=`/etc/rc.d/init.d/get_min RTSP_QOS DWN_RTSP_MINBW`
+		netmeeting_min=`/etc/rc.d/init.d/get_min NETMEETING_QOS DWN_NETMEETING_MINBW`
+		pptp_min=`/etc/rc.d/init.d/get_min PPTP_QOS DWN_PPTP_MINBW`
+		ftp_min=`/etc/rc.d/init.d/get_min FTP_QOS DWN_FTP_MINBW`
+		ipsec_min=`/etc/rc.d/init.d/get_min IPSEC_QOS DWN_IPSEC_MINBW`
+		icmp_min=`/etc/rc.d/init.d/get_min ICMP_QOS DWN_ICMP_MINBW`
+		sip_min=`/etc/rc.d/init.d/get_min SIP_QOS DWN_SIP_MINBW`
+
+		ALG_MINBW=$(( $rtsp_min + $netmeeting_min + $pptp_min + $ftp_min + $ipsec_min + $icmp_min + $sip_min ))
+		if [ "$ALG_MINBW" = "0" ]; then
+			ALG_MINBW="1"
+		fi
+		ALG_MIN_BW=$(( $DOWNSTREAM_RATE \* $ALG_MINBW / 100 ))
+        	${DWN_TC_CLASS_ADD} 1:1  classid 1:4 htb rate ${ALG_MIN_BW}kbit ceil ${DOWNSTREAM_RATE}kbit prio 3 
+	#	SERVICE_OTHERS=100
+		if [ "$RTSP_QOS" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_RTSP_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_RTSP_MINBW / 100 ))
+			DWN_RTSP_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_RTSP_MAXBW / 100 ))
+			RTSP_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_RTSP_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:41 htb rate ${DWN_RTSP_MIN_BW}kbit ceil ${DWN_RTSP_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:41 handle 410: pfifo limit $RTSP_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip appl_group real flowid 1:41
+
+		fi
+
+		if [ "$NETMEETING_QOS" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_NETMEETING_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_NETMEETING_MINBW / 100 ))
+			DWN_NETMEETING_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_NETMEETING_MAXBW / 100 ))
+			NETMEETING_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_NETMEETING_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:42 htb rate ${DWN_NETMEETING_MIN_BW}kbit ceil ${DWN_NETMEETING_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:42 handle 420: pfifo limit $NETMEETING_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip appl_group netmeeting flowid 1:42
+		fi
+
+		if [ "$PPTP_QOS" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_PPTP_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_PPTP_MINBW / 100 ))
+			DWN_PPTP_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_PPTP_MINBW / 100 ))
+			PPTP_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_PPTP_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:43 htb rate ${DWN_PPTP_MIN_BW}kbit ceil ${DWN_PPTP_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:43 handle 430: pfifo limit $PPTP_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip appl_group pptp flowid 1:43
+		fi
+
+		if [ "$FTP_QOS" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_FTP_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_FTP_MINBW / 100 ))
+			DWN_FTP_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_FTP_MAXBW / 100 ))
+			FTP_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_FTP_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:44 htb rate ${DWN_FTP_MIN_BW}kbit ceil ${DWN_FTP_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:44 handle 440: pfifo limit $FTP_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip appl_group ftp flowid 1:44
+		fi
+
+		if [ "$IPSEC_QOS" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_IPSEC_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_IPSEC_MINBW / 100 ))
+			DWN_IPSEC_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_IPSEC_MAXBW / 100 ))
+			IPSEC_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_IPSEC_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:45 htb rate ${DWN_IPSEC_MIN_BW}kbit ceil ${DWN_IPSEC_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:45 handle 450: pfifo limit $IPSEC_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip protocol 0x32 0xff flowid 1:45
+			${DWN_TC_FILTER_ADD} u32 match ip protocol 0x33 0xff flowid 1:45
+		fi
+
+		if [ "$ICMP_QOS" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_ICMP_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_ICMP_MINBW / 100 ))
+			DWN_ICMP_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_ICMP_MAXBW / 100 ))
+			ICMP_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_ICMP_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:46 htb rate ${DWN_ICMP_MIN_BW}kbit ceil ${DWN_ICMP_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:46 handle 460: pfifo limit $ICMP_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip appl_group icmp flowid 1:46
+		fi
+
+		if [ "$SIP_QOS" = "1" -a "$ALG_SIP_ENABLE" = "1" ]; then
+			# Incoming packets from WAN
+			DWN_SIP_MIN_BW=$(( $DOWNSTREAM_RATE \* $DWN_SIP_MINBW / 100 ))
+			DWN_SIP_MAX_BW=$(( $DOWNSTREAM_RATE \* $DWN_SIP_MAXBW / 100 ))
+			SIP_QLENGTH=50
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_SIP_MINBW ))
+			${DWN_TC_CLASS_ADD} 1:4 classid 1:47 htb rate ${DWN_SIP_MIN_BW}kbit ceil ${DWN_SIP_MAX_BW}kbit prio 0
+			${DWN_TC_QDISC_ADD} 1:47 handle 470: pfifo limit $SIP_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip appl_group sip flowid 1:47
+		fi
+
+	fi
+
+	if [ "$SIP_QOS" = "1" -a "$ALG_SIP_ENABLE" = "1" ]; then
+		echo "Sip Alg is running"
+	else
+		if [ "$DIFFSERV_DUT_VOIP" = "1" ]; then
+			DWN_VOIP_MIN_BW=256
+			DWN_VOIP_MAX_BW=$DOWNSTREAM_RATE
+			VOIP_QLENGTH=75
+			SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_VOIP_MIN_BW \* 100 / $DOWNSTREAM_RATE ))
+			echo "###### classid 1:10 htb rate " ${DWN_VOIP_MIN_BW}
+			${DWN_TC_CLASS_ADD} 1:1 classid 1:12 htb rate ${DWN_VOIP_MIN_BW}kbit ceil ${DWN_VOIP_MAX_BW}kbit prio $VOIP_PRIORITY 
+#	Specifying tcp below also means udp as we have not specified protocol-check?
+#	Approx port range used - to be replaced with generic logic later
+			${DWN_TC_QDISC_ADD} 1:12 handle 120: pfifo limit $VOIP_QLENGTH
+			${DWN_TC_FILTER_ADD} u32 match ip dport $VOIP_SIGNAL_PORT_UDP 0xFFFF flowid 1:12
+			${DWN_TC_FILTER_ADD} u32 match ip dport $VOIP_DATA_RANGE1 $VOIP_DATA_MASK1 match ip protocol 17 0xFF flowid 1:12
+			${DWN_TC_FILTER_ADD} u32 match ip dport $VOIP_DATA_RANGE2 $VOIP_DATA_MASK2 match ip protocol 17 0xFF flowid 1:12
+			${DWN_TC_FILTER_ADD} u32 match ip dport $VOIP_DATA_RANGE3 $VOIP_DATA_MASK3 match ip protocol 17 0xFF flowid 1:12
+			${DWN_TC_FILTER_ADD} u32 match ip dport $VOIP_DATA_RANGE4 $VOIP_DATA_MASK4 match ip protocol 17 0xFF flowid 1:12
+#	Specify tcp client ports that VOIP Application can use
+			${DWN_TC_FILTER_ADD} u32 match ip dport $VOIP_TCP_CLIENT_SPORT 0xFF80 match ip protocol 6 0xFF flowid 1:12
+#	FAX ports
+			${DWN_TC_FILTER_ADD} u32 match ip dport $FAX_SPORT 0xFF80 flowid 1:12
+		fi
+	fi
+
+# Create Web Manageability flow
+	DWN_WEB_MIN_BW=64
+	DWN_WEB_MAX_BW=$DOWNSTREAM_RATE
+	WEB_QLENGTH=50
+	SERVICE_OTHERS=$(( $SERVICE_OTHERS - $DWN_WEB_MIN_BW )) 
+	WEB_PRIORITY=2
+	WEB_PORT=80
+	echo "###### classid 1:11 htb rate " ${DWN_WEB_MIN_BW}
+	${DWN_TC_CLASS_ADD} 1:1 classid 1:11 htb rate ${DWN_WEB_MIN_BW}kbit ceil ${DWN_WEB_MAX_BW}kbit prio $WEB_PRIORITY
+	${DWN_TC_QDISC_ADD} 1:11 handle 110: pfifo limit $WEB_QLENGTH
+	${DWN_TC_FILTER_ADD} u32 match ip dport $WEB_PORT 0xFFFF match ip protocol 6 0xFF flowid 1:11
+# Create default flow
+
+	DWN_OTHER_MAX_BW=$DOWNSTREAM_RATE
+	echo "###### classid 1:3 htb rate " ${DWN_OTHER_MIN_BW}
+	${DWN_TC_CLASS_ADD} 1:1 classid 1:3 htb rate ${DWN_OTHER_MIN_BW}kbit ceil ${DWN_OTHER_MAX_BW}kbit prio 4
+
+	OTHER_QLENGTH=100
+	${DWN_TC_QDISC_ADD} 1:3 handle 30: pfifo limit $OTHER_QLENGTH
+
+fi #] exit
+
+fi #] QOS_ENABLE

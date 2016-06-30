@@ -1,0 +1,95 @@
+VB Nightly automated tests
+
+Goal:
+Test functionality/stability of all AP/STA MAPI functions.
+
+Process:
+
+Preparation:
+Set up basic configuration using web and establish link.
+Each test should use different basic configuration, e.g. different sec settings, so that all modes are covered.
+
+Execution:
+Run teraterm script that loops 100 times.
+Different script per API category.
+Details follow.
+
+Results:
+No crashes whatsoever (MAC/driver/kernel/apps).
+Additional requirements depending on API category.
+
+
+Configuration APIs:
+start + stop
+sec_mod
+wmm_mod
+wps_conf
+mac_ctrl_mod
+vb_config_mod
+
+
+Teraterm script:
+Loop 100 times:
+Set one parameter using host_api set + commit.
+Activate configuration by calling MAPI function directly: rc.bringup_wlan XXX
+(use even/odd of loop index to toggle between two values when setting the param, or append index to value if possible)
+
+
+e.g. for security:
+
+host_api set $$ wlan0 ESSID ESSID_$i
+host_api commit $$ wlan0 
+rc.bringup_wlan sec_mod
+iwconfig wlan0
+
+
+e.g. for WMM:
+
+if expr $i % 2 
+then
+	host_api set $$ wlan0 AC_BE_MaxNumOfPackets 7
+else
+	host_api set $$ wlan0 AC_BE_MaxNumOfPackets 10
+fi
+host_api commit $$ wlan0 
+rc.bringup_wlan wmm_mod
+
+
+WPS APIs:
+wps_conf (a configuration script?)
+wps_trigger_pbc
+wps_trigger_pin
+get_wps_pin
+get_wps_profile
+restore_wps_pin
+reset_wps
+generate_wps_pin
+
+
+get info APIs:
+capability
+capability_sec
+get_stats
+get_ap_dyn_info
+get_assoc_dev
+get_radio_dyn_info
+get_wps_dyn_info
+get_wps_regs_dyn_info
+vb_get_wlan_link_status
+vb_get_wlan_scan_results
+
+STA trigger connect/disconnect APIs:
+vb_trigger_connect
+vb_trigger_disconnect
+
+Other APIs:
+load
+load_sec
+
+
+
+BTW rc.bringup_wlan quick CR: 
+1. Why don't we have wave300 handling in wmm_mod??
+2. VAP: Need error when calling add/remove until this is supported on this branch.
+3. restore_wps_pin, get_wps_dyn_info, get_wps_regs_dyn_info, : not used by wave300?
+

@@ -1,0 +1,35 @@
+#!/bin/sh
+MODE_CONFIG_HIGH="filter_forward_high.rules"
+MODE_CONFIG_LOW="filter_forward_low.rules"
+MODE_INPUT_INIT="filter_input_generic.rules"
+
+mode_forward_init()
+{
+	if [ "$fwl_config_Enable" == "0" ]; then #Firewall disabled 
+		return 
+		exit 0
+	fi
+		
+	case $fwl_config_Config in
+	1)	#CPE POLICY, equivalent to firewall off
+		ipt -A FORWARD -j ACCEPT
+		;;
+	2)	#HIGH
+		load_static ${CONFIGDIR}/${MODE_CONFIG_HIGH}
+		;;
+	3)	#LOW
+		load_static ${CONFIGDIR}/${MODE_CONFIG_LOW}
+		;;
+	4)	#Advanced
+		echo "# Advanced"
+		;;
+	esac
+}
+
+mode_input_init()
+{
+	load_static ${CONFIGDIR}/${MODE_INPUT_INIT}
+}
+	
+FW_FILTER_FORWARD_INIT=mode_forward_init
+FW_FILTER_INPUT_INIT=mode_input_init

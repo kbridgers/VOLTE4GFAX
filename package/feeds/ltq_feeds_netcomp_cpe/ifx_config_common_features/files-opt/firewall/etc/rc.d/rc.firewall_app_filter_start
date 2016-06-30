@@ -1,0 +1,38 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ $APP_FILTER -a $APP_FILTER = "1" ]; then
+	/usr/sbin/naptcfg --APP_FILTER 1
+else
+	/usr/sbin/naptcfg --APP_FILTER 0
+fi
+
+if [ $APP_FILTER_MSN -a $APP_FILTER_MSN = "1" ]; then
+	/usr/sbin/naptcfg --APP_FILTER_MSN 1
+else
+	/usr/sbin/naptcfg --APP_FILTER_MSN 0
+fi
+
+if [ $APP_FILTER_YAHOO -a $APP_FILTER_YAHOO = "1" ]; then
+	/usr/sbin/naptcfg --APP_FILTER_YAHOO 1
+else
+	/usr/sbin/naptcfg --APP_FILTER_YAHOO 0
+fi
+
+#if [ $APP_FILTER_ICQ -a $APP_FILTER_ICQ = "1" ]; then
+#	/usr/sbin/naptcfg --APP_FILTER_ICQ 1
+#else
+#	/usr/sbin/naptcfg --APP_FILTER_ICQ 0
+#fi
+#
+#if [ $APP_FILTER_REAL -a $APP_FILTER_REAL = "1" ]; then
+#	/usr/sbin/naptcfg --APP_FILTER_REAL 1
+#else
+#	/usr/sbin/naptcfg --APP_FILTER_REAL 0
+#fi

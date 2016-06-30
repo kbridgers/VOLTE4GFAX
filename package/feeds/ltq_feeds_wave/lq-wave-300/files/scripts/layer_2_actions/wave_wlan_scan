@@ -1,0 +1,262 @@
+#!/bin/sh
+
+#set param to debug with exist scan_input file !!!!!
+
+#TODO: if found scan_res1, use it, else exeute scan ?
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+rm /tmp/scan_input
+rm /tmp/scan_res
+rm /tmp/scan_res1
+
+print2log DBG "wave_wlan_scan: param In_0: $0"
+print2log DBG "wave_wlan_scan: param In_1: $1"
+
+no_input_file=0
+#Any param on script call ?:
+if [ -z "$1" ]
+then
+	disconSupp=0
+else
+	disconSupp=$1
+fi
+
+print2log DBG "wave_wlan_scan: disconSupp=$disconSupp"
+
+#Global params:
+iwlist=0
+iwlist_parsed=0
+
+is_driver_loaded ()
+{
+	if [ ! -e /proc/net/mtlk/version ]
+	then
+		return 0
+	else
+		return 1
+	fi
+}
+
+####################################################
+# Execute iwpriv/iwlist commands several times
+# to handle the situation where wpa_supplicant performs scans
+# making the wlan unavailable
+#
+safe_execute ()
+{
+	iw_command=$1
+	$iw_command 2> /dev/null
+	res=$?
+	exec_count=1
+        print2log DBG "wave_wlan_scan: Executing $iw_command. result:$res. iteration: $exec_count"
+
+	while [ $res != 0 ]
+	do
+		if [ $exec_count -ge 5 ]
+		then
+			print2log ALERT "wave_wlan_scan: Command $iw_command failed"
+			exit 1
+		fi
+
+		sleep 3
+		$iw_command 2> /dev/null
+		res=$?
+		
+		exec_count=`expr $exec_count + 1`
+                print2log DBG "wave_wlan_scan: Executing $iw_command. result:$res. iteration: $exec_count"
+	done
+}
+
+####################################################
+# Wait 3 sec to supplicant
+#
+waitTillSupReady ()
+{
+	end_loop=0
+	start_time=`date +%s`
+
+	while [ $end_loop = 0 ]
+	do
+		time_current=`date +%s`
+		time_elaps=`expr $time_current - $start_time`
+
+		Event=`/tmp/wpa_cli status | awk -F "=" '/wpa_state/ {print $2}'`
+		print2log DBG "wave_wlan_scan: Event=$Event"
+		if [ ! "$Event" ]
+		then
+			print2log DBG "wave_wlan_scan: No event from wpa_supplicant- is it first scan?" > /dev/console
+			#TODO: if we get empty param what are the options?
+		fi
+		
+		if [ $time_elaps -gt 2 ] || [ "$Event" = "DISCONNECTED" ]
+		then
+			print2log DBG "wave_wlan_scan: supp is ready: time_elaps = $time_elaps"
+			end_loop=1
+		fi
+		sleep 1
+	done
+
+	return
+}
+
+####################################################
+# Wait scan file to be ready, if file is empty return with no_input_file
+# In case of driver return busy, it tries again after kill supplicant
+waitInputFile ()
+{
+	end_loop=0
+	start_time=`date +%s`
+	print2log DBG "wave_wlan_scan: waitInputFile: start_time = $start_time"
+	no_input_file=1
+
+	while [ $end_loop = 0 ]
+	do
+		time_current=`date +%s`
+		time_elaps=`expr $time_current - $start_time`
+		if [ $time_elaps -gt 10 ]
+		then
+			print2log DBG "wave_wlan_scan: TO error on scan exec"
+			end_loop=1
+		fi
+		file_size=`ls -l /tmp/scan_input | awk -F " " '{print $5}'`
+		if [ $file_size != 0  ]
+		then
+			print2log DBG "wave_wlan_scan: found scan_input"
+			no_input_file=0
+			end_loop=1
+		fi
+		sleep 1
+	done
+
+	print2log DBG "wave_wlan_scan: waitInputFile: time_elaps = $time_elaps"
+	return
+}
+
+
+# Checks if device is connected to another device
+#cat /tmp/wls_link_stat
+#when connected:
+#WLSLinksStatus = 1
+#else:
+#WLSLinksStatus = 0
+isConnected ()
+{
+	connected=`cat /tmp/wls_link_stat | grep "= 1"`
+	
+	if [ $connected ]
+	then
+		connected=1
+	else
+		connected=0
+	fi
+	
+	return $connected
+}
+
+stop_supplicant=0
+
+do_web_scan ()
+{
+	# if no connection, background scan is not needed, if sta may be connected we set background
+	if [ "$disconSupp" = "1" ]
+	then
+		print2log DBG "wave_wlan_scan: disconnecting station"
+		/tmp/wpa_cli disconnect
+		waitTillSupReady
+		iwpriv wlan0 sIsBGScan 0
+		print2log DBG "wave_wlan_scan: set sIsBGScan 0"
+	else
+		safe_execute "iwpriv wlan0 sIsBGScan 1"
+		print2log DBG "wave_wlan_scan: set sIsBGScan 1"
+	fi
+
+	wildcard=`host_api get $$ 0 Wildcard_ESSID`
+	if [ "$wildcard" != "*" ]
+	then
+		safe_execute "iwpriv wlan0 sActiveScanSSID $wildcard"
+	fi
+	
+	print2log DBG "wave_wlan_scan: before scan"
+	safe_execute "iwlist wlan0 sc" > /tmp/scan_input
+	print2log DBG "wave_wlan_scan: after scan"
+	waitInputFile
+	
+	if [ $no_input_file = 1 ]
+	then
+		print2log DBG "wave_wlan_scan: scan problem, try again"
+		wpa_supplicant_count=`ps | grep "\<wpa_supplicant\>" | grep -vc grep`
+		if [ $wpa_supplicant_count != 0 ]
+		then
+			Event=`/tmp/wpa_cli status | awk -F "=" '/wpa_state/ {print $2}'`
+			print2log DBG "wave_wlan_scan: supplicant event=$Event"
+			if [ "$Event" = "SCANNING" ]
+			then
+				stop_supplicant=1
+				print2log DBG "wave_wlan_scan: stop supplicant"
+				/etc/rc.d/mtlk_init_wpa_supplicant.sh stop 0
+				iwlist wlan0 sc > /tmp/scan_input
+			fi
+		fi
+		print2log DBG "wave_wlan_scan: kill supplicant and resend scan request"
+	fi
+
+	NeverConnected=`host_api get $$ 0 NeverConnected`
+	if [ $NeverConnected = 1 ]
+	then
+		host_api set $$ 0 NeverConnected 0
+		host_api commit $$
+	fi
+
+	awk -f /etc/rc.d/wave_wlan_scan_awk1.awk /tmp/scan_input
+
+
+	if [ "$stop_supplicant" = "1" ]
+	then
+		print2log DBG "wave_wlan_scan: start supplicant"
+		/etc/rc.d/mtlk_init_wpa_supplicant.sh start 0
+	else
+		if [ "$disconSupp" = "1" ]
+		then
+			print2log DBG "wave_wlan_scan: reconnect station"
+			/tmp/wpa_cli reconnect
+		fi
+	fi
+
+	#in order that the supplicant can do scan:
+	iwpriv wlan0 sIsBGScan 1
+
+	print2log DBG "wave_wlan_scan: scan stage 1 finished"
+
+	awk -f /etc/rc.d/wave_wlan_scan_awk2.awk /tmp/scan_res
+
+
+
+	print2log DBG "wave_wlan_scan: scan stage 2 finished"
+}
+
+
+
+
+if is_driver_loaded=1
+then	
+#	if [ ! -e /tmp/scan_res1 ]
+#	then
+		do_web_scan 
+#	fi
+else
+	echo "Error ! driver is not loaded" > "/dev/console"
+fi
+
+#############################################################
+# Output the file:
+#
+if [ -e /tmp/scan_res1 ]
+then
+	print2log DBG "wave_wlan_scan: Scan sucessfully finished"
+else
+	echo "ERROR !!!!! scan_res1 file does not exist" > "/dev/console"
+fi
+

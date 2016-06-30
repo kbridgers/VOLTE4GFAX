@@ -1,0 +1,15 @@
+[WaitForConfiguration]={
+#echo processing WaitForConfiguration section
+}
+
+[WaitForLinkActivate]={
+#echo processing WaitForLinkActivate section
+}
+
+[WaitForRestart]={
+#echo processing WaitForRestart section
+}
+
+[Common]={
+#echo processing Common section
+}

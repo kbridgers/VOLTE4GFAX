@@ -1,0 +1,63 @@
+--- a/arch/mips/lantiq/devices.c
++++ b/arch/mips/lantiq/devices.c
+@@ -121,19 +121,32 @@ void __init ltq_register_pci(struct ltq_
+ }
+ #endif
+ 
++#ifdef CONFIG_SOC_SVIP
++extern unsigned int *prom_cp1_base;
++#else
+ static unsigned int *cp1_base = 0;
++#endif
++
+ unsigned int*
+ ltq_get_cp1_base(void)
+ {
++#ifdef CONFIG_SOC_SVIP
++	return prom_cp1_base;
++#else
+ 	return cp1_base;
++#endif
++
+ }
+ EXPORT_SYMBOL(ltq_get_cp1_base);
+ 
+ void __init
+ ltq_register_tapi(void)
+ {
++#ifndef CONFIG_SOC_SVIP
+ #define CP1_SIZE       (1 << 20)
++
+ 	dma_addr_t dma;
+ 	cp1_base =
+ 		(void*)CPHYSADDR(dma_alloc_coherent(NULL, CP1_SIZE, &dma, GFP_ATOMIC));
++#endif
+ }
+--- a/arch/mips/lantiq/setup.c
++++ b/arch/mips/lantiq/setup.c
+@@ -19,6 +19,9 @@
+ #include "prom.h"
+ 
+ unsigned long physical_memsize = 0L;
++#ifdef CONFIG_SOC_SVIP
++unsigned int *prom_cp1_base;
++#endif
+ 
+ void __init plat_mem_setup(void)
+ {
+@@ -43,6 +46,15 @@ void __init plat_mem_setup(void)
+ 		envp++;
+ 	}
+ 	memsize *= 1024 * 1024;
++#ifdef CONFIG_SOC_SVIP
++	int prom_cp1_size = 0x800000;
++
++	memsize -= prom_cp1_size;
++	prom_cp1_base = (unsigned int *)KSEG1ADDR(memsize);
++
++	printk("Using %dMB Ram and reserving %dMB for cp1\n",
++		memsize>>20, prom_cp1_size>>20);
++#endif
+ 	add_memory_region(0x00000000, memsize, BOOT_MEM_RAM);
+ 	physical_memsize = memsize;
+ }

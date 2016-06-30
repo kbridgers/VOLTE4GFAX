@@ -1,0 +1,55 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+command=$1
+
+eeprom_partition=wlanconfig
+eeprom_tar=eeprom.tar.gz
+
+start_eeprom()
+{
+	print2log DBG "wave_wlan_init_eeprom: Start"
+	
+	# Check partition exists
+	if [ `cat /proc/mtd | grep "\<$eeprom_partition\>" -c` -gt 0 ]
+	then
+		read_img $eeprom_partition /tmp/$eeprom_tar
+		tar xzf /tmp/$eeprom_tar -C /tmp/
+		if [ $? != 0 ]
+		then
+			print2log DBG "wave_wlan_init_eeprom: failed to extract $eeprom_tar"
+		fi
+	else
+		print2log DBG "wave_wlan_init_eeprom: the partition $eeprom_partition doesn't exist"
+	fi
+	print2log DBG "wave_wlan_init_eeprom: Done start"
+}
+
+stop_eeprom()
+{
+	return
+}
+
+eeprom_should_run()
+{
+	true
+}
+
+case $command in
+	start )
+		start_eeprom
+    ;;
+	stop )
+		stop_eeprom
+	;;
+	should_run )
+		eeprom_should_run
+	;;
+	* )
+		print2log WARNING "wave_wlan_init_eeprom: Unknown command=$command"
+    ;;
+esac

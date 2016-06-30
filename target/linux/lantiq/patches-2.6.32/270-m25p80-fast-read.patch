@@ -1,0 +1,12 @@
+--- a/drivers/mtd/devices/m25p80.c
++++ b/drivers/mtd/devices/m25p80.c
+@@ -356,6 +356,9 @@ static int m25p80_read(struct mtd_info *
+ 	flash->command[1] = from >> 16;
+ 	flash->command[2] = from >> 8;
+ 	flash->command[3] = from;
++	#if FAST_READ_DUMMY_BYTE == 1
++	flash->command[4] = 0;
++	#endif
+ 
+ 	spi_sync(flash->spi, &m);
+ 

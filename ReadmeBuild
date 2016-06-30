@@ -1,0 +1,14 @@
+TO build the system
+1. make Clean
+2. make V=99
+3. ./make_rootfs		<It will delete the unwanted scripts from the fileystem and create a custom image>
+4. ./make_sec_rootf		<For making the secondary images. Note that once the secondary image builded,developer need to issue make V=99 command again>.
+
+
+/*Packages Created*/
+1. LTE_manager
+2. LED_Manager
+3. FAX_Manager
+4. TestAllperipherals
+ 
+

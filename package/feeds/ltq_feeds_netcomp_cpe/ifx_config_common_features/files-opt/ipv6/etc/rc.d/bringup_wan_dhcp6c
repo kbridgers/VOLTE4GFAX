@@ -1,0 +1,102 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_dhcp6s"
+SED="/bin/sed"
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		. /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+                        eval g_wan_phy_mode='$'wanphy_phymode
+                        eval g_wan_tc_mode='$'wanphy_tc
+
+                        wanip_idx=0
+                        while [ $wanip_idx -lt $wan_ip_Count ]; do
+                                eval link_type='$'wanip_${wanip_idx}_linkType
+                                eval addr_type='$'wanip_${wanip_idx}_addrType
+                                eval wan_mode='$'wanip_${wanip_idx}_wanMode
+				eval wan_iface='$'wanip_${wanip_idx}_iface
+
+                                startFlag=0
+                                if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+                                        if [ "$wan_mode" = "0" ]; then # ATM
+                                                startFlag=1
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+                                        if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+                                                if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+                                                        startFlag=1
+                                                fi
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "1" ]; then
+                                        if [ "$wan_mode" = "1" ]; then # Eth on MII0
+                                                startFlag=1
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "2" ]; then
+                                        if [ "$wan_mode" = "2" ]; then # Eth on MII1
+                                                startFlag=1
+                                        fi
+                                fi
+
+                                if [ "$startFlag" = "1" -a "$addr_type" = "1" ]; then
+                                                eval wan_enable='$'wanip_${wanip_idx}_fEnable
+                                                if [ "$wan_enable" = "1" ]; then
+                                                        echo "Bringup wan started for wan index $wanip_idx !!" > /dev/console
+                                                        . /etc/rc.d/create_and_run_dhcp6c_cfg start $wan_iface $wanip_idx "ip" > /dev/console
+                                                fi
+                                fi
+                                wanip_idx=`expr $wanip_idx + 1`
+                        done
+
+
+
+                        wanppp_idx=0
+                        while [ $wanppp_idx -lt $wan_ppp_Count ]; do
+                                eval link_type='$'wanppp_${wanppp_idx}_linkType
+                                eval wan_mode='$'wanppp_${wanppp_idx}_wanMode
+
+                                startFlag=0
+                                if [ "$g_wan_phy_mode" = "0" -a "$g_wan_tc_mode" = "0" ]; then # ADSL and ATM
+                                        if [ "$wan_mode" = "0" ]; then # ATM
+                                                startFlag=1
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL/VDSL and PTM
+                                        if [ "$g_wan_tc_mode" = "1" ]; then # ADSL/VDSL and PTM
+                                                if [ "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # PTM
+                                                        startFlag=1
+                                                fi
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "1" ]; then
+                                        if [ "$wan_mode" = "1" ]; then # Eth on MII0
+                                                startFlag=1
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "2" ]; then
+                                        if [ "$wan_mode" = "2" ]; then # Eth on MII1
+                                                startFlag=1
+                                        fi
+                                elif [ "$g_wan_phy_mode" = "5" ]; then # WWAN phymode. Starts ppp.
+                                        if [ "$wan_mode" = "6" ]; then
+                                                startFlag=1
+                                        fi
+                                fi
+
+                                if [ "$startFlag" = "1" ]; then
+                                                eval wan_enable='$'wanppp_${wanppp_idx}_fEnable
+                                                if [ "$wan_enable" = "1" ]; then
+                                                        echo "Bringup wan started for wan index $wanppp_idx !!" > /dev/console
+                                                        . /etc/rc.d/rc.bringup_wanppp_stop $wanppp_idx > /dev/console
+							sleep 1
+							. /etc/rc.d/rc.bringup_wanppp_start $wanppp_idx > /dev/console
+                                                fi
+                                fi
+                                wanppp_idx=`expr $wanppp_idx + 1`
+                        done
+

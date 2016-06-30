@@ -1,0 +1,90 @@
+From ac21ef78703af07e797bc733bbd7a2091f03a26a Mon Sep 17 00:00:00 2001
+From: John Crispin <blogic@openwrt.org>
+Date: Tue, 15 May 2012 15:39:12 +0200
+Subject: [PATCH 11/22] MIPS: lantiq: support appended DTB files
+
+---
+ arch/mips/kernel/head.S  |   35 +++++++++++++++++++++++++++++++++++
+ arch/mips/kernel/setup.c |    2 ++
+ arch/mips/lantiq/prom.c  |    6 +++++-
+ 3 files changed, 42 insertions(+), 1 deletions(-)
+
+--- a/arch/mips/kernel/head.S
++++ b/arch/mips/kernel/head.S
+@@ -179,6 +179,41 @@ NESTED(kernel_entry, 16, sp)			# kernel 
+ 	mtc0	t0, CP0_STATUS
+ #endif /* CONFIG_MIPS_MT_SMTC */
+ 
++#ifdef CONFIG_OF
++	PTR_LA		t0, __bss_start
++	LONG_L		t2, (t0)
++#ifdef CONFIG_CPU_BIG_ENDIAN
++	PTR_LI		t1, 0xd00dfeed
++#else
++	PTR_LI		t1, 0xedfe0dd0
++#endif
++	bne		t1, t2, dtb_check_done
++
++	/* get the size */
++	PTR_ADDIU	t0, LONGSIZE
++	LONG_L          t3, (t0)
++
++	/* set src */
++	PTR_LA          t0, __bss_start
++
++	/* set dest */
++	PTR_LA		t1, dtb_appended
++
++	/* set end  */
++	PTR_LA		t2, __bss_start
++	PTR_ADDU	t2, t3
++
++	/* copy the dtb */
++dtb_copy:
++	LONG_L		t3, (t0)
++	LONG_S		t3, (t1)
++	PTR_ADDIU	t0, LONGSIZE
++	PTR_ADDIU	t1, LONGSIZE
++	blt		t0, t2, dtb_copy
++
++dtb_check_done:
++#endif
++
+ 	PTR_LA		t0, __bss_start		# clear .bss
+ 	LONG_S		zero, (t0)
+ 	PTR_LA		t1, __bss_stop - LONGSIZE
+--- a/arch/mips/kernel/setup.c
++++ b/arch/mips/kernel/setup.c
+@@ -665,6 +665,8 @@ void __init setup_arch(char **cmdline_p)
+ 
+ unsigned long kernelsp[NR_CPUS];
+ unsigned long fw_arg0, fw_arg1, fw_arg2, fw_arg3;
++u32 dtb_appended[16 * 1024] = {0xffffff};
++
+ 
+ #ifdef CONFIG_DEBUG_FS
+ struct dentry *mips_debugfs_dir;
+--- a/arch/mips/lantiq/prom.c
++++ b/arch/mips/lantiq/prom.c
+@@ -54,8 +54,12 @@ static void __init prom_init_cmdline(voi
+ 	}
+ }
+ 
++extern u32 dtb_appended[16 * 1024];
++
+ void __init plat_mem_setup(void)
+ {
++	struct boot_param_header *bph = (struct boot_param_header *) dtb_appended;
++
+ 	ioport_resource.start = IOPORT_RESOURCE_START;
+ 	ioport_resource.end = IOPORT_RESOURCE_END;
+ 	iomem_resource.start = IOMEM_RESOURCE_START;
+@@ -67,7 +71,7 @@ void __init plat_mem_setup(void)
+ 	 * Load the builtin devicetree. This causes the chosen node to be
+ 	 * parsed resulting in our memory appearing
+ 	 */
+-	__dt_setup_arch(&__dtb_start);
++	__dt_setup_arch(bph);
+ }
+ 
+ void __init prom_init(void)

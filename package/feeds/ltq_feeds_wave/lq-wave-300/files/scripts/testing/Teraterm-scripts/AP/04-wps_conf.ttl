@@ -1,0 +1,34 @@
+; Teraterm script for testing MAPI functionality
+; Log is created on in /tmp/test_output.log 
+
+
+sendln "root"
+mpause 1000
+sendln "admin"
+mpause 3000
+sendln "i=0"
+sendln "echo > /tmp/test_output.log"
+
+for i 1 100
+	sendln "if expr $i % 2; then"
+	mpause 500
+	sendln "host_api set $$ wlan0 NonProc_WPS_ActivateWPS 1"
+	mpause 500
+	sendln "else"
+	mpause 500
+	sendln "host_api set $$ wlan0 NonProc_WPS_ActivateWPS 0"
+	mpause 500
+	sendln "fi"
+	mpause 500
+	sendln "/etc/rc.d/rc.bringup_wlan wps_conf"
+	mpause 5000
+	sendln "echo Test num. $i >> /tmp/test_output.log; host_api get $$ wlan0 NonProc_WPS_ActivateWPS >> /tmp/test_output.log"
+	mpause 2000
+	sendln "cat /ramdisk/flash/hostapd_wlan0.conf  | grep wps_state   >> /tmp/test_output.log"
+	mpause 2000
+	sendln "let i=i+1"
+	mpause 1000
+next
+
+
+

@@ -1,0 +1,17 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+eval ta=\$"$1"
+eval tb=\$"$2"
+
+if [ $ta = "1" ]; then
+	echo "$tb"
+else
+	echo "0"
+fi

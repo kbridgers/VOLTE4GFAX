@@ -1,0 +1,22 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "running wave_wlan_remove_vap with $*"
+apIndex=$1
+
+timestamp "wave_wlan_remove_vap:$apIndex:begin"
+
+(. $ETC_PATH/wave_wlan_stop $*)
+
+network_type=`host_api get $$ $apIndex network_type`
+if [ "$network_type" = "$VAP" ]
+then
+	(. $ETC_PATH/wave_wlan_update_mapping remove $apIndex)
+fi
+
+print2log DBG "wave_wlan_remove_vap done" 
+timestamp "wave_wlan_remove_vap:$apIndex:done"

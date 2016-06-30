@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "running wave_wlan_add_vap with $*" 
+
+$ETC_PATH/wave_wlan_start $*
+
+print2log DBG "wave_wlan_add_vap done" 

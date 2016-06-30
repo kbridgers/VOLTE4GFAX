@@ -1,0 +1,3099 @@
+--- /dev/null
++++ b/include/linux/svip_nat.h
+@@ -0,0 +1,22 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++******************************************************************************/
++#ifndef _SVIP_NAT_H
++#define _SVIP_NAT_H
++
++/*  The declarations here have to be in a header file, because
++ *  they need to be known both to the kernel module
++ *  (in chardev.c) and the process calling ioctl (ioctl.c)
++ */
++#include <linux/svip_nat_io.h>
++
++#define SVIP_NAT_VERSION "3.1"
++extern int do_SVIP_NAT(struct sk_buff *);
++
++#endif
+--- /dev/null
++++ b/include/linux/svip_nat_io.h
+@@ -0,0 +1,83 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++******************************************************************************/
++#ifndef _SVIP_NAT_IO_H_
++#define _SVIP_NAT_IO_H_
++
++#include <asm/ioctl.h>
++#include <linux/autoconf.h>
++#include <linux/types.h>
++
++#define SVIP_NAT_DEVICE_NAME		"svip_nat"
++#define PATH_SVIP_NAT_DEVICE_NAME	"/dev/"SVIP_NAT_DEVICE_NAME
++
++#define MAJOR_NUM_SVIP_NAT		10
++#define MINOR_NUM_SVIP_NAT		120
++
++#define SVIP_UDP_FROM         (CONFIG_LTQ_SVIP_NAT_UDP_PORT_BASE)
++
++/** @defgroup SVIP_NATAPI  SVIP Custom NAT ioctl interface.
++  An ioctl interface is provided to add a rule into the SVIP NAT table and
++  to respectively remove the rule form it. The ioctl interface is accessible
++  using the fd issued upon opening the special device node /dev/svip_nat.
++  @{  */
++
++/** Used to add a new rule to the SVIP Custom NAT table. If a rule already
++  exists for the target UDP port, that rule shall be overwritten.
++
++  \param SVIP_NAT_IO_Rule_t* The parameter points to a
++  \ref SVIP_NAT_IO_Rule_t structure.
++  */
++#define FIO_SVIP_NAT_RULE_ADD \
++	_IOW(MAJOR_NUM_SVIP_NAT, 1, SVIP_NAT_IO_Rule_t)
++
++/** Used to remove a rule from the SVIP Custom NAT table. No check is
++  performed whether the rule already exists or not. The remove operation is
++  performed as long as the target UDP port is within the defined port range.
++
++  \param SVIP_NAT_IO_Rule_t* The parameter points to a
++  \ref SVIP_NAT_IO_Rule_t structure.
++  */
++#define FIO_SVIP_NAT_RULE_REMOVE \
++	_IOW(MAJOR_NUM_SVIP_NAT, 2, SVIP_NAT_IO_Rule_t)
++
++/** Used to list all rules in the SVIP Custom NAT table.
++
++  \param <none>
++  */
++#define FIO_SVIP_NAT_RULE_LIST \
++	_IO(MAJOR_NUM_SVIP_NAT, 3)
++
++/** IP address in network-byte order */
++typedef __u32 SVIP_IP_ADDR_t;
++/** UDP port in network-byte order */
++typedef __u16 SVIP_UDP_PORT_t;
++
++#ifndef ETH_ALEN
++#define ETH_ALEN			6 /* Octets in one ethernet address */
++#endif
++
++/** NAT parameters part of the NAT table.
++  These paramters are configurable through the NAT API. */
++typedef struct SVIP_NAT_IO_Rule
++{
++	/** Remote peer, IP address */
++	SVIP_IP_ADDR_t remIP;
++	/** Remote peer, MAC address */
++	__u8 remMAC[ETH_ALEN];
++	/** Target SVIP, IP address (local peer) */
++	SVIP_IP_ADDR_t locIP;
++	/** Target SVIP, MAC address */
++	__u8 locMAC[ETH_ALEN];
++	/** Target SVIP, UDP port number */
++	SVIP_UDP_PORT_t locUDP;
++} SVIP_NAT_IO_Rule_t;
++
++/** @} */
++#endif
+--- /dev/null
++++ b/include/linux/svip_nat_pt_io.h
+@@ -0,0 +1,109 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++******************************************************************************/
++#ifndef _LTQ_SVIP_NAT_PT_IO_H_
++#define _LTQ_SVIP_NAT_PT_IO_H_
++
++#include <asm/ioctl.h>
++#include <linux/types.h>
++
++#define SVIP_NAT_PT_DEVICE_NAME           "svip_nat_pt"
++#define PATH_SVIP_NAT_PT_DEVICE_NAME      "/dev/"SVIP_NAT_PT_DEVICE_NAME
++
++#define MAJOR_NUM_SVIP_NAT_PT 10
++#define MINOR_NUM_SVIP_NAT_PT 121
++
++/** @defgroup SVIP_NAT_PT_API SVIP NAT Protocol Translation ioctl interface.
++   Interface to add an IP protocol transformation rule into the SVIP NAT table.
++   Transformation is performed on outgoing IPv4 traffic to IPv6 and
++   incoming IPv6 to IPv4 traffic.
++	The interface can be used for IPv4 to IPv4 NAT translation, as well.
++  @{  */
++
++/** Used to add a new rule to the SVIP NAT PT table. If a rule already
++    exists for the target UDP port, that rule shall be overwritten.
++
++   \param SVIP_NAT_PT_IO_Rule_t* The parameter points to a \ref SVIP_NAT_PT_IO_Rule_t structure.
++*/
++#define FIO_SVIP_NAT_PT_RULE_ADD    _IOW(MAJOR_NUM_SVIP_NAT_PT, 1, SVIP_NAT_PT_IO_Rule_t)
++
++/** Used to remove a SVIP NAT_PT rule from the SVIP NAT PT table. No check is
++    performed whether the rule already exists or not. The remove operation is
++    performed as long as the target UDP port is within the defined port range.
++
++   \param SVIP_NAT_PT_IO_Rule_t* The parameter points to a \ref SVIP_NAT_PT_IO_Rule_t structure.
++*/
++#define FIO_SVIP_NAT_PT_RULE_REMOVE _IOW(MAJOR_NUM_SVIP_NAT_PT, 2, SVIP_NAT_PT_IO_Rule_t)
++
++/** Used to list all rules in the SVIP Custom NAT table.
++
++   \param <none>
++*/
++#define FIO_SVIP_NAT_PT_RULE_LIST   _IO(MAJOR_NUM_SVIP_NAT_PT, 3)
++
++#ifndef ETH_ALEN
++#define ETH_ALEN   6 /* Octets in one ethernet address */
++#endif
++
++/** Type to identify IPv4 and IPv6 addresses */
++typedef enum
++{
++   SVIP_IPV4_ADDR_TYPE,
++   SVIP_IPV6_ADDR_TYPE
++} SVIP_IP_ADDR_TYPE_t;
++
++typedef __u32 SVIP_IPV4_ADDR_t;
++
++/** IPv6 address type, style taken over from Linux */
++typedef struct SVIP_IPV6_ADDR
++{
++   union
++   {
++      __u8 addr8[16];
++      __u16 addr16[8];
++      __u32 addr32[4];
++   } ipv6_u;
++#define ipv6_addr8 ipv6_u.addr8
++#define ipv6_addr16 ipv6_u.addr16
++#define ipv6_addr32 ipv6_u.addr32
++} SVIP_IPV6_ADDR_t;
++
++/** union of IPv4 and IPv6 addresses */
++typedef union
++{
++   SVIP_IPV4_ADDR_t v4;
++   SVIP_IPV6_ADDR_t v6;
++} SVIP_IP_ADDR_UNION_t;
++
++/** UDP port in network-byte order */
++typedef __u16 SVIP_UDP_PORT_t;
++
++/** SVIP NAT rule which allows protocol tranformation between IPv4 and IPv6 */
++typedef struct SVIP_NAT_PT_IO_Rule
++{
++   /** Remote peer MAC address */
++   __u8 remMAC[ETH_ALEN]; /* <- does not seem compulsory */
++   /** Remote peer IP address type */
++   SVIP_IP_ADDR_TYPE_t remTypeIP;
++   /** Remote peer IP address */
++   SVIP_IP_ADDR_UNION_t remIP;
++   /** Remote peer UDP port number */
++   SVIP_UDP_PORT_t remUDP;
++   /** Local peer (target SVIP) MAC address */
++   __u8 locMAC[ETH_ALEN];  /* <- does not seem compulsory */
++   /** Local peer (target SVIP) IP address type */
++   SVIP_IP_ADDR_TYPE_t locTypeIP;
++   /** Local peer IP address */
++   SVIP_IP_ADDR_UNION_t locIP;
++   /** Local peer (target SVIP) UDP port number */
++   SVIP_UDP_PORT_t locUDP;
++} SVIP_NAT_PT_IO_Rule_t;
++
++/** @} */
++#endif
+--- a/net/Kconfig
++++ b/net/Kconfig
+@@ -79,6 +79,78 @@ config LTQ_UDP_REDIRECT
+           UDP re-direction (KPI2UDP redirection)
+ 
+ if INET
++
++menu "VINETIC-SVIP NAT options"
++
++choice
++	prompt "VINETIC-SVIP NAT implementation"
++	default LTQ_SVIP_NAT
++
++config LTQ_SVIP_NAT_NONE
++	bool "None"
++	depends on SOC_SVIP
++	---help---
++	Select to exclude any VINETIC-SVIP NAT related code
++
++config LTQ_SVIP_NAT
++	bool "SVIP NAT-IPv4"
++	depends on SOC_SVIP
++	---help---
++	Performs MAC and IPv4 address translation of incoming and ougoing
++	IPv4 packets relative the address mapping details provided by the
++	SVIP NAT rules. The packets will be intercept in the IPv4 module and
++	when an appropriate NAT rule exists the source and destination address
++	details are replaces, and the packets are sent out the destined Ethernet
++	interface.
++	This NAT solution is tailored for Lantiq VINETIC-SVIP VoIP applications.
++
++config LTQ_SVIP_NAT_PT
++	bool "SVIP NAT-PT"
++	depends on SOC_SVIP
++	select LTQ_UDP_REDIRECT
++	---help---
++	It is designed to allow network protocol translation of incoming IPv6
++	packets to IPv4 packets. In the outgoing direction IPv4 packets are
++	translated to IPv6 ones. The rules for the address tranlation are
++	contained in VINETIC-SVIP NAT-PT rules. This solution can be used to
++	perform purely IPv6 NAT, or IPv4 NAT. This means the address information
++	of incoming IPv6 packets can be replaced by the IPv6 address details
++	contained in the NAT-PT rule. Similar applies for IPv4.
++	This NAT solution is tailored for Lantiq VINETIC-SVIP VoIP applications.
++
++endchoice
++
++config LTQ_SVIP_NAT_RULES_TOTAL
++	int "SVIP NAT table total rules"
++	depends on LTQ_SVIP_NAT || LTQ_SVIP_NAT_PT
++	default 192
++	---help---
++	Defines the size of the VINETIC-SVIP NAT table i.e. the total number of NAT
++	rules. In order to select a correct size for the table, one has to consider
++	the number of VINETIC-SVIP devices available on the system and the total
++	number of analog channels available on the devices.
++	For example: for a system consisting of one VINETIC-SVIP16 device and one
++	VINETIC-SVIP8, one would need (16+8)*3=72 rules.
++	Explanation: for each analog channel there are twice as many coder channels
++	available where for each coder one rule applies. That is, for a VINETIC-SVIP16,
++	a device with 16 analog channels one needs 16*2=32 rules.
++	Additionally, one needs to allocate a rule per analog channel if one uses
++	T.38 and for these streams one assigns a unique UDP port. That is how we
++	come to a total number equaling 3 times the number of analog channels.
++
++config LTQ_SVIP_NAT_UDP_PORT_BASE
++	int "SVIP NAT UDP port base number"
++	depends on LTQ_SVIP_NAT || LTQ_SVIP_NAT_PT
++	default 50000
++	---help---
++	Defines the base UDP port number to be used in the rules.
++	The VINETIC-SVIP NAT table is a simple array of rules. The rules are simply
++	indexed relative the locUDP number. E.g. rule which locUDP port equals the base
++	UDP port is stored at index zero, the rule which locUDP port equals the base
++	UDP port number plus one is stored at index 1, etc.
++
++endmenu
++
+ source "net/ipv4/Kconfig"
+ source "net/ipv6/Kconfig"
+ source "net/netlabel/Kconfig"
+--- a/net/ipv4/Makefile
++++ b/net/ipv4/Makefile
+@@ -55,3 +55,6 @@ obj-$(CONFIG_NETLABEL) += cipso_ipv4.o
+ 
+ obj-$(CONFIG_XFRM) += xfrm4_policy.o xfrm4_state.o xfrm4_input.o \
+ 		      xfrm4_output.o
++
++obj-$(CONFIG_LTQ_SVIP_NAT) += svip_nat.o
++obj-$(CONFIG_LTQ_SVIP_NAT_PT) += svip_nat_pt.o
+--- a/net/ipv4/ip_input.c
++++ b/net/ipv4/ip_input.c
+@@ -143,6 +143,9 @@
+ #include <net/xfrm.h>
+ #include <linux/mroute.h>
+ #include <linux/netlink.h>
++#ifdef CONFIG_LTQ_SVIP_NAT
++#include <linux/svip_nat.h>
++#endif
+ 
+ /*
+  *	Process Router Attention IP option
+@@ -443,6 +446,14 @@ int ip_rcv(struct sk_buff *skb, struct n
+ 	/* Must drop socket now because of tproxy. */
+ 	skb_orphan(skb);
+ 
++#ifdef CONFIG_LTQ_SVIP_NAT
++   if (do_SVIP_NAT(skb))
++   {
++       /* SVIP NAT performed, receving successful */
++       return NET_RX_SUCCESS;
++   }
++#endif
++
+ 	return NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, skb, dev, NULL,
+ 		       ip_rcv_finish);
+ 
+--- /dev/null
++++ b/net/ipv4/svip_nat.c
+@@ -0,0 +1,1541 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++*******************************************************************************
++   Description : This file contains implementation of VINETIC-SVIP NAT
++					   function of IPv4 traffic
++******************************************************************************/
++
++#include <linux/module.h>
++#include <linux/netfilter_ipv4.h>
++#include <linux/if_ether.h>
++#include <linux/netdevice.h>
++#include <linux/inetdevice.h>
++#include <linux/in.h>
++#include <linux/ip.h>
++#include <linux/if_vlan.h>
++#include <linux/udp.h>
++#include <linux/kernel.h>
++#include <linux/version.h>
++#include <linux/proc_fs.h>
++#include <linux/in6.h> /* just to shut up a warning */
++#include <linux/miscdevice.h>
++#include <asm/checksum.h>
++
++#include <linux/svip_nat.h>
++
++MODULE_AUTHOR("Lantiq Deutschland GmbH");
++MODULE_DESCRIPTION("SVIP Network Address Translation module");
++MODULE_LICENSE("GPL");
++
++#define SVIP_NAT_INFO_STR "@(#)SVIP NAT, version "SVIP_NAT_VERSION
++
++#define SVIP_NAT_RULES_TOTAL  (CONFIG_LTQ_SVIP_NAT_RULES_TOTAL)
++#define SVIP_UDP_TO           ((CONFIG_LTQ_SVIP_NAT_UDP_PORT_BASE)+(CONFIG_LTQ_SVIP_NAT_RULES_TOTAL)-1)
++
++#define SVIP_PORT_INRANGE(nPort) \
++	((nPort) >= (SVIP_UDP_FROM) && (nPort) <= (SVIP_UDP_TO))
++
++#define SVIP_PORT_INDEX(nPort)   (nPort - SVIP_UDP_FROM)
++
++#define SVIP_NET_DEV_ETH0_IDX       0
++#define SVIP_NET_DEV_VETH0_IDX      1
++#define SVIP_NET_DEV_LO_IDX         2
++
++#define SVIP_NET_DEV_ETH0_NAME      "eth0"
++#define SVIP_NET_DEV_ETH1_NAME      "eth1"
++#define SVIP_NET_DEV_VETH1_NAME     "veth0"
++#define SVIP_NET_DEV_LO_NAME        "lo"
++
++#define SVIP_NAT_STATS_LOC2REM   0
++#define SVIP_NAT_STATS_REM2LOC   1
++#define SVIP_NAT_STATS_TYPES     2
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++#define SVIP_NAT_FOR_EACH_NETDEV(d) for_each_netdev(&init_net, dev)
++#define SVIP_NAT_IP_HDR(ethhdr) ip_hdr(ethhdr)
++#else
++#define SVIP_NAT_FOR_EACH_NETDEV(d) for(d=dev_base; dev; dev = dev->next)
++#define SVIP_NAT_IP_HDR(ethhdr) (ethhdr)->nh.iph
++#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++#define SVIP_NAT_SKB_MAC_HEADER(ethhdr) (ethhdr)->mac.ethernet
++#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
++#define SVIP_NAT_SKB_MAC_HEADER(ethhdr) (ethhdr)->mac.raw
++#else
++#define SVIP_NAT_SKB_MAC_HEADER(ethhdr) skb_mac_header(ethhdr)
++#endif
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++#define VLAN_DEV_REAL_DEV(dev)      vlan_dev_real_dev(dev)
++#define VLAN_DEV_VLAN_ID(dev)       vlan_dev_vlan_id(dev)
++#else
++#define VLAN_DEV_REAL_DEV(dev)      (VLAN_DEV_INFO(dev)->real_dev)
++#define VLAN_DEV_VLAN_ID(dev)       (VLAN_DEV_INFO(dev)->vlan_id)
++#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0))
++#define MOD_INC_USE_COUNT
++#define MOD_DEC_USE_COUNT
++#endif
++
++#if ! ((LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)) && \
++       (defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)))
++#define VLAN_8021Q_UNUSED
++#endif
++
++
++extern spinlock_t vlan_group_lock;
++extern struct net_device *__find_vlan_dev(struct net_device *real_dev, unsigned short VID);
++
++typedef struct SVIP_NAT_stats
++{
++	unsigned long        inPackets;
++	unsigned long        outPackets;
++	unsigned long        outErrors;
++} SVIP_NAT_stats_t;
++
++typedef struct SVIP_NAT_table_entry
++{
++	SVIP_NAT_IO_Rule_t   natRule;
++	SVIP_NAT_stats_t     natStats[SVIP_NAT_STATS_TYPES];
++} SVIP_NAT_table_entry_t;
++
++/* pointer to the SVIP NAT table */
++static SVIP_NAT_table_entry_t *pNatTable = NULL;
++
++struct net_device *net_devs[3];
++static u32 *paddr_eth0;
++static u32 *paddr_eth0_0;
++static u32 *paddr_veth0;
++static u32 *pmask_veth0;
++
++static struct semaphore *sem_nat_tbl_access;
++static int proc_read_in_progress = 0;
++
++static int nDeviceOpen = 0;
++
++/* saves the NAT table index between subsequent invocation */
++static int nProcReadIdx = 0;
++
++static int SVIP_NAT_device_ioctl(struct inode *,struct file *,unsigned int ,unsigned long);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
++static int  SVIP_NAT_device_release (struct inode *,struct file *);
++#else
++static void SVIP_NAT_device_release (struct inode *,struct file *);
++#endif
++static int  SVIP_NAT_device_open    (struct inode *,struct file *);
++
++/* This structure holds the interface functions supported by
++   the SVIP NAT configuration device. */
++struct file_operations SVIP_NAT_Fops = {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0)
++owner:      THIS_MODULE,
++#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0) */
++	    llseek:  NULL,                      /* seek */
++	    read:    NULL,
++	    write:   NULL,
++	    readdir: NULL,                      /* readdir */
++	    poll:    NULL,                      /* select */
++	    ioctl:   SVIP_NAT_device_ioctl,     /* ioctl */
++	    mmap:    NULL,                      /* mmap */
++	    open:    SVIP_NAT_device_open,      /* open, */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
++	    flush:   NULL,                      /* flush */
++#endif
++	    release: SVIP_NAT_device_release    /* close */
++};
++
++/** Structure holding MISC module operations */
++static struct miscdevice SVIP_NAT_miscdev =
++{
++minor:   MINOR_NUM_SVIP_NAT,
++	 name:    SVIP_NAT_DEVICE_NAME,
++	 fops:    &SVIP_NAT_Fops
++};
++
++#ifdef CONFIG_SVIP_FW_PKT_SNIFFER
++int nSVIP_NAT_Sniffer;
++unsigned char pSVIP_NAT_SnifferMAC[ETH_ALEN];
++int nSVIP_NAT_SnifferMacSet;
++#endif
++
++/******************************************************************************/
++/**
++  Function to read /proc/net/svip_nat/nat proc entry
++
++  \arguments
++  page     - pointer to page buffer
++  start    - pointer to start address pointer
++  off      - offset
++  count    - maximum data length to read
++  eof      - end of file flag
++  data     - proc read data (provided by the function
++  pointed to by data)
++
++  \return
++  length of read data
++
++  \remarks:
++  Each call of this routine forces a copy_to_user of the data returned by
++  'fn'. This routine will be called by the user until 'len = 0'.
++ ****************************************************************************/
++static int SVIP_NAT_ProcRead (char *page, char **start, off_t off,
++			      int count, int *eof, void *data)
++{
++	unsigned long flags;
++	int (*fn)(char *buf, int size);
++	int len;
++
++	/* If the NAT table index is negative, the reading has completed */
++	if (nProcReadIdx < 0)
++	{
++		nProcReadIdx = 0;
++		*eof = 1;
++		proc_read_in_progress = 0;
++		up(sem_nat_tbl_access);
++		return 0;
++	}
++
++	local_irq_save(flags);
++	if (!proc_read_in_progress)
++	{
++		proc_read_in_progress = 1;
++		local_irq_restore(flags);
++		/* we use this semaphore in order to ensure no other party(could be ioctl
++		   FIO_SVIP_NAT_RULE_LIST), uses function SVIP_NAT_ProcReadNAT(), during
++		   the time read of the proc file takes place */
++		down(sem_nat_tbl_access);
++	}
++	else
++	{
++		local_irq_restore(flags);
++	}
++
++	if (data != NULL)
++	{
++		fn = data;
++		len = fn (page, count);
++		/* In this setup each read of the proc entries returns the read data by
++		   'fn' to the user. The user keeps issuing read requests as long as the
++		   returned value of 'len' is greater than zero. */
++		*eof = 1;
++		*start = page;
++	}
++	else
++	{
++		len = 0;
++	}
++
++	return len;
++}
++
++#ifdef CONFIG_SVIP_FW_PKT_SNIFFER
++/**
++  Function to read remaining proc entries
++  */
++static int SVIP_NAT_ProcReadGen (char *page, char **start, off_t off,
++				 int count, int *eof, void *data)
++{
++	int (*fn)(char *buf, int size);
++	int len = 0;
++
++	MOD_INC_USE_COUNT;
++
++	if (data == NULL)
++	{
++		MOD_DEC_USE_COUNT;
++		return 0;
++	}
++
++	fn = data;
++	len = fn (page, count);
++
++	if (len <= off + count)
++	{
++		*eof = 1;
++	}
++	*start = page + off;
++	len -= off;
++	if (len > count)
++	{
++		len = count;
++	}
++	if (len < 0)
++	{
++		len = 0;
++	}
++
++	MOD_DEC_USE_COUNT;
++
++	return len;
++}
++#endif
++
++/******************************************************************************/
++/**
++  Function for setting up /proc/net/svip_nat read data
++
++  \arguments
++  buf      - pointer to read buffer
++  count    - size of read buffer
++
++  \return
++  length of read data into buffer
++
++  \remarks:
++  The global variable 'nProcReadIdx' is used to save the table index where
++  the reading of the NAT table stopped. Reading is stopped when the end of
++  the read buffer is approached. On the next itteration the reading continues
++  from the saved index.
++ *******************************************************************************/
++static int SVIP_NAT_ProcReadNAT(char *buf, int count)
++{
++	int i, j;
++	int len = 0;
++	SVIP_NAT_IO_Rule_t *pNatRule;
++
++	if (nProcReadIdx == -1)
++	{
++		nProcReadIdx = 0;
++		return 0;
++	}
++
++	if (nProcReadIdx == 0)
++	{
++		len = sprintf(buf+len,
++			      "Remote host IP  "         /* 16 char */
++			      "Remote host MAC    "      /* 19 char */
++			      "Local host IP  "          /* 15 char */
++			      "Local host MAC     "      /* 19 char */
++			      "Local host UDP  "         /* 16 char */
++			      "Loc->Rem(in/out/err)  "   /* 22 char */
++			      "Rem->Loc(in/out/err)\n\r");
++	}
++
++	for (i = nProcReadIdx; i < SVIP_NAT_RULES_TOTAL; i++)
++	{
++		int slen;
++
++		pNatRule = &pNatTable[i].natRule;
++
++		if (pNatRule->remIP != 0)
++		{
++			/* make sure not to overwrite the buffer */
++			if (count < len+120)
++				break;
++
++			/* remIP */
++			slen = sprintf(buf+len, "%d.%d.%d.%d",
++				       (int)((pNatRule->remIP >> 24) & 0xff),
++				       (int)((pNatRule->remIP >> 16) & 0xff),
++				       (int)((pNatRule->remIP >> 8) & 0xff),
++				       (int)((pNatRule->remIP >> 0) & 0xff));
++			len += slen;
++			for (j = 0; j < (16-slen); j++)
++				len += sprintf(buf+len, " ");
++
++			/* remMAC */
++			slen = 0;
++			for (j = 0; j < ETH_ALEN; j++)
++			{
++				slen += sprintf(buf+len+slen, "%02x%s",
++						pNatRule->remMAC[j], j < ETH_ALEN-1 ? ":" : " ");
++			}
++			len += slen;
++			for (j = 0; j < (19-slen); j++)
++				len += sprintf(buf+len, " ");
++
++			/* locIP */
++			slen = sprintf(buf+len, "%d.%d.%d.%d",
++				       (int)((pNatRule->locIP >> 24) & 0xff),
++				       (int)((pNatRule->locIP >> 16) & 0xff),
++				       (int)((pNatRule->locIP >> 8) & 0xff),
++				       (int)((pNatRule->locIP >> 0) & 0xff));
++			len += slen;
++			for (j = 0; j < (15-slen); j++)
++				len += sprintf(buf+len, " ");
++
++			/* locMAC */
++			slen = 0;
++			for (j = 0; j < ETH_ALEN; j++)
++			{
++				slen += sprintf(buf+len+slen, "%02x%s",
++						pNatRule->locMAC[j], j < ETH_ALEN-1 ? ":" : " ");
++			}
++			len += slen;
++			for (j = 0; j < (19-slen); j++)
++				len += sprintf(buf+len, " ");
++
++			/* locUDP */
++			slen = sprintf(buf+len, "%d", pNatRule->locUDP);
++			len += slen;
++			for (j = 0; j < (16-slen); j++)
++				len += sprintf(buf+len, " ");
++
++			/* NAT statistics, Local to Remote translation */
++			slen = sprintf(buf+len, "(%ld/%ld/%ld)",
++				       pNatTable[i].natStats[SVIP_NAT_STATS_LOC2REM].inPackets,
++				       pNatTable[i].natStats[SVIP_NAT_STATS_LOC2REM].outPackets,
++				       pNatTable[i].natStats[SVIP_NAT_STATS_LOC2REM].outErrors);
++			len += slen;
++			for (j = 0; j < (22-slen); j++)
++				len += sprintf(buf+len, " ");
++
++			/* NAT statistics, Remote to Local translation */
++			len += sprintf(buf+len, "(%ld/%ld/%ld)\n\r",
++				       pNatTable[i].natStats[SVIP_NAT_STATS_REM2LOC].inPackets,
++				       pNatTable[i].natStats[SVIP_NAT_STATS_REM2LOC].outPackets,
++				       pNatTable[i].natStats[SVIP_NAT_STATS_REM2LOC].outErrors);
++		}
++	}
++	if (i == SVIP_NAT_RULES_TOTAL)
++		nProcReadIdx = -1;   /* reading completed */
++	else
++		nProcReadIdx = i;    /* reading still in process, buffer was full */
++
++	return len;
++}
++
++#ifdef CONFIG_SVIP_FW_PKT_SNIFFER
++/**
++  Converts MAC address from ascii to hex respesentaion
++  */
++static int SVIP_NAT_MacAsciiToHex(const char *pMacStr, unsigned char *pMacHex)
++{
++	int i=0, c=0, b=0, n=0;
++
++	memset(pMacHex, 0, ETH_ALEN);
++	while (pMacStr[i] != '\0')
++	{
++		if (n >= 0)
++		{
++			unsigned char nToHex = 0;
++
++			/* check for hex digit */
++			if (pMacStr[i] >= '0' && pMacStr[i] <= '9')
++				nToHex = 0x30;
++			else if (pMacStr[i] >= 'a' && pMacStr[i] <= 'f')
++				nToHex = 0x57;
++			else if (pMacStr[i] >= 'A' && pMacStr[i] <= 'F')
++				nToHex = 0x37;
++			else
++			{
++				if (n != 0)
++				{
++					printk(KERN_ERR "SVIP NAT: invalid MAC address format[%s]\n", pMacStr);
++					return -1;
++				}
++				i++;
++				continue;
++			}
++			n^=1;
++			pMacHex[b] |= ((pMacStr[i] - nToHex)&0xf) << (4*n);
++			if (n == 0)
++			{
++				/* advance to next byte, check if complete */
++				if (++b >= ETH_ALEN)
++					return 0;
++				/* byte completed, next we expect a colon... */
++				c = 1;
++				/* and, do not check for hex digit */
++				n = -1;
++			}
++			i++;
++			continue;
++		}
++		if (c == 1)
++		{
++			if (pMacStr[i] == ':')
++			{
++				/* next we expect hex digit, again */
++				n = 0;
++			}
++			else
++			{
++				printk(KERN_ERR "SVIP NAT: invalid MAC address format[%s]\n", pMacStr);
++				return -1;
++			}
++		}
++		i++;
++	}
++	return 0;
++}
++
++/**
++  Used to set the destination MAC address of a host where incoming
++  SVIP VoFW packets are to be addressed. In case the address is set
++  to 00:00:00:00:00:00 (the default case), the packets will written
++  out to eth0 with its original MAC addess.
++
++  \remark
++usage: 'echo "00:03:19:00:15:D1" > cat /proc/net/svip_nat/snifferMAC'
++*/
++int SVIP_NAT_ProcWriteSnifferMAC (struct file *file, const char *buffer,
++				  unsigned long count, void *data)
++{
++	/* at least strlen("xx:xx:xx:xx:xx:xx") characters, followed by '\0' */
++	if (count >= 18)
++	{
++		int ret;
++
++		ret = SVIP_NAT_MacAsciiToHex(buffer, pSVIP_NAT_SnifferMAC);
++
++		if (ret != 0)
++			return 0;
++
++		if (!(pSVIP_NAT_SnifferMAC[0]==0 && pSVIP_NAT_SnifferMAC[1]==0 &&
++		      pSVIP_NAT_SnifferMAC[2]==0 && pSVIP_NAT_SnifferMAC[3]==0 &&
++		      pSVIP_NAT_SnifferMAC[4]==0 && pSVIP_NAT_SnifferMAC[5]==0))
++		{
++			nSVIP_NAT_SnifferMacSet = 1;
++		}
++	}
++	return count;
++}
++
++/**
++  Used to read the destination MAC address of a sniffer host
++  */
++int SVIP_NAT_ProcReadSnifferMAC (char *buf, int count)
++{
++	int len = 0;
++
++	len = snprintf(buf, count, "%02x:%02x:%02x:%02x:%02x:%02x\n",
++		       pSVIP_NAT_SnifferMAC[0], pSVIP_NAT_SnifferMAC[1],
++		       pSVIP_NAT_SnifferMAC[2], pSVIP_NAT_SnifferMAC[3],
++		       pSVIP_NAT_SnifferMAC[4], pSVIP_NAT_SnifferMAC[5]);
++
++	if (len > count)
++	{
++		printk(KERN_ERR "SVIP NAT: Only part of the text could be put into the buffer\n");
++		return count;
++	}
++
++	return len;
++}
++
++/**
++  Used to switch VoFW message sniffer on/off
++
++  \remark
++usage: 'echo "1" > cat /proc/net/svip_nat/snifferOnOff'
++*/
++int SVIP_NAT_ProcWriteSnifferOnOff (struct file *file, const char *buffer,
++				    unsigned long count, void *data)
++{
++	/* at least one digit expected, followed by '\0' */
++	if (count >= 2)
++	{
++		int ret, nSnifferOnOff;
++
++		ret = sscanf(buffer, "%d", &nSnifferOnOff);
++
++		if (ret != 1)
++			return count;
++
++		if (nSnifferOnOff > 0)
++			nSnifferOnOff = 1;
++
++		nSVIP_NAT_Sniffer = nSnifferOnOff;
++	}
++	return count;
++}
++
++/**
++  Used to read the VoFW message sniffer configuration (on/off)
++  */
++int SVIP_NAT_ProcReadSnifferOnOff (char *buf, int count)
++{
++	int len = 0;
++
++	len = snprintf(buf, count, "%d\n", nSVIP_NAT_Sniffer);
++
++	if (len > count)
++	{
++		printk(KERN_ERR "SVIP NAT: Only part of the text could be put into the buffer\n");
++		return count;
++	}
++
++	return len;
++}
++#endif
++
++/******************************************************************************/
++/**
++  Creates proc read/write entries
++
++  \return
++  0 on success, -1 on error
++  */
++/******************************************************************************/
++static int SVIP_NAT_ProcInstall(void)
++{
++	struct proc_dir_entry *pProcParentDir, *pProcDir;
++	struct proc_dir_entry *pProcNode;
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
++	pProcParentDir = proc_net;
++#else
++	pProcParentDir = init_net.proc_net;
++#endif
++	pProcDir = proc_mkdir(SVIP_NAT_DEVICE_NAME, pProcParentDir);
++	if (pProcDir == NULL)
++	{
++		printk(KERN_ERR "SVIP NAT: cannot create proc dir %s/%s\n\r",
++		       pProcParentDir->name, SVIP_NAT_DEVICE_NAME);
++		return -1;
++	}
++
++	pProcNode = create_proc_read_entry("nat", S_IFREG|S_IRUGO, pProcDir,
++					   SVIP_NAT_ProcRead, (void *)SVIP_NAT_ProcReadNAT);
++	if (pProcNode == NULL)
++	{
++		printk(KERN_ERR "SVIP NAT: cannot create proc entry %s/%s",
++		       pProcDir->name, "nat");
++		return -1;
++	}
++
++#ifdef CONFIG_SVIP_FW_PKT_SNIFFER
++	nSVIP_NAT_Sniffer = 0;
++	/* creates proc entry for switching on/off sniffer to VoFW messages */
++	pProcNode = create_proc_read_entry("snifferOnOff", S_IFREG|S_IRUGO|S_IWUGO,
++					   pProcDir, SVIP_NAT_ProcReadGen, (void *)SVIP_NAT_ProcReadSnifferOnOff);
++	if (pProcNode == NULL)
++	{
++		printk(KERN_ERR "SVIP NAT: cannot create proc entry %s/%s\n\r",
++		       pProcDir->name, "snifferOnOff");
++		return -1;
++	}
++	pProcNode->write_proc = SVIP_NAT_ProcWriteSnifferOnOff;
++
++	memset (pSVIP_NAT_SnifferMAC, 0, ETH_ALEN);
++	nSVIP_NAT_SnifferMacSet = 0;
++	/* creates proc entry for setting MAC address of sniffer host to VoFW messages */
++	pProcNode = create_proc_read_entry("snifferMAC", S_IFREG|S_IRUGO|S_IWUGO,
++					   pProcDir, SVIP_NAT_ProcReadGen, (void *)SVIP_NAT_ProcReadSnifferMAC);
++	if (pProcNode == NULL)
++	{
++		printk(KERN_ERR "SVIP NAT: cannot create proc entry %s/%s\n\r",
++		       pProcDir->name, "snifferMAC");
++		return -1;
++	}
++	pProcNode->write_proc = SVIP_NAT_ProcWriteSnifferMAC;
++#endif
++
++	return 0;
++}
++
++/******************************************************************************/
++/**
++  No actions done here, simply a check is performed if an open has already
++  been performed. Currently only a single open is allowed as it is a sufficient
++  to have hat a single process configuring the SVIP NAT at one time.
++
++  \arguments
++  inode       - pointer to disk file data
++  file        - pointer to device file data
++
++  \return
++  0 on success, else -1
++  */
++/******************************************************************************/
++static int SVIP_NAT_device_open(struct inode *inode, struct file *file)
++{
++	unsigned long flags;
++	struct in_device *in_dev;
++	struct in_ifaddr *ifa;
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++	local_irq_save(flags);
++#else
++	local_save_flags(flags);
++#endif
++
++	if (nDeviceOpen)
++	{
++		MOD_INC_USE_COUNT;
++		local_irq_restore(flags);
++		return 0;
++	}
++
++	/* find pointer to IP address of eth0 */
++	if ((in_dev=in_dev_get(net_devs[SVIP_NET_DEV_ETH0_IDX])) != NULL)
++	{
++		for (ifa = in_dev->ifa_list; ifa != NULL; ifa = ifa->ifa_next)
++		{
++			if (!paddr_eth0 && ifa->ifa_address != 0)
++			{
++				paddr_eth0 = &ifa->ifa_address;
++				continue;
++			}
++			if (paddr_eth0 && ifa->ifa_address != 0)
++			{
++				paddr_eth0_0 = &ifa->ifa_address;
++				break;
++			}
++		}
++		in_dev_put(in_dev);
++	}
++	if (paddr_eth0 == NULL || paddr_eth0_0 == NULL)
++	{
++		local_irq_restore(flags);
++		return -ENODATA;
++	}
++
++	/* find pointer to IP address of veth0 */
++	if ((in_dev=in_dev_get(net_devs[SVIP_NET_DEV_VETH0_IDX])) != NULL)
++	{
++		for (ifa = in_dev->ifa_list; ifa != NULL; ifa = ifa->ifa_next)
++		{
++			if (ifa->ifa_address != 0)
++			{
++				paddr_veth0 = &ifa->ifa_address;
++				pmask_veth0 = &ifa->ifa_mask;
++				break;
++			}
++		}
++		in_dev_put(in_dev);
++	}
++	if (paddr_veth0 == NULL)
++	{
++		local_irq_restore(flags);
++		return -ENODATA;
++	}
++
++	MOD_INC_USE_COUNT;
++	nDeviceOpen++;
++	local_irq_restore(flags);
++
++	return 0;
++}
++
++
++/******************************************************************************/
++/**
++  This function is called when a process closes the SVIP NAT device file
++
++  \arguments
++  inode       - pointer to disk file data
++  file        - pointer to device file data
++
++  \return
++  0 on success, else -1
++
++*/
++/******************************************************************************/
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
++static int SVIP_NAT_device_release(struct inode *inode,
++				   struct file *file)
++#else
++static void SVIP_NAT_device_release(struct inode *inode,
++				    struct file *file)
++#endif
++{
++	unsigned long flags;
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++	save_flags(flags);
++	cli();
++#else
++	local_save_flags(flags);
++#endif
++
++	MOD_DEC_USE_COUNT;
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++	restore_flags(flags);
++#else
++	local_irq_restore(flags);
++#endif
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
++	return 0;
++#endif
++}
++
++
++/******************************************************************************/
++/**
++  This function is called when a process closes the SVIP NAT device file
++
++  \arguments
++  inode       - pointer to disk file data
++  file        - pointer to device file data
++  ioctl_num   - ioctl number requested
++  ioctl_param - pointer to data related to the ioctl number
++
++  \return
++  0 on success, else -1
++
++*/
++/******************************************************************************/
++int SVIP_NAT_device_ioctl (struct inode *inode, struct file *file,
++			   unsigned int ioctl_num, unsigned long ioctl_param)
++{
++	int ret = 0;
++	SVIP_NAT_IO_Rule_t *pNatRule, *pNatRuleIn;
++	SVIP_UDP_PORT_t nPort;
++	int nNatIdx;
++	int bWrite = 0;
++	int bRead = 0;
++	unsigned char *pData = 0;
++	int nSize;
++
++	if (_IOC_DIR(ioctl_num) & _IOC_WRITE)
++		bWrite = 1;
++	if (_IOC_DIR(ioctl_num) & _IOC_READ)
++		bRead = 1;
++	nSize = _IOC_SIZE(ioctl_num);
++
++	if (nSize > sizeof(int))
++	{
++		if (bRead || bWrite)
++		{
++			pData = kmalloc (nSize, GFP_KERNEL);
++			if (bWrite)
++			{
++				if (copy_from_user ((void *)pData, (void *)ioctl_param, nSize) != 0)
++				{
++					printk(KERN_ERR "SVIP NAT: ioctl %x: copy_from_user() failed!\n", ioctl_num);
++					ret = -1;
++					goto error;
++				}
++			}
++		}
++	}
++
++	switch (ioctl_num)
++	{
++	case FIO_SVIP_NAT_RULE_ADD:
++
++		pNatRuleIn = (SVIP_NAT_IO_Rule_t *)pData;
++
++		/* check if destination UDP port is within range */
++		nPort = ntohs(pNatRuleIn->locUDP);
++
++		if (!SVIP_PORT_INRANGE(nPort))
++		{
++			printk(KERN_ERR "SVIP NAT: Error, UDP port(%d) is out of range(%d..%d)\n",
++			       nPort, SVIP_UDP_FROM, SVIP_UDP_TO);
++			ret = -1;
++			goto error;
++		}
++		nNatIdx = SVIP_PORT_INDEX(nPort);
++
++		down(sem_nat_tbl_access);
++		pNatRule = &pNatTable[nNatIdx].natRule;
++
++		/* add rule to the NAT table */
++		pNatRule->remIP  = pNatRuleIn->remIP;
++		memcpy((char *)pNatRule->remMAC, (char *)pNatRuleIn->remMAC, ETH_ALEN);
++		pNatRule->locIP  = pNatRuleIn->locIP;
++		memcpy((char *)pNatRule->locMAC, (char *)pNatRuleIn->locMAC, ETH_ALEN);
++		pNatRule->locUDP = pNatRuleIn->locUDP;
++
++		memset(pNatTable[nNatIdx].natStats, 0,
++		       sizeof(SVIP_NAT_stats_t)*SVIP_NAT_STATS_TYPES);
++		up(sem_nat_tbl_access);
++		break;
++
++	case FIO_SVIP_NAT_RULE_REMOVE:
++
++		pNatRuleIn = (SVIP_NAT_IO_Rule_t *)pData;
++
++		/* check if destination UDP port is within range */
++		nPort = ntohs(pNatRuleIn->locUDP);
++		if (!SVIP_PORT_INRANGE(nPort))
++		{
++			printk(KERN_ERR "SVIP NAT: Error, UDP port(%d) is out of range(%d..%d)\n",
++			       nPort, SVIP_UDP_FROM, SVIP_UDP_TO);
++			ret = -1;
++			goto error;
++		}
++		nNatIdx = SVIP_PORT_INDEX(nPort);
++		down(sem_nat_tbl_access);
++		/* remove rule from the NAT table */
++		memset(&pNatTable[nNatIdx], 0, sizeof(SVIP_NAT_table_entry_t));
++		up(sem_nat_tbl_access);
++		break;
++
++	case FIO_SVIP_NAT_RULE_LIST:
++		{
++			int len;
++			char buf[256];
++
++			down(sem_nat_tbl_access);
++			while (nProcReadIdx != -1)
++			{
++				len = SVIP_NAT_ProcReadNAT(buf, 256);
++				if (len > 0)
++					printk("%s", buf);
++			}
++			nProcReadIdx = 0;
++			up(sem_nat_tbl_access);
++			break;
++		}
++
++	default:
++		printk(KERN_ERR "SVIP NAT: unsupported ioctl (%x) command for device %s\n",
++		       ioctl_num, PATH_SVIP_NAT_DEVICE_NAME);
++		ret = -1;
++		goto error;
++	}
++
++	if (nSize > sizeof(int))
++	{
++		if (bRead)
++		{
++			if (copy_to_user ((void *)ioctl_param, (void *)pData, nSize) != 0)
++			{
++				printk(KERN_ERR "SVIP NAT: ioctl %x: copy_to_user() failed!\n", ioctl_num);
++				ret = -1;
++				goto error;
++			}
++		}
++	}
++
++error:
++	if (pData)
++		kfree(pData);
++
++	return ret;
++}
++
++#if 0
++void dump_msg(unsigned char *pData, unsigned int nLen)
++{
++	int i;
++
++	for (i=0; i<nLen; i++)
++	{
++		if (!i || !(i%16))
++			printk("\n    ");
++		else if (i && !(i%4))
++			printk(" ");
++		printk("%02x", pData[i]);
++	}
++	if (--i%16)
++		printk("\n");
++}
++#endif
++
++/******************************************************************************/
++/**
++  Used to recalculate IP/UDP checksum using the original IP/UDP checksum
++  coming with the packet. The original source and destination IP addresses
++  are accounted for, and, the checksum is updated using the new source and
++  destination IP addresses.
++
++  \arguments
++  skb         - pointer to the receiving socket buffer
++  csum_old    - original checksum
++  saddr_old   - pointer to original source IP address
++  saddr_new   - pointer to new source IP address
++  daddr_old   - pointer to original destination IP address
++  daddr_new   - pointer to new destination IP address
++
++  \return
++  recalculated IP/UDP checksum
++  */
++/******************************************************************************/
++static inline u16 ip_udp_quick_csum(u16 csum_old, u16 *saddr_old, u16 *saddr_new,
++				    u16 *daddr_old, u16 *daddr_new)
++{
++	u32 sum;
++
++	sum = csum_old;
++
++	/* convert back from one's complement */
++	sum = ~sum & 0xffff;
++
++	if (sum < saddr_old[0]) sum += 0xffff;
++	sum -= saddr_old[0];
++	if (sum < saddr_old[1]) sum += 0xffff;
++	sum -= saddr_old[1];
++	if (sum < daddr_old[0]) sum += 0xffff;
++	sum -= daddr_old[0];
++	if (sum < daddr_old[1]) sum += 0xffff;
++	sum -= daddr_old[1];
++
++	sum += saddr_new[0];
++	sum += saddr_new[1];
++	sum += daddr_new[0];
++	sum += daddr_new[1];
++
++	/* take only 16 bits out of the 32 bit sum and add up the carries */
++	while (sum >> 16)
++		sum = (sum & 0xffff)+((sum >> 16) & 0xffff);
++
++	/* one's complement the result */
++	sum = ~sum;
++
++	return (u16)(sum & 0xffff);
++}
++
++
++/******************************************************************************/
++/**
++  Returns a pointer to an ipv4 address assigned to device dev. The ipv4
++  instance checked is pointed to by ifa_start. The function is suited for
++  itterative calls.
++
++  \arguments
++  dev         - pointer to network interface
++  ifa_start   - pointer to ipv4 instance to return ipv4 address assigned
++  to, NULL for the first one
++  ppifa_addr   - output parameter
++
++  \return
++  pointer to the next ipv4 instance, which can be null if ifa_start was
++  the last instance present
++  */
++/******************************************************************************/
++static struct in_ifaddr *get_ifaddr(struct net_device *dev,
++				    struct in_ifaddr *ifa_start, unsigned int **ppifa_addr)
++{
++	struct in_device *in_dev;
++	struct in_ifaddr *ifa = NULL;
++
++	if ((in_dev=in_dev_get(dev)) != NULL)
++	{
++		if (ifa_start == NULL)
++			ifa = in_dev->ifa_list;
++		else
++			ifa = ifa_start;
++		if (ifa)
++		{
++			*ppifa_addr = &ifa->ifa_address;
++			ifa = ifa->ifa_next;
++		}
++		in_dev_put(in_dev);
++		return ifa;
++	}
++	*ppifa_addr = NULL;
++	return NULL;
++}
++
++/******************************************************************************/
++/**
++  This function performs IP NAT for received packets satisfying the
++  following requirements:
++
++  - packet is destined to local IP host
++  - transport protocol type is UDP
++  - destination UDP port is within range
++
++  \arguments
++  skb         - pointer to the receiving socket buffer
++
++  \return
++  returns 1 on performed SVIP NAT, else returns 0
++
++  \remarks
++  When function returns 0, it indicates the caller to pass the
++  packet up the IP stack to make further decision about it
++  */
++/******************************************************************************/
++int do_SVIP_NAT (struct sk_buff *skb)
++{
++	struct net_device *real_dev;
++	struct iphdr *iph;
++	struct udphdr *udph;
++	SVIP_NAT_IO_Rule_t *pNatRule;
++	int nNatIdx, in_eth0, nDir;
++#ifndef VLAN_8021Q_UNUSED
++	int vlan;
++	unsigned short vid;
++#endif /* ! VLAN_8021Q_UNUSED */
++	SVIP_UDP_PORT_t nPort;
++	u32 orgSrcIp, orgDstIp, *pSrcIp, *pDstIp;
++	struct ethhdr *ethh;
++
++	/* do not consider if SVIP NAT device not open. */
++	if (!nDeviceOpen)
++	{
++		return 0;
++	}
++
++	/* consider only UDP packets. */
++	iph = SVIP_NAT_IP_HDR(skb);
++	if (iph->protocol != IPPROTO_UDP)
++	{
++		return 0;
++	}
++
++	udph = (struct udphdr *)((u_int32_t *)iph + iph->ihl);
++	/* consider only packets which UDP port numbers reside within
++	   the predefined SVIP NAT UDP port range. */
++	if ((!SVIP_PORT_INRANGE(ntohs(udph->dest))) &&
++	    (!SVIP_PORT_INRANGE(ntohs(udph->source))))
++	{
++		return 0;
++	}
++
++#ifndef VLAN_8021Q_UNUSED
++	/* check if packet delivered over VLAN. VLAN packets will be routed over
++	   the VLAN interfaces of the respective real Ethernet interface, if one
++	   exists(VIDs must match). Else, the packet will be send out as IEEE 802.3
++	   Ethernet frame */
++	if (skb->dev->priv_flags & IFF_802_1Q_VLAN)
++	{
++		vlan = 1;
++		vid = VLAN_DEV_VLAN_ID(skb->dev);
++		real_dev = VLAN_DEV_REAL_DEV(skb->dev);
++	}
++	else
++	{
++		vlan = 0;
++		vid = 0;
++		real_dev = skb->dev;
++	}
++#endif /* ! VLAN_8021Q_UNUSED */
++
++#ifdef CONFIG_SVIP_FW_PKT_SNIFFER
++	/** Debugging feature which can be enabled by writing,
++	  'echo 1 > /proc/net/svip_nat/snifferOnOff'.
++	  It copies all packets received on veth0 and, sends them out over eth0.
++	  When a destination MAC address is specified through
++	  /proc/net/svip_nat/snifferMAC, this MAC addess will substitute the
++	  original MAC address of the packet.
++	  It is recommended to specify a MAC address of some host where Wireshark
++	  runs and sniffs for this traffic, else you may flood your LAN with
++	  undeliverable traffic.
++
++NOTE: In case of VLAN traffic the VLAN header information is lost. */
++	if (nSVIP_NAT_Sniffer)
++	{
++		if (real_dev == net_devs[SVIP_NET_DEV_VETH0_IDX])
++		{
++			struct sk_buff *copied_skb;
++
++			/* gain the Ethernet header from the skb */
++			skb_push(skb, ETH_HLEN);
++
++			copied_skb = skb_copy (skb, GFP_ATOMIC);
++
++			if (nSVIP_NAT_SnifferMacSet == 1)
++			{
++				ethh = (struct ethhdr *)SVIP_NAT_SKB_MAC_HEADER(copied_skb);
++				memcpy((char *)ethh->h_dest, (char *)pSVIP_NAT_SnifferMAC, ETH_ALEN);
++			}
++			copied_skb->dev = net_devs[SVIP_NET_DEV_ETH0_IDX];
++			dev_queue_xmit(copied_skb);
++
++			/* skip the ETH header again */
++			skb_pull(skb, ETH_HLEN);
++		}
++	}
++#endif
++
++
++	/* check if packet arrived on eth0 */
++	if (real_dev == net_devs[SVIP_NET_DEV_ETH0_IDX])
++	{
++		/* check if destination IP address equals the primary assigned IP address
++		   of interface eth0. This is the case of packets originating from a
++		   remote peer that are to be delivered to a channel residing on THIS
++		   voice linecard system. This is typical SVIP NAT case, therefore this
++		   rule is placed on top. */
++		if (iph->daddr == *paddr_eth0)
++		{
++			nPort = ntohs(udph->dest);
++			nDir = SVIP_NAT_STATS_REM2LOC;
++		}
++		/* check if destination IP address equals the secondary assigned IP address
++		   of interface eth0. This is not a typical SVIP NAT case. It is basically
++		   there, as someone might like for debugging purpose to use the LCC to route
++		   Slave SVIP packets which are part of voice/fax streaming. */
++		else if (iph->daddr == *paddr_eth0_0)
++		{
++			nPort = ntohs(udph->source);
++			nDir = SVIP_NAT_STATS_LOC2REM;
++		}
++#ifndef VLAN_8021Q_UNUSED
++		/* when the packet did not hit the top two rules, here we check if the packet
++		   has addressed any of the IP addresses assigned to the VLAN interface attached
++		   to eth0. This is not recommended approach because of the CPU cost incurred. */
++		else if (vlan)
++		{
++			unsigned int *pifa_addr;
++			struct in_ifaddr *ifa_start = NULL;
++			int i = 0;
++
++			do
++			{
++				ifa_start = get_ifaddr(skb->dev, ifa_start, &pifa_addr);
++				if (!pifa_addr)
++				{
++					/* VLAN packet received on vlan interface attached to eth0,
++					   however no IP address assigned to the interface.
++					   The packet is ignored. */
++					return 0;
++				}
++				if (iph->daddr == *pifa_addr)
++				{
++					/* packet destined to... */
++					break;
++				}
++				if (!ifa_start)
++				{
++					return 0;
++				}
++				i++;
++			} while (ifa_start);
++			if (!i)
++			{
++				/* ...primary assigned IP address to the VLAN interface. */
++				nPort = ntohs(udph->dest);
++				nDir = SVIP_NAT_STATS_REM2LOC;
++			}
++			else
++			{
++				/* ...secondary assigned IP address to the VLAN interface. */
++				nPort = ntohs(udph->source);
++				nDir = SVIP_NAT_STATS_LOC2REM;
++			}
++		}
++#endif /* ! VLAN_8021Q_UNUSED */
++		else
++		{
++			return 0;
++		}
++		in_eth0 = 1;
++	}
++	/* check if packet arrived on veth0 */
++	else if (real_dev == net_devs[SVIP_NET_DEV_VETH0_IDX])
++	{
++		nPort = ntohs(udph->source);
++		nDir = SVIP_NAT_STATS_LOC2REM;
++		in_eth0 = 0;
++	}
++	else
++	{
++		/* packet arrived neither on eth0, nor veth0 */
++		return 0;
++	}
++
++	/* calculate the respective index of the NAT table */
++	nNatIdx = SVIP_PORT_INDEX(nPort);
++	/* process the packet if a respective NAT rule exists */
++	pNatRule = &pNatTable[nNatIdx].natRule;
++
++	ethh = (struct ethhdr *)SVIP_NAT_SKB_MAC_HEADER(skb);
++
++	/* copy packet's original source and destination IP addresses to use
++	   later on to perform efficient checksum recalculation */
++	orgSrcIp = iph->saddr;
++	orgDstIp = iph->daddr;
++
++	if (in_eth0)
++	{
++		u8 *pDstMac;
++
++		/* Process packet arrived on eth0 */
++
++		if (nDir == SVIP_NAT_STATS_REM2LOC && iph->saddr == pNatRule->remIP)
++		{
++			pDstIp = &pNatRule->locIP;
++			pDstMac = pNatRule->locMAC;
++		}
++		else if (nDir == SVIP_NAT_STATS_LOC2REM && iph->saddr == pNatRule->locIP)
++		{
++			pDstIp = &pNatRule->remIP;
++			pDstMac = pNatRule->remMAC;
++		}
++		else
++		{
++			/* Rule check failed. The packet is passed up the layers,
++			   it will be dropped by UDP */
++			return 0;
++		}
++
++		if ((*pDstIp & *pmask_veth0) == (*paddr_veth0 & *pmask_veth0))
++		{
++#ifndef VLAN_8021Q_UNUSED
++			if (vlan)
++			{
++				struct net_device *vlan_dev;
++
++				spin_lock_bh(&vlan_group_lock);
++				vlan_dev = __find_vlan_dev(net_devs[SVIP_NET_DEV_VETH0_IDX], vid);
++				spin_unlock_bh(&vlan_group_lock);
++				if (vlan_dev)
++				{
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++					struct vlan_ethhdr *vethh;
++
++					skb_push(skb, VLAN_ETH_HLEN);
++					/* reconstruct the VLAN header.
++NOTE: priority information is lost */
++					vethh = (struct vlan_ethhdr *)skb->data;
++					vethh->h_vlan_proto = htons(ETH_P_8021Q);
++					vethh->h_vlan_TCI = htons(vid);
++					vethh->h_vlan_encapsulated_proto = htons(ETH_P_IP);
++					ethh = (struct ethhdr *)vethh;
++#else
++					skb_push(skb, ETH_HLEN);
++#endif
++					skb->dev = vlan_dev;
++				}
++				else
++				{
++					skb->dev = net_devs[SVIP_NET_DEV_VETH0_IDX];
++					skb_push(skb, ETH_HLEN);
++				}
++			}
++			else
++#endif /* ! VLAN_8021Q_UNUSED */
++			{
++				skb->dev = net_devs[SVIP_NET_DEV_VETH0_IDX];
++				skb_push(skb, ETH_HLEN);
++			}
++			pSrcIp = paddr_veth0;
++		}
++		else
++		{
++#ifndef VLAN_8021Q_UNUSED
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++			if (vlan)
++			{
++				struct vlan_ethhdr *vethh;
++
++				/* reconstruct the VLAN header.
++NOTE: priority information is lost */
++				skb_push(skb, VLAN_ETH_HLEN);
++				vethh = (struct vlan_ethhdr *)skb->data;
++				vethh->h_vlan_proto = htons(ETH_P_8021Q);
++				vethh->h_vlan_TCI = htons(vid);
++				vethh->h_vlan_encapsulated_proto = htons(ETH_P_IP);
++				ethh = (struct ethhdr *)vethh;
++			}
++			else
++#endif
++#endif /* ! VLAN_8021Q_UNUSED */
++			{
++				skb_push(skb, ETH_HLEN);
++			}
++			/* source IP address equals the destination IP address
++			   of the incoming packet */
++			pSrcIp = &iph->daddr;
++		}
++		iph->saddr = *pSrcIp;
++		memcpy((char *)ethh->h_source, (char *)skb->dev->dev_addr, ETH_ALEN);
++		iph->daddr = *pDstIp;
++		memcpy((char *)ethh->h_dest, (char *)pDstMac, ETH_ALEN);
++	}
++	else
++	{
++		/* Process packet arrived on veth0 */
++
++		if (iph->saddr != pNatRule->locIP)
++		{
++			/* Rule check failed. The packet is passed up the layers,
++			   it will be dropped by UDP */
++			return 0;
++		}
++
++		if (!((pNatRule->remIP & *pmask_veth0) == (*paddr_veth0 & *pmask_veth0)))
++		{
++#ifndef VLAN_8021Q_UNUSED
++			if (vlan)
++			{
++				struct net_device *vlan_dev;
++
++				spin_lock_bh(&vlan_group_lock);
++				vlan_dev = __find_vlan_dev(net_devs[SVIP_NET_DEV_ETH0_IDX], vid);
++				spin_unlock_bh(&vlan_group_lock);
++				if (vlan_dev)
++				{
++					unsigned int *pifa_addr;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++					struct vlan_ethhdr *vethh;
++
++					skb_push(skb, VLAN_ETH_HLEN);
++					/* construct the VLAN header, note priority information is lost */
++					vethh = (struct vlan_ethhdr *)skb->data;
++					vethh->h_vlan_proto = htons(ETH_P_8021Q);
++					vethh->h_vlan_TCI = htons(vid);
++					vethh->h_vlan_encapsulated_proto = htons(ETH_P_IP);
++					ethh = (struct ethhdr *)vethh;
++#else
++					skb_push(skb, ETH_HLEN);
++#endif
++					skb->dev = vlan_dev;
++
++					get_ifaddr(skb->dev, NULL, &pifa_addr);
++					if (pifa_addr)
++					{
++						pSrcIp = pifa_addr;
++					}
++					else
++					{
++						pSrcIp = paddr_eth0;
++					}
++				}
++				else
++				{
++					skb->dev = net_devs[SVIP_NET_DEV_ETH0_IDX];
++					pSrcIp = paddr_eth0;
++					skb_push(skb, ETH_HLEN);
++				}
++			}
++			else
++#endif /* ! VLAN_8021Q_UNUSED */
++			{
++				skb->dev = net_devs[SVIP_NET_DEV_ETH0_IDX];
++				pSrcIp = paddr_eth0;
++				skb_push(skb, ETH_HLEN);
++			}
++		}
++		else
++		{
++			pSrcIp = paddr_veth0;
++#ifndef VLAN_8021Q_UNUSED
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++			if (vlan)
++			{
++				struct vlan_ethhdr *vethh;
++
++				skb_push(skb, VLAN_ETH_HLEN);
++				/* reconstruct the VLAN header.
++NOTE: priority information is lost. */
++				vethh = (struct vlan_ethhdr *)skb->data;
++				vethh->h_vlan_proto = htons(ETH_P_8021Q);
++				vethh->h_vlan_TCI = htons(vid);
++				vethh->h_vlan_encapsulated_proto = htons(ETH_P_IP);
++				ethh = (struct ethhdr *)vethh;
++			}
++			else
++#endif
++#endif /* ! VLAN_8021Q_UNUSED */
++			{
++				skb_push(skb, ETH_HLEN);
++			}
++		}
++		iph->saddr = *pSrcIp;
++		memcpy((char *)ethh->h_source, (char *)skb->dev->dev_addr, ETH_ALEN);
++		iph->daddr = pNatRule->remIP;
++		memcpy((char *)ethh->h_dest, (char *)pNatRule->remMAC, ETH_ALEN);
++	}
++	pNatTable[nNatIdx].natStats[nDir].inPackets++;
++
++	iph->check = ip_udp_quick_csum(iph->check, (u16 *)&orgSrcIp, (u16 *)&iph->saddr,
++				       (u16 *)&orgDstIp, (u16 *)&iph->daddr);
++	if (udph->check != 0)
++	{
++		udph->check = ip_udp_quick_csum(udph->check, (u16 *)&orgSrcIp, (u16 *)&iph->saddr,
++						(u16 *)&orgDstIp, (u16 *)&iph->daddr);
++	}
++
++	/* write the packet out, directly to the network device */
++	if (dev_queue_xmit(skb) < 0)
++		pNatTable[nNatIdx].natStats[nDir].outErrors++;
++	else
++		pNatTable[nNatIdx].natStats[nDir].outPackets++;
++
++	return 1;
++}
++
++/******************************************************************************/
++/**
++  Function executed upon unloading of the SVIP NAT module. It unregisters the
++  SVIP NAT configuration device and frees the memory used for the NAT table.
++
++  \remarks:
++  Currently the SVIP NAT module is statically linked into the Linux kernel
++  therefore this routine cannot be executed.
++ *******************************************************************************/
++static int __init init(void)
++{
++	int ret = 0;
++	struct net_device *dev;
++
++	if (misc_register(&SVIP_NAT_miscdev) != 0)
++	{
++		printk(KERN_ERR "%s: cannot register SVIP NAT device node.\n",
++		       SVIP_NAT_miscdev.name);
++		return -EIO;
++	}
++
++	/* allocation of memory for NAT table */
++	pNatTable = (SVIP_NAT_table_entry_t *)kmalloc(
++						      sizeof(SVIP_NAT_table_entry_t) * SVIP_NAT_RULES_TOTAL, GFP_ATOMIC);
++	if (pNatTable == NULL)
++	{
++		printk (KERN_ERR "SVIP NAT: Error(%d), allocating memory for NAT table\n", ret);
++		return -1;
++	}
++
++	/* clear the NAT table */
++	memset((void *)pNatTable, 0, sizeof(SVIP_NAT_table_entry_t) * SVIP_NAT_RULES_TOTAL);
++
++	if ((sem_nat_tbl_access = kmalloc(sizeof(struct semaphore), GFP_KERNEL)))
++	{
++		sema_init(sem_nat_tbl_access, 1);
++	}
++
++	SVIP_NAT_ProcInstall();
++
++	/* find pointers to 'struct net_device' of eth0 and veth0, respectevely */
++	read_lock(&dev_base_lock);
++	SVIP_NAT_FOR_EACH_NETDEV(dev)
++	{
++		if (!strcmp(dev->name, SVIP_NET_DEV_ETH0_NAME))
++		{
++			net_devs[SVIP_NET_DEV_ETH0_IDX] = dev;
++		}
++		if (!strcmp(dev->name, SVIP_NET_DEV_VETH1_NAME))
++		{
++			net_devs[SVIP_NET_DEV_VETH0_IDX] = dev;
++		}
++		else if (!strcmp(dev->name, SVIP_NET_DEV_ETH1_NAME))
++		{
++			net_devs[SVIP_NET_DEV_VETH0_IDX] = dev;
++		}
++	}
++	read_unlock(&dev_base_lock);
++
++	if (net_devs[SVIP_NET_DEV_ETH0_IDX] == NULL ||
++	    net_devs[SVIP_NET_DEV_VETH0_IDX] == NULL)
++	{
++		printk (KERN_ERR "SVIP NAT: Error, unable to locate eth0 and veth0 interfaces\n");
++		return -1;
++	}
++
++	printk ("%s, (c) 2009, Lantiq Deutschland GmbH\n", &SVIP_NAT_INFO_STR[4]);
++
++	return ret;
++}
++
++/******************************************************************************/
++/**
++  Function executed upon unloading of the SVIP NAT module. It unregisters the
++  SVIP NAT configuration device and frees the memory used for the NAT table.
++
++  \remarks:
++  Currently the SVIP NAT module is statically linked into the Linux kernel
++  therefore this routine cannot be executed.
++ *******************************************************************************/
++static void __exit fini(void)
++{
++	MOD_DEC_USE_COUNT;
++
++	/* unregister SVIP NAT configuration device */
++	misc_deregister(&SVIP_NAT_miscdev);
++
++	/* release memory of SVIP NAT table */
++	if (pNatTable != NULL)
++	{
++		kfree (pNatTable);
++	}
++}
++
++module_init(init);
++module_exit(fini);
+--- /dev/null
++++ b/net/ipv4/svip_nat_pt.c
+@@ -0,0 +1,1212 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++*******************************************************************************
++   Module      : svip_nat_pt.c
++
++   Description : This file contains implementation of Lantiq's
++                 VINETIC-SVIP NAT-Protocol Translation function
++******************************************************************************/
++
++#include <linux/module.h>
++#include <linux/netfilter_ipv4.h>
++#include <linux/if_ether.h>
++#include <linux/netdevice.h>
++#include <linux/inetdevice.h>
++#include <linux/in.h>
++#include <linux/ip.h>
++#include <linux/if_vlan.h>
++#include <linux/udp.h>
++#include <linux/kernel.h>
++#include <linux/version.h>
++#include <linux/proc_fs.h>
++#include <linux/in6.h> /* just to shut up a warning */
++#include <linux/miscdevice.h>
++#include <linux/udp_redirect.h>
++#include <asm/checksum.h>
++
++#include <linux/svip_nat_pt_io.h>
++
++MODULE_AUTHOR("Lantiq Deutschland GmbH");
++MODULE_DESCRIPTION("SVIP NAT Protocol Translation module");
++MODULE_LICENSE("GPL");
++
++#define SVIP_NAT_PT_VERSION "0.1"
++
++#define LTQ_SVIP_NAT_PT_INFO_STR "@(#)SVIP NAT PT, version "SVIP_NAT_PT_VERSION
++#define MODNAME "SVIP NAT PT"
++
++#define SVIP_NAT_RULES_TOTAL  (CONFIG_LTQ_SVIP_NAT_RULES_TOTAL)
++#define SVIP_UDP_FROM         (CONFIG_LTQ_SVIP_NAT_UDP_PORT_BASE)
++#define SVIP_UDP_TO           ((CONFIG_LTQ_SVIP_NAT_UDP_PORT_BASE)+(CONFIG_LTQ_SVIP_NAT_RULES_TOTAL)-1)
++
++#define SVIP_PORT_INRANGE(nPort) \
++   ((nPort) >= (SVIP_UDP_FROM) && (nPort) <= (SVIP_UDP_TO))
++
++#define SVIP_PORT_INDEX(nPort)   (nPort - SVIP_UDP_FROM)
++
++#define SVIP_NET_DEV_ETH0_IDX       0
++#define SVIP_NET_DEV_VETH0_IDX      1
++#define SVIP_NET_DEV_LO_IDX         2
++
++#define SVIP_NET_DEV_ETH0_NAME      "eth0"
++#define SVIP_NET_DEV_ETH1_NAME      "eth1"
++#define SVIP_NET_DEV_VETH1_NAME     "veth0"
++#define SVIP_NET_DEV_LO_NAME        "lo"
++
++#define SVIP_NAT_STATS_LOC2REM   0
++#define SVIP_NAT_STATS_REM2LOC   1
++#define SVIP_NAT_STATS_TYPES     2
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++#define SVIP_NAT_FOR_EACH_NETDEV(d) for_each_netdev(&init_net, dev)
++#else
++#define SVIP_NAT_FOR_EACH_NETDEV(d) for(d=dev_base; dev; dev = dev->next)
++#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0))
++#define MOD_INC_USE_COUNT
++#define MOD_DEC_USE_COUNT
++#endif
++
++typedef struct SVIP_NAT_PT_stats
++{
++   unsigned long           inPackets;
++   unsigned long           outPackets;
++   unsigned long           outErrors;
++} SVIP_NAT_PT_stats_t;
++
++typedef union
++{
++   struct sockaddr_in      addr;
++   struct sockaddr_in6     addr6;
++} u_sockaddr_in;
++
++typedef struct SVIP_NAT_PT_sockdata
++{
++	struct socket           *sock;
++   u_sockaddr_in           sockaddr;
++   unsigned int            sockaddr_len;
++   struct msghdr           msg;
++   struct kvec             iov;
++} SVIP_NAT_PT_sockdata_t;
++
++typedef struct SVIP_NAT_PT_table_entry
++{
++   SVIP_NAT_PT_IO_Rule_t   natRule;
++   SVIP_NAT_PT_stats_t     natStats[SVIP_NAT_STATS_TYPES];
++   SVIP_NAT_PT_sockdata_t  sockdata_loc;
++   SVIP_NAT_PT_sockdata_t  sockdata_rem;
++} SVIP_NAT_PT_table_entry_t;
++
++/* pointer to the SVIP NAT PT table */
++static SVIP_NAT_PT_table_entry_t *pNatPtTable = NULL;
++static struct semaphore *sem_nat_tbl_access;
++static int proc_read_in_progress = 0;
++static int nDeviceOpen = 0;
++/* saves the NAT table index between subsequent invocation */
++static int nProcReadIdx = 0;
++
++static int svip_nat_pt_device_ioctl(struct inode *,struct file *,unsigned int ,unsigned long);
++static int svip_nat_pt_device_release (struct inode *,struct file *);
++static int svip_nat_pt_device_open    (struct inode *,struct file *);
++static int svip_nat_pt_create_sock(SVIP_NAT_PT_table_entry_t *pNatPtEntry, SVIP_NAT_PT_IO_Rule_t *pNatPtRule, int bRem);
++static void svip_nat_pt_release_sock(SVIP_NAT_PT_table_entry_t *pNatPtEntry, int bRem);
++static int svip_nat_pt_create_ipv4_sock(struct socket **psock, SVIP_IPV4_ADDR_t *loc_ipv4, SVIP_UDP_PORT_t nUdp);
++static int svip_nat_pt_create_ipv6_sock(struct socket **psock, SVIP_IPV6_ADDR_t *iff_ipv6, SVIP_UDP_PORT_t nUdp);
++static void svip_nat_pt_prepare_sockaddr(SVIP_NAT_PT_table_entry_t *pNatPtEntry, SVIP_NAT_PT_IO_Rule_t *pNatPtRule, int bRem);
++static int svip_nat_pt_sendmsg (SVIP_NAT_PT_sockdata_t *psockdata, void *data, unsigned int len);
++static int svip_nat_pt_action(struct sock *sk,struct sk_buff *skb);
++
++/* This structure holds the interface functions supported by
++   the SVIP NAT PT configuration device. */
++struct file_operations svip_nat_pt_fops =
++{
++owner:	THIS_MODULE,
++llseek:  NULL,                      /* seek */
++read:    NULL,
++write:   NULL,
++readdir: NULL,                      /* readdir */
++poll:    NULL,                      /* select */
++ioctl:   svip_nat_pt_device_ioctl,  /* ioctl */
++mmap:    NULL,                      /* mmap */
++open:    svip_nat_pt_device_open,   /* open, */
++flush:   NULL,                      /* flush */
++release: svip_nat_pt_device_release /* close */
++};
++
++/** Structure holding MISC module operations */
++static struct miscdevice svip_nat_pt_miscdev =
++{
++   minor:   MINOR_NUM_SVIP_NAT_PT,
++   name:    SVIP_NAT_PT_DEVICE_NAME,
++   fops:    &svip_nat_pt_fops
++};
++
++/******************************************************************************/
++/**
++   Function to read /proc/net/svip_nat/nat proc entry
++
++\arguments
++   page     - pointer to page buffer
++   start    - pointer to start address pointer
++   off      - offset
++   count    - maximum data length to read
++   eof      - end of file flag
++   data     - proc read data (provided by the function
++              pointed to by data)
++
++\return
++   length of read data
++
++\remarks:
++   Each call of this routine forces a copy_to_user of the data returned by
++   'fn'. This routine will be called by the user until 'len = 0'.
++****************************************************************************/
++static int svip_nat_pt_proc_read (char *page, char **start, off_t off,
++   int count, int *eof, void *data)
++{
++   unsigned long flags;
++   int (*fn)(char *buf, int size);
++   int len;
++
++   /* If the NAT table index is negative, the reading has completed */
++   if (nProcReadIdx < 0)
++   {
++      nProcReadIdx = 0;
++      *eof = 1;
++      proc_read_in_progress = 0;
++      up(sem_nat_tbl_access);
++      return 0;
++   }
++
++   local_irq_save(flags);
++   if (!proc_read_in_progress)
++   {
++      proc_read_in_progress = 1;
++      local_irq_restore(flags);
++      /* we use this semaphore in order to ensure no other party(could be ioctl
++         FIO_SVIP_NAT_PT_RULE_LIST), uses function SVIP_NAT_PT_proc_read_nat(), during
++         the time read of the proc file takes place */
++      down(sem_nat_tbl_access);
++   }
++   else
++   {
++      local_irq_restore(flags);
++   }
++
++   if (data != NULL)
++   {
++      fn = data;
++      len = fn (page, count);
++      /* In this setup each read of the proc entries returns the read data by
++         'fn' to the user. The user keeps issuing read requests as long as the
++         returned value of 'len' is greater than zero. */
++      *eof = 1;
++      *start = page;
++   }
++   else
++   {
++      len = 0;
++   }
++
++   return len;
++}
++
++/******************************************************************************/
++/**
++   Function for setting up /proc/net/svip_nat read data
++
++\arguments
++   buf      - pointer to read buffer
++   count    - size of read buffer
++
++\return
++   length of read data into buffer
++
++\remarks:
++   The global variable 'nProcReadIdx' is used to save the table index where
++   the reading of the NAT table stopped. Reading is stopped when the end of
++   the read buffer is approached. On the next itteration the reading continues
++   from the saved index.
++*******************************************************************************/
++static int svip_nat_pt_proc_read_nat(char *buf, int count)
++{
++   int i, j;
++   int len = 0;
++   SVIP_NAT_PT_IO_Rule_t *pNatPtRule;
++
++   if (nProcReadIdx == -1)
++   {
++      nProcReadIdx = 0;
++      return 0;
++   }
++
++   if (nProcReadIdx == 0)
++   {
++      len = sprintf(buf+len,
++                  "rem MAC            " /* 19 char */
++                  "rem IP                                   " /* 41 char */
++                  "rem UDP  " /* 9 char */
++                  "loc MAC            " /* 19 char */
++                  "loc IP                                   " /* 41 char */
++                  "loc UDP  " /* 9 char */
++                  "loc->rem(in/out/err)  " /* 22 char */
++                  "rem->loc(in/out/err)\n\r"); /* 22 char = 182 total */
++
++      len += sprintf(buf+len,
++                  "-----------------  " /* 19 char */
++                  "---------------------------------------  " /* 41 char */
++                  "-------  " /* 9 char */
++                  "-----------------  " /* 19 char */
++                  "---------------------------------------  " /* 41 char */
++                  "-------  " /* 9 char */
++                  "--------------------  " /* 22 char */
++                  "--------------------\n\r");
++   }
++
++   for (i = nProcReadIdx; i < CONFIG_LTQ_SVIP_NAT_RULES_TOTAL; i++)
++   {
++      int slen;
++
++      pNatPtRule = &pNatPtTable[i].natRule;
++
++      if (pNatPtRule->locUDP == 0)
++         continue;
++
++      /* make sure not to overwrite the buffer */
++      if (count < len+182)
++         break;
++
++      /* remMAC */
++      slen = 0;
++      for (j = 0; j < ETH_ALEN; j++)
++      {
++         slen += sprintf(buf+len+slen, "%02x%s",
++                 pNatPtRule->remMAC[j], j < ETH_ALEN-1 ? ":" : " ");
++      }
++      len += slen;
++      for (j = 0; j < (19-slen); j++)
++         len += sprintf(buf+len, " ");
++
++      /* remIP */
++      if (pNatPtRule->remTypeIP == SVIP_IPV4_ADDR_TYPE)
++      {
++         slen = sprintf(buf+len, "%d.%d.%d.%d",
++                     (ntohl(pNatPtRule->remIP.v4) >> 24) & 0xff,
++                     (ntohl(pNatPtRule->remIP.v4) >> 16) & 0xff,
++                     (ntohl(pNatPtRule->remIP.v4) >> 8) & 0xff,
++                     (ntohl(pNatPtRule->remIP.v4) >> 0) & 0xff);
++         len += slen;
++      }
++      else
++      {
++         slen = sprintf(buf+len, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
++                  ntohs(pNatPtRule->remIP.v6.ipv6_addr16[0]), ntohs(pNatPtRule->remIP.v6.ipv6_addr16[1]),
++                  ntohs(pNatPtRule->remIP.v6.ipv6_addr16[2]), ntohs(pNatPtRule->remIP.v6.ipv6_addr16[3]),
++                  ntohs(pNatPtRule->remIP.v6.ipv6_addr16[4]), ntohs(pNatPtRule->remIP.v6.ipv6_addr16[5]),
++                  ntohs(pNatPtRule->remIP.v6.ipv6_addr16[6]), ntohs(pNatPtRule->remIP.v6.ipv6_addr16[7]));
++         len += slen;
++      }
++      for (j = 0; j < (41-slen); j++)
++         len += sprintf(buf+len, " ");
++
++      /* remUDP */
++      slen = sprintf(buf+len, "%d", pNatPtRule->locUDP);
++      len += slen;
++      for (j = 0; j < (9-slen); j++)
++         len += sprintf(buf+len, " ");
++
++
++      /* locMAC */
++      slen = 0;
++      for (j = 0; j < ETH_ALEN; j++)
++      {
++         slen += sprintf(buf+len+slen, "%02x%s",
++                  pNatPtRule->locMAC[j], j < ETH_ALEN-1 ? ":" : " ");
++      }
++      len += slen;
++      for (j = 0; j < (19-slen); j++)
++         len += sprintf(buf+len, " ");
++
++      /* locIP */
++      if (pNatPtRule->locTypeIP == SVIP_IPV4_ADDR_TYPE)
++      {
++         slen = sprintf(buf+len, "%d.%d.%d.%d",
++                     (ntohl(pNatPtRule->locIP.v4) >> 24) & 0xff,
++                     (ntohl(pNatPtRule->locIP.v4) >> 16) & 0xff,
++                     (ntohl(pNatPtRule->locIP.v4) >> 8) & 0xff,
++                     (ntohl(pNatPtRule->locIP.v4) >> 0) & 0xff);
++         len += slen;
++      }
++      else
++      {
++         slen = sprintf(buf+len, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
++                  ntohs(pNatPtRule->locIP.v6.ipv6_addr16[0]), ntohs(pNatPtRule->locIP.v6.ipv6_addr16[1]),
++                  ntohs(pNatPtRule->locIP.v6.ipv6_addr16[2]), ntohs(pNatPtRule->locIP.v6.ipv6_addr16[3]),
++                  ntohs(pNatPtRule->locIP.v6.ipv6_addr16[4]), ntohs(pNatPtRule->locIP.v6.ipv6_addr16[5]),
++                  ntohs(pNatPtRule->locIP.v6.ipv6_addr16[6]), ntohs(pNatPtRule->locIP.v6.ipv6_addr16[7]));
++         len += slen;
++      }
++      for (j = 0; j < (41-slen); j++)
++         len += sprintf(buf+len, " ");
++
++      /* locUDP */
++      slen = sprintf(buf+len, "%d", pNatPtRule->locUDP);
++      len += slen;
++      for (j = 0; j < (9-slen); j++)
++         len += sprintf(buf+len, " ");
++
++      /* NAT statistics, Local to Remote translation */
++      slen = sprintf(buf+len, "(%ld/%ld/%ld)",
++                  pNatPtTable[i].natStats[SVIP_NAT_STATS_LOC2REM].inPackets,
++                  pNatPtTable[i].natStats[SVIP_NAT_STATS_LOC2REM].outPackets,
++                  pNatPtTable[i].natStats[SVIP_NAT_STATS_LOC2REM].outErrors);
++      len += slen;
++      for (j = 0; j < (22-slen); j++)
++         len += sprintf(buf+len, " ");
++
++      /* NAT statistics, Remote to Local translation */
++      len += sprintf(buf+len, "(%ld/%ld/%ld)\n\r",
++                  pNatPtTable[i].natStats[SVIP_NAT_STATS_REM2LOC].inPackets,
++                  pNatPtTable[i].natStats[SVIP_NAT_STATS_REM2LOC].outPackets,
++                  pNatPtTable[i].natStats[SVIP_NAT_STATS_REM2LOC].outErrors);
++   }
++   if (i == CONFIG_LTQ_SVIP_NAT_RULES_TOTAL)
++      nProcReadIdx = -1;   /* reading completed */
++   else
++      nProcReadIdx = i;    /* reading still in process, buffer was full */
++
++   return len;
++}
++
++/******************************************************************************/
++/**
++   Creates proc read/write entries
++
++\return
++   0 on success, -1 on error
++*/
++/******************************************************************************/
++static int svip_nat_pt_proc_install(void)
++{
++   struct proc_dir_entry *pProcParentDir, *pProcDir;
++   struct proc_dir_entry *pProcNode;
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
++   pProcParentDir = proc_net;
++#else
++   pProcParentDir = init_net.proc_net;
++#endif
++   pProcDir = proc_mkdir(SVIP_NAT_PT_DEVICE_NAME, pProcParentDir);
++   if (pProcDir == NULL)
++   {
++      printk(KERN_ERR "SVIP NAT PT: cannot create proc dir %s/%s\n\r",
++            pProcParentDir->name, SVIP_NAT_PT_DEVICE_NAME);
++      return -1;
++   }
++
++   pProcNode = create_proc_read_entry("nat", S_IFREG|S_IRUGO, pProcDir,
++         svip_nat_pt_proc_read, (void *)svip_nat_pt_proc_read_nat);
++   if (pProcNode == NULL)
++   {
++      printk(KERN_ERR "SVIP NAT PT: cannot create proc entry %s/%s",
++            pProcDir->name, "nat");
++      return -1;
++   }
++
++   return 0;
++}
++
++/******************************************************************************/
++/**
++   No actions done here, simply a check is performed if an open has already
++   been performed. Currently only a single open is allowed as it is a sufficient
++   to have hat a single process configuring the SVIP NAT PT at one time.
++
++\arguments
++   inode       - pointer to disk file data
++   file        - pointer to device file data
++
++\return
++   0 on success, else -1
++*/
++/******************************************************************************/
++static int svip_nat_pt_device_open(struct inode *inode, struct file *file)
++{
++   unsigned long flags;
++#if 0 /* debug RMi */
++   struct in_device *in_dev;
++   struct in_ifaddr *ifa;
++#endif
++
++   local_save_flags(flags);
++
++   if (nDeviceOpen)
++   {
++      MOD_INC_USE_COUNT;
++      local_irq_restore(flags);
++      return 0;
++   }
++
++#if 0 /* debug RMi */
++   /* find pointer to IP address of eth0 */
++   if ((in_dev=in_dev_get(net_devs[SVIP_NET_DEV_ETH0_IDX])) != NULL)
++   {
++      for (ifa = in_dev->ifa_list; ifa != NULL; ifa = ifa->ifa_next)
++      {
++         if (!paddr_eth0 && ifa->ifa_address != 0)
++         {
++            paddr_eth0 = &ifa->ifa_address;
++            continue;
++         }
++         if (paddr_eth0 && ifa->ifa_address != 0)
++         {
++            paddr_eth0_0 = &ifa->ifa_address;
++            break;
++         }
++      }
++      in_dev_put(in_dev);
++   }
++   if (paddr_eth0 == NULL || paddr_eth0_0 == NULL)
++   {
++      local_irq_restore(flags);
++      return -ENODATA;
++   }
++
++   /* find pointer to IP address of veth0 */
++   if ((in_dev=in_dev_get(net_devs[SVIP_NET_DEV_VETH0_IDX])) != NULL)
++   {
++      for (ifa = in_dev->ifa_list; ifa != NULL; ifa = ifa->ifa_next)
++      {
++         if (ifa->ifa_address != 0)
++         {
++            paddr_veth0 = &ifa->ifa_address;
++            pmask_veth0 = &ifa->ifa_mask;
++            break;
++         }
++      }
++      in_dev_put(in_dev);
++   }
++   if (paddr_veth0 == NULL)
++   {
++      local_irq_restore(flags);
++      return -ENODATA;
++   }
++#endif
++
++   MOD_INC_USE_COUNT;
++   nDeviceOpen++;
++   local_irq_restore(flags);
++
++   return 0;
++}
++
++
++/******************************************************************************/
++/**
++   This function is called when a process closes the SVIP NAT PT device file
++
++\arguments
++   inode       - pointer to disk file data
++   file        - pointer to device file data
++
++\return
++   0 on success, else -1
++
++*/
++/******************************************************************************/
++static int svip_nat_pt_device_release(struct inode *inode,
++      struct file *file)
++{
++   unsigned long flags;
++
++   local_save_flags(flags);
++
++   MOD_DEC_USE_COUNT;
++
++   local_irq_restore(flags);
++
++   return 0;
++}
++
++
++/******************************************************************************/
++/**
++   This function is called when a process closes the SVIP NAT PT device file
++
++\arguments
++   inode       - pointer to disk file data
++   file        - pointer to device file data
++   ioctl_num   - ioctl number requested
++   ioctl_param - pointer to data related to the ioctl number
++
++\return
++   0 on success, else -1
++
++*/
++/******************************************************************************/
++int svip_nat_pt_device_ioctl (struct inode *inode, struct file *file,
++      unsigned int ioctl_num, unsigned long ioctl_param)
++{
++   int err = 0;
++   SVIP_NAT_PT_table_entry_t *pNatPtEntry;
++   SVIP_NAT_PT_IO_Rule_t *pNatPtRule, *pNatPtRuleIn;
++   SVIP_UDP_PORT_t nPort;
++   int nNatIdx;
++   int bWrite = 0;
++   int bRead = 0;
++   unsigned char *pData = 0;
++   int nSize;
++
++   if (_IOC_DIR(ioctl_num) & _IOC_WRITE)
++      bWrite = 1;
++   if (_IOC_DIR(ioctl_num) & _IOC_READ)
++      bRead = 1;
++   nSize = _IOC_SIZE(ioctl_num);
++
++   if (nSize > sizeof(int))
++   {
++      if (bRead || bWrite)
++      {
++         pData = kmalloc (nSize, GFP_KERNEL);
++         if (bWrite)
++         {
++            if (copy_from_user ((void *)pData, (void *)ioctl_param, nSize) != 0)
++            {
++               printk(KERN_ERR "SVIP NAT PT: ioctl %x: copy_from_user() failed!\n", ioctl_num);
++               err = -1;
++               goto error;
++            }
++         }
++      }
++   }
++
++   switch (ioctl_num)
++   {
++      case FIO_SVIP_NAT_PT_RULE_ADD:
++
++         pNatPtRuleIn = (SVIP_NAT_PT_IO_Rule_t *)pData;
++
++         /* check if the local UDP port is within range */
++         nPort = ntohs(pNatPtRuleIn->locUDP);
++
++         if (!SVIP_PORT_INRANGE(nPort))
++         {
++            printk(KERN_ERR "%s: local UDP port %d is out of range (%d..%d)\n", MODNAME,
++                    nPort, SVIP_UDP_FROM, SVIP_UDP_TO);
++            err = -1;
++            goto error;
++         }
++
++         nNatIdx = SVIP_PORT_INDEX(nPort);
++         pNatPtEntry = &pNatPtTable[nNatIdx];
++
++         down(sem_nat_tbl_access);
++
++			if (pNatPtEntry->sockdata_loc.sock != NULL)
++			{
++            printk(KERN_ERR "%s: NAT PT rule already exists\n", MODNAME);
++            err = -1;
++				up(sem_nat_tbl_access);
++            goto error;
++			}
++
++         pNatPtRule = &pNatPtTable[nNatIdx].natRule;
++
++         if ((err = svip_nat_pt_create_sock(pNatPtEntry, pNatPtRuleIn, 0)) < 0)
++         {
++            memset((void *)pNatPtEntry, 0, sizeof(SVIP_NAT_PT_table_entry_t));
++            up(sem_nat_tbl_access);
++            goto error;
++         }
++         svip_nat_pt_prepare_sockaddr(pNatPtEntry, pNatPtRuleIn, 0);
++
++         if ((err = svip_nat_pt_create_sock(pNatPtEntry, pNatPtRuleIn, 1)) < 0)
++         {
++            memset((void *)pNatPtEntry, 0, sizeof(SVIP_NAT_PT_table_entry_t));
++            up(sem_nat_tbl_access);
++            goto error;
++         }
++         svip_nat_pt_prepare_sockaddr(pNatPtEntry, pNatPtRuleIn, 1);
++
++         /* add rule to the NAT table */
++
++         /* copy remote peer address details */
++         memcpy((void *)pNatPtRule->remMAC, (void *)pNatPtRuleIn->remMAC, ETH_ALEN);
++         pNatPtRule->remTypeIP = pNatPtRuleIn->remTypeIP;
++         if (pNatPtRule->remTypeIP == SVIP_IPV4_ADDR_TYPE)
++         {
++            pNatPtRule->remIP.v4 = pNatPtRuleIn->remIP.v4;
++         }
++         else
++         {
++            pNatPtRule->remIP.v6 = pNatPtRuleIn->remIP.v6;
++         }
++         pNatPtRule->remUDP = pNatPtRuleIn->remUDP;
++
++         /* copy local peer address details */
++         memcpy((void *)pNatPtRule->locMAC, (void *)pNatPtRuleIn->locMAC, ETH_ALEN);
++         pNatPtRule->locTypeIP = pNatPtRuleIn->locTypeIP;
++         if (pNatPtRule->locTypeIP == SVIP_IPV4_ADDR_TYPE)
++         {
++            pNatPtRule->locIP.v4 = pNatPtRuleIn->locIP.v4;
++         }
++         else
++         {
++            pNatPtRule->locIP.v6 = pNatPtRuleIn->locIP.v6;
++         }
++         pNatPtRule->locUDP = pNatPtRuleIn->locUDP;
++
++         memset(pNatPtTable[nNatIdx].natStats, 0,
++            sizeof(SVIP_NAT_PT_stats_t)*SVIP_NAT_STATS_TYPES);
++         up(sem_nat_tbl_access);
++         break;
++
++      case FIO_SVIP_NAT_PT_RULE_REMOVE:
++
++         pNatPtRuleIn = (SVIP_NAT_PT_IO_Rule_t *)pData;
++
++         /* check if destination UDP port is within range */
++         nPort = ntohs(pNatPtRuleIn->locUDP);
++         if (!SVIP_PORT_INRANGE(nPort))
++         {
++            printk(KERN_ERR "SVIP NAT PT: Error, UDP port(%d) is out of range(%d..%d)\n",
++                    nPort, SVIP_UDP_FROM, SVIP_UDP_TO);
++            err = -1;
++            goto error;
++         }
++         nNatIdx = SVIP_PORT_INDEX(nPort);
++         pNatPtEntry = &pNatPtTable[nNatIdx];
++
++         /* remove rule from the NAT table */
++         down(sem_nat_tbl_access);
++         svip_nat_pt_release_sock(pNatPtEntry, 0);
++         svip_nat_pt_release_sock(pNatPtEntry, 1);
++         memset((void *)pNatPtEntry, 0, sizeof(SVIP_NAT_PT_table_entry_t));
++         up(sem_nat_tbl_access);
++         break;
++
++      case FIO_SVIP_NAT_PT_RULE_LIST:
++      {
++         int len;
++         char buf[256];
++
++         down(sem_nat_tbl_access);
++         while (nProcReadIdx != -1)
++         {
++            len = svip_nat_pt_proc_read_nat(buf, 256);
++            if (len > 0)
++               printk("%s", buf);
++         }
++         nProcReadIdx = 0;
++         up(sem_nat_tbl_access);
++         break;
++      }
++
++      default:
++         printk(KERN_ERR "SVIP NAT PT: unsupported ioctl (%x) command for device %s\n",
++               ioctl_num, PATH_SVIP_NAT_PT_DEVICE_NAME);
++         err = -1;
++         goto error;
++   }
++
++   if (nSize > sizeof(int))
++   {
++      if (bRead)
++      {
++         if (copy_to_user ((void *)ioctl_param, (void *)pData, nSize) != 0)
++         {
++            printk(KERN_ERR "SVIP NAT PT: ioctl %x: copy_to_user() failed!\n", ioctl_num);
++            err = -1;
++            goto error;
++         }
++      }
++   }
++
++error:
++   if (pData)
++      kfree(pData);
++
++   return err;
++}
++
++#if 0
++void dump_msg(unsigned char *pData, unsigned int nLen)
++{
++   int i;
++
++   for (i=0; i<nLen; i++)
++   {
++      if (!i || !(i%16))
++         printk("\n    ");
++      else if (i && !(i%4))
++         printk(" ");
++      printk("%02x", pData[i]);
++   }
++   if (--i%16)
++      printk("\n");
++}
++#endif
++
++
++/**
++	Creates UDP socket of the type depending the IP type of the respective peer.
++
++	\param psock				pointer to socket pointer
++   \param pNatPtRule			NAT PT rule data
++	\param bRem					0 for local socket, else for remote socket
++
++   \return
++		on success, *psock contains a pointer to the allocated and successfully bound socket
++						and 0 is returned
++		on error, *psock is NULL and descriptive error code is returned
++*/
++static int svip_nat_pt_create_sock(SVIP_NAT_PT_table_entry_t *pNatPtEntry, SVIP_NAT_PT_IO_Rule_t *pNatPtRule, int bRem)
++{
++	int err;
++	struct socket *sock;
++	SVIP_IP_ADDR_TYPE_t *pTypeIP;
++	SVIP_UDP_PORT_t *pUDP;
++	unsigned int nMagic;
++
++	if (bRem == 0)
++	{
++		/* IP address type of the local stream */
++		pTypeIP = &pNatPtRule->locTypeIP;
++		/* local stream is addressing the remote UDP port */
++		pUDP = &pNatPtRule->remUDP;
++		nMagic = UDP_REDIRECT_LOC_MAGIC;
++	}
++	else
++	{
++		/* IP address type of the remote stream */
++		pTypeIP = &pNatPtRule->remTypeIP;
++		/* remote stream is addressing the local UDP port */
++		pUDP = &pNatPtRule->locUDP;
++		nMagic = UDP_REDIRECT_REM_MAGIC;
++	}
++
++	if (*pTypeIP == SVIP_IPV4_ADDR_TYPE)
++	{
++		if ((err = svip_nat_pt_create_ipv4_sock(&sock, NULL, *pUDP)) < 0)
++			return err;
++	}
++	else
++	{
++		if ((err = svip_nat_pt_create_ipv6_sock(&sock, NULL, *pUDP)) < 0)
++			return err;
++	}
++
++   /* increase the processing priority of the socket to maximum */
++   sock->sk->sk_priority = 6;
++	if (bRem == 0)
++   {
++      /* write the magic identifier in order the UDP packet hook identifies
++         our sockets, and at the same time to distinguish the local from
++         remote peer data, and vice-versa */
++      sock->sk->sk_user_data = (void *)UDP_REDIRECT_LOC_MAGIC;
++      pNatPtEntry->sockdata_loc.sock = sock;
++   }
++   else
++   {
++      sock->sk->sk_user_data = (void *)UDP_REDIRECT_REM_MAGIC;
++      pNatPtEntry->sockdata_rem.sock = sock;
++   }
++
++	return 0;
++}
++
++static void svip_nat_pt_release_sock(SVIP_NAT_PT_table_entry_t *pNatPtEntry, int bRem)
++{
++   struct socket *sock;
++
++	if (bRem == 0)
++      sock = pNatPtEntry->sockdata_loc.sock;
++   else
++      sock = pNatPtEntry->sockdata_rem.sock;
++
++   if (sock)
++      sock_release(sock);
++}
++
++
++/**
++   Creates UDP socket of IPv4 family and binds it to the specified local interface
++	and UDP port number.
++
++	\param psock			pointer to pointer of the socket structure
++   \param ipv4loc       IPv4 address in network byte order of the local interface
++								on which the socket will receive.
++   \param nUdp				UDP port number to bind the socket to
++
++   \return
++	on success, *psock contains a pointer to the allocated and successfully bound socket
++					and 0 is returned
++	on error, *psock is NULL and descriptive error code is returned
++*/
++int svip_nat_pt_create_ipv4_sock(struct socket **psock, SVIP_IPV4_ADDR_t *ipv4loc, SVIP_UDP_PORT_t nUdp)
++{
++	int err;
++	struct sockaddr_in locaddr;
++	struct socket *sock;
++
++	*psock = NULL;
++	/* create IPv4 UDP socket */
++	if ((err = sock_create(PF_INET, SOCK_DGRAM, IPPROTO_UDP, &sock)) < 0)
++	{
++		printk("%s: error creating IPv4 UDP socket (%d)!\n", MODNAME, err);
++		return err;
++	}
++	sock->sk->sk_reuse = 1;
++
++	memset((void *)&locaddr, 0, sizeof(struct sockaddr_in));
++	locaddr.sin_family = AF_INET;
++	if (ipv4loc)
++		locaddr.sin_addr.s_addr = *((__be32 *)ipv4loc);
++	else
++		locaddr.sin_addr.s_addr = INADDR_ANY;
++	locaddr.sin_port = htons(nUdp);
++
++	/* bind the socket */
++	if((err = sock->ops->bind(sock, (struct sockaddr *)&locaddr,
++			sizeof(struct sockaddr))) < 0)
++	{
++		printk("%s: error binding IPv4 UDP socket to address %08x/%d (%d)!\n", MODNAME,
++		ntohl(locaddr.sin_addr.s_addr), nUdp, err);
++		sock_release(sock);
++		return err;
++	}
++
++	if(sock->sk == NULL)
++	{
++		printk("%s: error creating IPv4 UDP socket, sock->sk is NULL!\n", MODNAME);
++		sock_release(sock);
++		return -1;
++	}
++
++	*psock = sock;
++	return 0;
++}
++
++/**
++   Creates UDP socket of IPv6 family and binds it to the specified local interface
++	and UDP port number.
++
++	\param psock			pointer to pointer of the socket structure
++   \param ipv6loc       IPv6 address of the local interface on which the socket
++								will receive
++   \param nUdp				UDP port number to bind the socket to
++
++   \return
++	on success, *psock contains a pointer to the allocated and successfully bound socket
++					and 0 is returned
++	on error, *psock is NULL and descriptive error code is returned
++*/
++int svip_nat_pt_create_ipv6_sock(struct socket **psock, SVIP_IPV6_ADDR_t *ipv6loc, SVIP_UDP_PORT_t nUdp)
++{
++	int err;
++	struct sockaddr_in6 locaddr6;
++	struct socket *sock;
++
++	*psock = NULL;
++	/* create IPv6 UDP socket */
++	if ((err = sock_create(PF_INET6, SOCK_DGRAM, IPPROTO_UDP, &sock)) < 0)
++	{
++		printk("%s: error creating IPv6 UDP socket (%d)!\n", MODNAME, err);
++		return err;
++	}
++	sock->sk->sk_reuse = 1;
++
++	memset((void *)&locaddr6, 0, sizeof(struct sockaddr_in6));
++
++	locaddr6.sin6_family = AF_INET6;
++	if (ipv6loc)
++		locaddr6.sin6_addr = *((struct in6_addr *)ipv6loc);
++	else
++		locaddr6.sin6_addr = in6addr_any;
++	locaddr6.sin6_port = htons(nUdp);
++
++	/* bind the socket */
++	if((err = sock->ops->bind(sock, (struct sockaddr *)&locaddr6,
++			sizeof(struct sockaddr_in6))) < 0)
++	{
++		printk("%s: error binding IPv6 UDP socket to address %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x/%d (%d)!\n", MODNAME,
++				locaddr6.sin6_addr.s6_addr16[7], locaddr6.sin6_addr.s6_addr16[6],
++				locaddr6.sin6_addr.s6_addr16[5], locaddr6.sin6_addr.s6_addr16[4],
++				locaddr6.sin6_addr.s6_addr16[3], locaddr6.sin6_addr.s6_addr16[2],
++				locaddr6.sin6_addr.s6_addr16[1], locaddr6.sin6_addr.s6_addr16[0],
++				nUdp, err);
++		sock_release(sock);
++		return err;
++	}
++
++	if(sock->sk == NULL)
++	{
++		printk("%s: error creating IPv6 UDP socket, sock->sk is NULL!\n", MODNAME);
++		sock_release(sock);
++		return -1;
++	}
++
++
++	*psock = sock;
++	return 0;
++}
++
++/**
++   Prepares the socket address and socket message data structures, i.e.
++   struct sockaddr_in for IPv4 socket or, struct sockaddr_in6 for IPv6 for the
++   direction specified by bRem. By preparing these details once during rule
++   creation, any unnecessary repetition of the same step is omitted which
++   minimizes the processing overhead during packet payload transfer
++   from the incoming socket to the outgoing one.
++
++   \param pNatPtEntry   pointer to the related NAT PT table entry
++   \param pNatPtRule    pointer to the related NAT PT rule data
++   \param bRem          0 for local socket, else for remote
++
++   \return
++      on success 0 is returned
++	   on error, descriptive error code is returned
++*/
++static void svip_nat_pt_prepare_sockaddr(SVIP_NAT_PT_table_entry_t *pNatPtEntry, SVIP_NAT_PT_IO_Rule_t *pNatPtRule, int bRem)
++{
++	SVIP_IP_ADDR_TYPE_t *pTypeIP;
++   SVIP_IP_ADDR_UNION_t *pIP;
++	SVIP_UDP_PORT_t *pUDP;
++   SVIP_NAT_PT_sockdata_t *psockdata;
++
++	if (bRem == 0)
++	{
++		/* IP address type of the local stream */
++		pTypeIP = &pNatPtRule->locTypeIP;
++		/* IP address of the local stream */
++		pIP = &pNatPtRule->locIP;
++		/* local stream receiving UDP port */
++		pUDP = &pNatPtRule->locUDP;
++      psockdata = &pNatPtEntry->sockdata_loc;
++	}
++	else
++	{
++		/* IP address type of the remote stream */
++		pTypeIP = &pNatPtRule->remTypeIP;
++		/* IP address of the remote stream */
++		pIP = &pNatPtRule->remIP;
++		/* remote stream receiving UDP port */
++		pUDP = &pNatPtRule->remUDP;
++      psockdata = &pNatPtEntry->sockdata_rem;
++	}
++
++   if (*pTypeIP == SVIP_IPV4_ADDR_TYPE)
++   {
++      struct sockaddr_in *psockaddr = &psockdata->sockaddr.addr;
++
++      psockaddr->sin_family = AF_INET;
++      psockaddr->sin_port = *pUDP;
++      psockaddr->sin_addr = *((struct in_addr *)pIP);
++      psockdata->sockaddr_len = sizeof(struct sockaddr_in);
++      psockdata->msg.msg_name = (void *)psockaddr;
++      psockdata->msg.msg_namelen = sizeof(struct sockaddr_in);
++   }
++   else
++   {
++      struct sockaddr_in6 *psockaddr6 = &psockdata->sockaddr.addr6;
++
++      psockaddr6->sin6_family = AF_INET6;
++      psockaddr6->sin6_port = *pUDP;
++      psockaddr6->sin6_addr = *((struct in6_addr *)pIP);
++      psockdata->sockaddr_len = sizeof(struct sockaddr_in6);
++      psockdata->msg.msg_name = (void *)psockaddr6;
++      psockdata->msg.msg_namelen = sizeof(struct sockaddr_in6);
++   }
++
++   psockdata->sock->sk->sk_allocation = GFP_ATOMIC;
++   psockdata->msg.msg_flags = MSG_DONTWAIT | MSG_NOSIGNAL;
++}
++
++/**
++   Send the UDP datagram data of length len and pointed to by data.
++
++	\param psockdata     contains the socket and socket address details
++   \param data          pointer to the UDP datagam data
++   \param len           lenght of the datagramd data in bytes
++
++   \return
++      on success 0 is returned
++	   on error, descriptive error code is returned
++*/
++static int svip_nat_pt_sendmsg (SVIP_NAT_PT_sockdata_t *psockdata, void *data, unsigned int len)
++{
++   int err;
++
++   psockdata->iov.iov_base = (void *)data;
++   psockdata->iov.iov_len = len;
++
++   err = kernel_sendmsg(psockdata->sock, &psockdata->msg, &psockdata->iov, 1, len);
++
++   return err;
++}
++
++/**
++   This function wlll be called whenever UDP data is delivered
++   to the socket previously created upon a NAT PT rule addition.
++   Incoming packets' data on a UDP_REDIRECT_LOC_MAGIC socket will
++   be written down to the pairing UDP_REDIRECT_REM_MAGIC socket,
++   and vice-versa.
++
++   \param sk            socket data
++   \param skb           socket buffer containing the data
++
++   \return
++      on success 0 is returned
++      on error, descriptive error code is returned
++*/
++static int svip_nat_pt_action(struct sock *sk, struct sk_buff *skb)
++{
++   int err;
++   SVIP_NAT_PT_table_entry_t *pNatPtEntry;
++   SVIP_NAT_PT_sockdata_t *psockdata;
++   struct udphdr *udph;
++   int offset, len, port, bRem;
++
++   udph = (struct udphdr *)skb->data;
++   if (sk->sk_user_data == (void *)UDP_REDIRECT_LOC_MAGIC)
++   {
++      port = ntohs(udph->source);
++      pNatPtEntry = &pNatPtTable[port - SVIP_UDP_FROM];
++      psockdata = &pNatPtEntry->sockdata_rem;
++      bRem = 0;
++   }
++   else
++   {
++      port = ntohs(udph->dest);
++      pNatPtEntry = &pNatPtTable[port - SVIP_UDP_FROM];
++      psockdata = &pNatPtEntry->sockdata_loc;
++      bRem = 1;
++   }
++   pNatPtEntry->natStats[bRem].inPackets++;
++
++   offset = sizeof(struct udphdr);
++   if ((len = skb->len - offset) < 0)
++      return -1;
++
++   err = svip_nat_pt_sendmsg (psockdata, skb->data + offset, len);
++
++   if (err < 0)
++      pNatPtEntry->natStats[bRem].outErrors++;
++   else
++      pNatPtEntry->natStats[bRem].outPackets++;
++
++   return err;
++}
++
++/******************************************************************************/
++/**
++   Function executed upon unloading of the SVIP NAT PT module. It unregisters the
++   SVIP NAT PT configuration device and frees the memory used for the NAT table.
++
++\remarks:
++   Currently the SVIP NAT PT module is statically linked into the Linux kernel
++   therefore this routine cannot be executed.
++*******************************************************************************/
++static int __init init(void)
++{
++#if 0 /* debug RMi */
++   struct net_device *dev;
++#endif
++
++   if (misc_register(&svip_nat_pt_miscdev) != 0)
++   {
++      printk(KERN_ERR "%s: cannot register SVIP NAT PT device node.\n",
++         svip_nat_pt_miscdev.name);
++      return -EIO;
++   }
++
++   /* allocation of memory for NAT table */
++   pNatPtTable = (SVIP_NAT_PT_table_entry_t *)kmalloc(
++         sizeof(SVIP_NAT_PT_table_entry_t) * CONFIG_LTQ_SVIP_NAT_RULES_TOTAL, GFP_KERNEL);
++   if (pNatPtTable == NULL)
++   {
++      printk (KERN_ERR "SVIP NAT PT: error allocating memory for NAT PT table\n");
++      return -1;
++   }
++
++   /* clear the NAT table */
++   memset((void *)pNatPtTable, 0, sizeof(SVIP_NAT_PT_table_entry_t) * CONFIG_LTQ_SVIP_NAT_RULES_TOTAL);
++
++   if ((sem_nat_tbl_access = kmalloc(sizeof(struct semaphore), GFP_KERNEL)) == NULL)
++   {
++      printk (KERN_ERR "SVIP NAT PT: error allocating memory for semaphore\n");
++      return -1;
++   }
++   sema_init(sem_nat_tbl_access, 1);
++
++   svip_nat_pt_proc_install();
++
++   /* set pointer to the UDP socket hook function */
++   udp_do_redirect_fn = svip_nat_pt_action;
++
++   printk ("%s, (c) 2012, Lantiq Deutschland GmbH\n", &LTQ_SVIP_NAT_PT_INFO_STR[4]);
++
++   return 0;
++}
++
++
++/******************************************************************************/
++/**
++   Function executed upon unloading of the SVIP NAT PT module. It unregisters the
++   SVIP NAT PT configuration device and frees the memory used for the NAT table.
++
++\remarks:
++   Currently the SVIP NAT PT module is statically linked into the Linux kernel
++   therefore this routine cannot be executed.
++*******************************************************************************/
++static void __exit fini(void)
++{
++   int i;
++   SVIP_NAT_PT_table_entry_t *pNatPtEntry;
++   unsigned long flags;
++
++   down(sem_nat_tbl_access);
++
++   /* unregister SVIP NAT PT configuration device */
++   misc_deregister(&svip_nat_pt_miscdev);
++
++   if (pNatPtTable == NULL)
++   {
++      up(sem_nat_tbl_access);
++      return;
++   }
++
++   /* clear UDP REDIRECT callback function */
++   udp_do_redirect_fn = NULL;
++
++   /* go through all rules and release the sock data structure */
++   for (i = 0; i < CONFIG_LTQ_SVIP_NAT_RULES_TOTAL; i++)
++   {
++      pNatPtEntry = &pNatPtTable[i];
++
++      if (pNatPtEntry->sockdata_loc.sock == NULL)
++         continue;
++
++      svip_nat_pt_release_sock(pNatPtEntry, 0);
++      svip_nat_pt_release_sock(pNatPtEntry, 1);
++   }
++   kfree (pNatPtTable);
++
++   MOD_DEC_USE_COUNT;
++
++   local_save_flags(flags);
++   up(sem_nat_tbl_access);
++   kfree(sem_nat_tbl_access);
++   local_irq_restore(flags);
++}
++
++module_init(init);
++module_exit(fini);
++

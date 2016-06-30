@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then
+        . /tmp/mtlk_init_platform.sh
+fi
+
+apIndex=$1
+
+print2log DBG "running wave_wlan_get_wps_dyn_info"
+timestamp "wave_wlan_get_wps_dyn_info:$apIndex:begin"
+
+uuid=`host_api get $$ $apIndex UUID_WPS`
+
+echo "UUID=\"$uuid\""
+
+print2log DBG "wave_wlan_get_wps_dyn_info done"
+timestamp "wave_wlan_get_wps_dyn_info:$apIndex:done"

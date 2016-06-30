@@ -1,0 +1,17 @@
+#!/bin/sh
+#$1 -- Opertaion
+#$2 -- Protocol - UDP/TCP
+#$3 -- Port 
+	if [ -n "$1" -a "$1" = "add" ]; then
+		#Delete before Add
+		/usr/sbin/iptables -D INPUT -p $2 --dport $3 -j ACCEPT 
+		/usr/sbin/iptables -A INPUT -p $2 --dport $3 -j ACCEPT 
+
+	elif [ -n "$1" -a "$1" = "intport" ]; then
+		##Internal Port for Sock messages
+		/usr/sbin/iptables -I INPUT -p udp --dport $3 -i lo -j ACCEPT 
+		/usr/sbin/iptables -I OUTPUT -p udp --dport $3 -o lo -j ACCEPT
+	else
+		/usr/sbin/iptables -D INPUT -p $2 --dport $3 -j ACCEPT
+	fi
+

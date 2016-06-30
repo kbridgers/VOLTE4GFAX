@@ -1,0 +1,143 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+apIndex=$1
+
+timestamp "wave_wlan_get_link_status:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+SignalStrength=0
+
+get_quality ()
+{
+	#Quality: none Poor Bad Normal Good Excellent
+	signal="none"	
+	rssi=$SignalStrength	
+
+	if [ $rssi -lt -83 ] #include 84
+	then
+		signal="Poor"	
+	fi
+	if [ $rssi -gt -84 ] && [ $rssi -lt -77 ] #include 83 and 78
+	then
+		signal="Bad"	
+	fi
+	if [ $rssi -gt -76 ] && [ $rssi -lt -71 ] #include 77 and 72
+	then
+		signal="Normal"	
+	fi
+	if [ $rssi -gt -72 ] && [ $rssi -lt -65 ] #include 73 and 66
+	then
+		signal="Good"	
+	fi
+	if [ $rssi -gt -66 ]
+	then
+		signal="Excellent"	
+	fi
+	echo $signal
+}
+
+max2 ()
+{
+	if [ "$1" -gt "$2" ]
+	then
+	    #return $1
+	    echo $1
+	else
+	    #return $2
+	    echo $2
+	fi
+}
+
+
+get_signal_strength ()
+{
+	RSSI_ARRAY=`$BINDIR/mtdump $wlan constatus | awk -F "|" '/[0-9a-fA-F][0-9a-fA-F]:/ {print $2}'`
+	# gets all '-' from param in order to know how many rssi we have, then count them
+	rssi_size=`echo $RSSI_ARRAY | sed 's/[^-]*//g' | wc -c`
+	#echo $RSSI_ARRAY
+	#echo $rssi_size
+	# wc returns chars+1, fix it to number og real occurances of '-'
+	rssi_size=`expr $rssi_size - 1`
+	rssi=-1000
+
+	if [ $rssi_size -gt 1 ]
+	then
+		for f in $RSSI_ARRAY; do
+			#echo $f
+			rssi=`max2 $rssi $f`
+			# max2 $rssi $f
+			# rssi=$?
+		done
+	else
+		rssi=`$RSSI_ARRAY`
+	fi
+	
+	SignalStrength=$rssi
+
+	#echo $rssi
+	#return $rssi
+}
+
+
+#connection:
+#macs=`$BINDIR/mtdump $wlan constatus | awk '/[0-9a-fA-F][0-9a-fA-F]:/ {print $1}'`
+#if [ ! $macs ]
+#then
+#	connected=0
+#else
+#	connected=1
+#fi 
+status=`/tmp/wpa_cli status | awk -F '=' '/^wpa_state/ {print $2}'`
+if [ "$status" = "COMPLETED" ]
+then
+   connected=1
+else
+   connected=0
+fi
+
+#rate:
+txRate=`$BINDIR/mtdump $wlan constatus | awk -F "|" '/[0-9a-fA-F][0-9a-fA-F]:/ {print $3}'`
+#cancel heading space from txRate
+txRate=`echo $txRate | sed 's/[:space:]*//'`
+
+#signal strength:
+#call function, set global param in function as return negative not enabled
+get_signal_strength
+#echo $SignalStrength
+
+#link quality:
+quality=`get_quality`
+
+#Finding channel:
+iwlist wlan0 chan > /tmp/iwlist_chan
+channel=`awk -F "=" '/Current/ {if (length($2) > 1) print $2; else print "0"$2}' /tmp/iwlist_chan`
+
+# Finding band
+band=`awk -v channel=$channel  '{curr=match($0, "Channel "channel); if (curr > 0) {if ($4 > 3) print "5.2"; else print "2.4"}}' /tmp/iwlist_chan`
+
+# Finding 20/40:
+bw=`iwlist wlan0 rate | awk 'BEGIN {rate=20} ; /Mb/ {if ($1 > 150) rate=40} ; END {print rate}'`
+
+# Finding Country
+NeverConnected = host_api get $$ 0 NeverConnected
+if [ $NeverConnected = 0 ];	then
+	country=`iwpriv wlan0 gCountry | awk -F ":" '{print $2}'`
+	echo "Country=\"$country\""
+fi
+
+echo "connected=\"$connected\""
+echo "channel=\"$channel\""
+echo "band=\"$band\""
+echo "bw=\"$bw\""
+echo "txRate=\"$txRate\""
+echo "signalStrength=\"$SignalStrength\""
+echo "quality=\"$quality\""
+
+timestamp "wave_wlan_get_link_status:$apIndex:done"

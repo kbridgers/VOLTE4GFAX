@@ -1,0 +1,8 @@
+#!/bin/sh
+
+#Sumedh: Stop all application filters, irrespective of their current state.
+	/usr/sbin/naptcfg --APP_FILTER 0
+	/usr/sbin/naptcfg --APP_FILTER_MSN 0
+	/usr/sbin/naptcfg --APP_FILTER_YAHOO 0
+#	/usr/sbin/naptcfg --APP_FILTER_ICQ 0
+#	/usr/sbin/naptcfg --APP_FILTER_REAL 0

@@ -1,0 +1,64 @@
+Index: arp-scan-1.8.1/configure
+===================================================================
+--- arp-scan-1.8.1.orig/configure
++++ arp-scan-1.8.1/configure
+@@ -3473,7 +3473,7 @@ rm -f core conftest.err conftest.$ac_obj
+     { echo "$as_me:$LINENO: checking whether ${CC} accepts -fstack-protector" >&5
+ echo $ECHO_N "checking whether ${CC} accepts -fstack-protector... $ECHO_C" >&6; }
+     ssp_old_cflags="$CFLAGS"
+-    CFLAGS="$CFLAGS -fstack-protector"
++    #CFLAGS="$CFLAGS -fstack-protector"
+     cat >conftest.$ac_ext <<_ACEOF
+ /* confdefs.h.  */
+ _ACEOF
+@@ -3919,6 +3919,7 @@ fi
+ 
+ { echo "$as_me:$LINENO: checking for library containing pcap_open_live" >&5
+ echo $ECHO_N "checking for library containing pcap_open_live... $ECHO_C" >&6; }
++if 0; then
+ if test "${ac_cv_search_pcap_open_live+set}" = set; then
+   echo $ECHO_N "(cached) $ECHO_C" >&6
+ else
+@@ -3977,7 +3978,6 @@ sed 's/^/| /' conftest.$ac_ext >&5
+ 
+ 
+ fi
+-
+ rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
+       conftest$ac_exeext
+   if test "${ac_cv_search_pcap_open_live+set}" = set; then
+@@ -4068,6 +4068,8 @@ echo "$as_me: error: Check that the pcap
+ 
+ fi
+ 
++fi
++
+ rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
+       conftest$ac_exeext conftest.$ac_ext
+ 
+@@ -5659,7 +5661,7 @@ cat >>confdefs.h <<_ACEOF
+ #define ARP_UINT64 $UINT64_TYPE
+ _ACEOF
+ 
+-
++if 0; then
+ if test "$HAVE_LONG_LONG_INT_64" = yes ; then
+   { echo "$as_me:$LINENO: checking snprintf format for long long int" >&5
+ echo $ECHO_N "checking snprintf format for long long int... $ECHO_C" >&6; }
+@@ -5760,6 +5762,7 @@ else
+   UINT64_FORMAT='"%lu"'
+ fi
+ 
++fi
+ 
+ cat >>confdefs.h <<_ACEOF
+ #define ARP_INT64_FORMAT $INT64_FORMAT
+@@ -5778,8 +5781,6 @@ _ACEOF
+ 
+ 
+ 
+-
+-
+ for ac_func in malloc gethostbyname gettimeofday inet_ntoa memset select socket strerror
+ do
+ as_ac_var=`echo "ac_cv_func_$ac_func" | $as_tr_sh`

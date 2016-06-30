@@ -1,0 +1,120 @@
+#!/bin/sh
+
+MFILTER_CHAIN="mac_filter"
+
+mfilter_resetvar()
+{
+	MFILTER_STATUS=""
+	MFILTER_MACADDR=""
+	MFILTER_DAYS=""
+	MFILTER_TIME_START=""
+	MFILTER_TIME_END=""
+	MFILTER_TARGET=""
+	MFILTER_DAYSELECTION=""
+}
+mfilter_create_chain()
+{
+	ipt -N ${MFILTER_CHAIN}
+	ipt -A lan2wan_forward -j ${MFILTER_CHAIN}
+}
+
+mfilter_populate_days()
+{
+	word=$1
+	len=${#word}
+	c=0
+	MFILTER_DAYS="--weekdays "
+	while [ $c -lt $len ] 
+	do
+		letter=${word:${c}:1}
+		if [ "$letter" == "1" ]; then
+			case $c in
+			0)
+				MFILTER_DAYS="${MFILTER_DAYS}Mon,"
+				;;
+			1)
+				MFILTER_DAYS="${MFILTER_DAYS}Tue,"
+				;;
+			2)
+				MFILTER_DAYS="${MFILTER_DAYS}Wed,"
+				;;
+			3)
+				MFILTER_DAYS="${MFILTER_DAYS}Thu,"
+				;;
+			4)
+				MFILTER_DAYS="${MFILTER_DAYS}Fri,"
+				;;
+			5)
+				MFILTER_DAYS="${MFILTER_DAYS}Sat,"
+				;;
+			6)
+				MFILTER_DAYS="${MFILTER_DAYS}Sun,"
+				;;
+			esac
+		fi
+		c=$(($c+1))
+	done
+	if [ "${MFILTER_DAYS}" == "--weekdays " ]; then
+		MFILTER_DAYS=""
+	fi
+	MFILTER_DAYS=$(echo $MFILTER_DAYS | sed s/,$//)
+}
+
+mfilter_populate_rule()
+{
+	mfilter_resetvar
+	eval MFILTER_MACADDR='$'PC_MACADDR${1}
+	eval MFILTER_TIME_START='$'PC_TIMESTART${1}
+	eval MFILTER_TIME_END='$'PC_TIMEEND${1}
+	eval MFILTER_STATUS='$'PC_STATUS${1}
+	case $MFILTER_STATUS in
+	1)
+		MFILTER_TARGET="DROP"
+		;;
+	2)
+		MFILTER_TARGET="RETURN"
+		;;
+	*)
+		return
+	esac
+	eval MFILTER_DAYSELECTION='$'PC_DAYSELECTION${1}
+	mfilter_populate_days ${MFILTER_DAYSELECTION}
+}
+
+mfilter_forward_init()
+{
+	rule_count=$PC_Count
+	count=0
+	if [ $MAC_control -ne 0 2>/dev/null ]; then
+		mfilter_create_chain
+		while [ $count -lt $rule_count ]
+		do
+			idx=$count
+			count=$(($count + 1))
+			
+			eval enable='$'PC_STATUS${idx}
+			if [ $enable -eq 0 2>/dev/null ] ; then
+				continue;
+			else
+				mfilter_populate_rule ${idx}
+				ipt -A ${MFILTER_CHAIN} -m mac --mac-source ${MFILTER_MACADDR} -p all -m time --timestart ${MFILTER_TIME_START} --timestop ${MFILTER_TIME_END} $MFILTER_DAYS -j $MFILTER_TARGET
+			fi
+		done
+		case $MAC_control in
+		1)	#Deny all
+			ipt -A ${MFILTER_CHAIN} -j DROP
+			;;
+		2)	#Permit all
+			#ipt -A ${MFILTER_CHAIN} -j RETURN
+			;;
+		esac
+
+	fi
+}
+
+is_firewall_enabled
+if [ $? -eq 1 -a  $MAC_control -ne 0 2>/dev/null ]; then
+	FW_FILTER_FORWARD_INIT=mfilter_forward_init
+else
+	return 255	#exlucde plugin
+fi

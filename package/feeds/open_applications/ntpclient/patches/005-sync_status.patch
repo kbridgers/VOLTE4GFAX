@@ -1,0 +1,25 @@
+--- ntpclient-2007.old/ntpclient.c	2012-08-21 15:29:41.623831000 +0530
++++ ntpclient-2007/ntpclient.c	2012-08-21 15:28:45.455367000 +0530
+@@ -503,6 +503,7 @@
+ 	struct sockaddr sa_xmit;
+ 	int i, pack_len, probes_sent, error;
+ 	unsigned int sa_xmit_len;
++	char ntpbuf[512];
+ 	struct timeval to;
+ 	struct ntptime udp_arrival_ntp;
+ 	static u32 incoming_word[325];
+@@ -544,8 +545,14 @@
+ 			if (check_source(pack_len, &sa_xmit, sa_xmit_len, ntpc)!=0) continue;
+ 			if (rfc1305print(incoming_word, &udp_arrival_ntp, ntpc, &error)!=0) continue;
+ 			/* udp_handle(usd,incoming,pack_len,&sa_xmit,sa_xmit_len); */
++			sprintf (ntpbuf, "/usr/sbin/status_oper SET \"ntp_status\" STATUS \"2\"");
++			system (ntpbuf);
++			system("/usr/sbin/ifx_event_util \"NTP_SYNC_STATUS_CHANGE\" \"2\"");
+                         success++;
+ 		} else {
++			sprintf (ntpbuf, "/usr/sbin/status_oper SET \"ntp_status\" STATUS \"3\"");
++                        system (ntpbuf);
++			system("/usr/sbin/ifx_event_util \"NTP_SYNC_STATUS_CHANGE\" \"3\"");
+ 			printf("Ooops.  pack_len=%d\n",pack_len);
+ 			fflush(stdout);
+ 		}

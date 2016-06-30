@@ -1,0 +1,23 @@
+#!/bin/sh
+
+case "$1" in
+	start)
+		#start
+		shift
+		. /etc/rc.d/rc.bringup_wan_services_start $@
+		;;
+	stop)
+		#stop
+		shift
+		. /etc/rc.d/rc.bringup_wan_services_stop $@
+		;;
+	restart)
+		#restart
+		shift
+		. /etc/rc.d/rc.bringup_wan_services_stop $@
+		. /etc/rc.d/rc.bringup_wan_services_start $@
+		;;
+	*)
+		echo $"Usage $0 {start|stop|restart}"
+		#exit 1
+esac

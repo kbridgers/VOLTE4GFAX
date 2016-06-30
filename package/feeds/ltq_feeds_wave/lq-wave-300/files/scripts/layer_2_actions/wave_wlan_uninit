@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+$ETC_PATH/mtlk_insmod_wls_driver.sh stop
+$ETC_PATH/mtlk_wls_links.sh stop
+#$ETC_PATH/mtlk_init_bcl_server.sh stop
+$ETC_PATH/wave_wlan_init_rtlogger.sh stop
+return

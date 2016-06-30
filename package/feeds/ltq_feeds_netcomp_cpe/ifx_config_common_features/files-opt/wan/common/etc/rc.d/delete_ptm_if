@@ -1,0 +1,47 @@
+#!/bin/sh
+#$1= iface_name, $2=vlanid, $3=wan_mode
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+if [ $# -eq 1 ]; then
+	/sbin/ifconfig ${1} down
+
+	# Remove WAN interface from PPA
+	. /etc/rc.d/ppa_config.sh delwan ${1}
+
+	# TBD : status update needs to happen
+# Remove PTM interfaces on ptm0
+elif [ $# -ne 1 ]; then
+	if [ "$2" = "-1" ]; then
+		/sbin/ifconfig ${1} down
+		# Remove WAN interface from PPA
+		. /etc/rc.d/ppa_config.sh delwan ${1}
+	else
+		if [ -n "$CONFIG_FEATURE_DSL_BONDING_SUPPORT" -a "A$CONFIG_FEATURE_DSL_BONDING_SUPPORT" = "A1" -a "$2" -ne "0" ]; then
+			. /etc/rc.d/ltq_switch_functions.sh 2>/dev/null
+
+			# reset the port member for port 11 for bonding
+			reset_port_member ${2} 11 1 2>/dev/null
+			# delete VLAN with id ${2}
+			delete_vlanid ${2}
+		fi
+		/sbin/ifconfig ${1}.${2} down
+		/sbin/vconfig rem ${1}.${2}
+		# Remove WAN interface from PPA
+		. /etc/rc.d/ppa_config.sh delwan ${1}.${2}
+	fi
+
+	# TBD : status update needs to happen
+fi
+

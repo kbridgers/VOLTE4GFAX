@@ -1,0 +1,23 @@
+register the mapping for ICU as default
+
+--- a/arch/mips/lantiq/irq.c
++++ b/arch/mips/lantiq/irq.c
+@@ -308,6 +308,7 @@ static const struct irq_domain_ops irq_d
+ 	.xlate = irq_domain_xlate_onetwocell,
+ 	.map = icu_map,
+ };
++static struct irq_domain *icu_domain;
+ 
+ static struct irqaction cascade = {
+ 	.handler = no_action,
+@@ -375,8 +376,9 @@ int __init icu_of_init(struct device_nod
+ 		set_vi_handler(7, ltq_hw5_irqdispatch);
+ 	}
+ 
+-	irq_domain_add_linear(node, 6 * INT_NUM_IM_OFFSET,
++	icu_domain = irq_domain_add_linear(node, 6 * INT_NUM_IM_OFFSET,
+ 		&irq_domain_ops, 0);
++	irq_set_default_host(icu_domain);
+ 
+ #if defined(CONFIG_MIPS_MT_SMP)
+ 	if (cpu_has_vint) {

@@ -1,0 +1,33 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#	if [ -f /var/run/ppp-pppoatm-$1.pid ]; then 
+#	/etc/rc.d/killproc ppp-pppoatm-$1
+#	else
+#		PS_PID="`ps |grep pppoatm$1`"
+#		PID="`echo $PS_PID |cut -d 'r' -f1`"
+#		if [ -n "$PID" ]; then
+#			kill -TERM $PID
+#		fi
+#	fi
+if [ "`/usr/sbin/status_oper GET bringup_wanppp${1}_if status`" = "start" ]; then 
+	. /etc/rc.d/rc.bringup_wanppp_services_stop $1
+fi
+
+	. /etc/rc.d/init.d/kill_ppp_proc $1 "OA"
+	/usr/sbin/status_oper SET WanPPP${1}_IF_Info STATUS DISCONNECT
+	/usr/sbin/status_oper SET "WANPPP${1}_DNS_SERVER" DNS1 0
+	#sleep 2
+	/usr/sbin/status_oper SET bringup_wanppp$1_pppoa status stop

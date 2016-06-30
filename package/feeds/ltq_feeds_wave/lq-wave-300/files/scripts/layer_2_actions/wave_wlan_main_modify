@@ -1,0 +1,42 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "running wave_wlan_main_modify: args: $*"	
+
+# Optimization: What should be the final state of the interface: (set to IF_DOWN if another script will bring up the interface)
+if_state=$3
+if [ "$if_state" = "" ]
+then
+	if_state=$IF_UP
+fi
+
+timestamp "wave_wlan_main_modify:$apIndex:begin"
+
+apIndex=$1
+ssidChanged=$2
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+# Bring interface down
+ifconfig $wlan down
+
+# Config driver params
+$ETC_PATH/mtlk_set_driver_params.sh reconfigure ${apIndex} wlan_main
+
+# TODO: Bring interface up
+#ifconfig $wlan up
+
+# If ESSID was changed, recreate hostapd config file, if not just reload existing file
+if [ "$ssidChanged" = "$SSID_CHANGED" ]
+then
+	$ETC_PATH/wave_wlan_sec_modify $apIndex $if_state
+else
+	# Driver limitation: reset security after doing ifconfig down
+	$ETC_PATH/mtlk_init_hostapd.sh reload $apIndex $if_state
+fi
+print2log DBG "wave_wlan_main_modify: Done"
+timestamp "wave_wlan_main_modify:$apIndex:done"

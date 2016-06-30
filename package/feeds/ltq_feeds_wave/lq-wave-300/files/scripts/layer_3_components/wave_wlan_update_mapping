@@ -1,0 +1,118 @@
+#!/bin/sh
+return_status=true
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+command=$1
+apIndex=$2
+
+create_mapping_db()
+{
+	print2log DBG "wave_wlan_update_mapping: Start creating mapping db"
+	# Create the WAVE mapping file if it doesn't exist.
+	if [ ! -e $WAVE_MAP_CPEID ]
+	then
+		touch $WAVE_MAP_CPEID
+	fi
+	print2log DBG "wave_wlan_update_mapping: Adding wlan0 to mapping db"
+	# Add wlan0 to mapping file
+
+	# Check which index is the first WAVE interface, if it isn't 0, it must be 1.
+	index0VendorName=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_ss" "wlss_0_vendor"`
+	
+	if [ "$index0VendorName" = "$WAVE_VENDOR_NAME" ]
+	then
+		apIndex=0
+	else
+		apIndex=1
+	fi
+	cpeId=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_main" "wlmn_${apIndex}_cpeId"`
+	$STATUS_OPER -f $WAVE_MAP_CPEID -a SET "$WAVE_MAP_SECTION" "wlmap_$cpeId" "wlan0"
+	
+	# If 2 WAVE interfaces exist, index 1 is used for wlan1, add it to mapping file.
+	wlan_count=`host_api get $$ sys wlan_count`
+	if [ "$wlan_count" = "2"  ]
+	then
+		print2log DBG "wave_wlan_update_mapping: Adding wlan1 to mapping db"
+		apIndex=1
+		cpeId=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_main" "wlmn_${apIndex}_cpeId"`
+		$STATUS_OPER -f $WAVE_MAP_CPEID -a SET "$WAVE_MAP_SECTION" "wlmap_$cpeId" "wlan1"
+	fi
+	print2log DBG "wave_wlan_update_mapping: Done creating mapping db and adding physical interfaces"
+}
+
+update_mapping_on_add()
+{
+	print2log DBG "wave_wlan_update_mapping: Start update on add" 
+	if [ -e $WAVE_MAP_CPEID ]
+	then
+		cpeId=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_main" "wlmn_${apIndex}_cpeId"`
+		find_next_if
+		$STATUS_OPER -f $WAVE_MAP_CPEID -a SET "$WAVE_MAP_SECTION" "wlmap_$cpeId" "$newIf"
+	else
+		print2log ALERT "wave_wlan_update_mapping: $WAVE_MAP_CPEID does not exist!"
+		echo "wave_wlan_update_mapping: function update_mapping_on_add: $WAVE_MAP_CPEID does not exist!" >> $wave_init_failure
+	fi
+	print2log DBG "wave_wlan_update_mapping: Done Add"
+}
+
+update_mapping_on_remove()
+{
+	print2log DBG "wave_wlan_update_mapping: start update on remove"
+	if [ -e $WAVE_MAP_CPEID ]
+	then
+		cpeId=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_main" "wlmn_${apIndex}_cpeId"`
+		$STATUS_OPER -f $WAVE_MAP_CPEID -d SET "$WAVE_MAP_SECTION" "wlmap_$cpeId"
+	else
+		print2log ALERT "wave_wlan_update_mapping: $WAVE_MAP_CPEID does not exist!"
+		echo "wave_wlan_update_mapping: function update_mapping_on_add: $WAVE_MAP_CPEID does not exist!" >> $wave_init_failure
+	fi
+	print2log DBG "wave_wlan_update_mapping: Done remove"
+}
+
+find_next_if()
+{
+	# Find the name of the parent interface
+	radioCpeId=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_main" "wlmn_${apIndex}_radioCpeId"`
+	phyApIf=`$STATUS_OPER -f $WAVE_MAP_CPEID GET "$WAVE_MAP_SECTION" "wlmap_$radioCpeId"`
+	
+	newIf=""
+	newVapIndex=0
+	# Find the next available interface name for this physical interface.
+	while [ "$newIf" = "" ]
+	do
+		newIfTmp="$phyApIf.$newVapIndex"
+		if [ `cat $WAVE_MAP_CPEID | grep $newIfTmp -c` -eq 0 ]
+		then
+			newIf=$newIfTmp
+		else
+			let newVapIndex=$newVapIndex+1
+		fi
+	done
+}
+
+should_run_update_mapping()
+{
+	if [ -e $wave_init_failure ]
+	then
+		return_status=false
+	fi
+}
+case $command in
+	create)
+		create_mapping_db
+	;;
+	add)
+		update_mapping_on_add 
+	;;
+	remove)
+		update_mapping_on_remove
+	;;
+	should_run)
+		should_run_update_mapping
+	;;
+esac
+$return_status

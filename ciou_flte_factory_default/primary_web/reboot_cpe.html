@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Progress Bar</title>
+<link rel="stylesheet" href="final.css" type="text/css">
+<script language="JavaScript" src="jquery.js"></script>
+
+<style type="text/css">
+#progressBar {position:absolute; 
+              width:400px; 
+              height:35px; 
+              visibility:hidden;
+              padding:20px;
+             }
+
+#progressBarMsg {position:absolute;
+                 left:10px; 
+                 top:10px; 
+                 font:18px Verdana, Helvetica, sans-serif bold
+                }
+#sliderWrapper {position:absolute; 
+                left:10px; 
+                top:40px; 
+                width:417px; 
+                height:15px;
+                background-color:#ffffff; 
+                border:1px solid #000000; 
+                text-align:center;
+                font-size:12px
+               }
+#slider{position:absolute; 
+        left:0px; 
+        top:0px; 
+        width:420px; 
+        height:15px;
+        clip:rect(0px 0px 15px 0px);
+        background-color:#003f72; 
+        text-align:center; 
+        color:#ffffff; 
+        font-size:12px
+       }
+</style>
+</head>
+<body onload="initDHTMLAPI();test();" class="decBackgroundDef">
+<FORM name=tF0 id=dialog>
+<input type="hidden" name="page" value="index.asp">
+<input type="hidden" name="reboot_status" value="3">
+<input type="hidden" name="pws" value="admin">
+<center><h3> It may take some time to complete this process and restart the system. Please don't turn off the CPE before the process is complete.</h3></center>
+<br><br><br>
+<div id="progressBar">
+<script language="JavaScript">
+//if(<%ifx_get_status_message()%>==1)
+//  document.write("<div id=\"progressBarMsg\">Firmware Upgrade is in progress...</div>");
+//else if(<%ifx_get_status_message()%>==2)
+//  document.write("<div id=\"progressBarMsg\">Firmware Upgrade failed. Rebooting...</div>");
+//else
+  document.write("<div id=\"progressBarMsg\">FLTE Rebooting.. Refresh after few minutes...</div>");
+</script>
+<div id="sliderWrapper">0%
+	<div id="slider">0%</div>
+</div>
+</form>
+</body>
+</html>

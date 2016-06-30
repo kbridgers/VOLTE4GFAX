@@ -1,0 +1,78 @@
+#!/bin/sh
+#509026:linmars script performace tune
+#checkpid() {
+#	local i
+#
+#	for i in $*; do
+#		[ -d "/proc/$i" ] || return 1
+#	done
+#	return 0
+#}
+#
+#start() {
+#	/usr/sbin/zebra -f /etc/zebra.conf -d
+#	/usr/sbin/ripd -f /etc/ripd.conf -d
+#}
+#
+#killproc() {
+#	pid=
+#	if [ -f /var/run/$1.pid ]; then
+#		local line p
+#		read line < /var/run/$1.pid
+#		for p in $line; do
+#			pid="$pid $p"
+#		done
+#	fi
+#	if [ -z "$pid" ]; then
+#		/usr/bin/killall $1
+#	else
+#		kill -TERM $pid
+#		usleep 100000
+#		if checkpid $pid && sleep 1 &&
+#		   checkpid $pid $$ sleep 3 &&
+#		   checkpid $pid; then
+#			kill -KILL $pid
+#			usleep 100000
+#		fi
+#	fi
+#	rm -f /var/run/$1.pid
+#}
+#
+#stop() {
+#	killproc ripd
+#	killproc zebra
+#}	
+#
+#restart() {
+#	stop
+#	start
+#}
+
+case "$1" in
+	start)
+		shift
+		if [ $# -eq 1 ]; then
+			. /etc/rc.d/init.d/ripngd_start $@ &
+		else
+			. /etc/rc.d/init.d/ripngd_start &
+		fi
+		;;
+	stop)
+		. /etc/rc.d/init.d/ripngd_stop
+		;;
+	restart)
+		shift
+		. /etc/rc.d/init.d/ripngd_stop
+#509026:linmars
+		if [ $# -eq 1 ]; then
+			. /etc/rc.d/init.d/ripngd_start $@ &
+		else
+			. /etc/rc.d/init.d/ripngd_start &
+		fi
+		;;
+	*)
+		echo $"Usage $0 {start|stop|restart}"
+		#exit 1
+esac
+
+#exit $?

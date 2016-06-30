@@ -1,0 +1,24 @@
+--- wireless/driver/rflib/linux/old_Kbuild	2011-07-24 09:56:20.692939000 +0200
++++ wireless/driver/rflib/linux/Kbuild	2011-07-24 09:56:59.868394000 +0200
+@@ -16,7 +16,8 @@
+   $(warning RF Lib: Metalink RF MGMT is OFF)
+ endif
+ 
+-EXTRA_CFLAGS += -I$(abs_driver_rflib_shared_srcdir) \
++EXTRA_CFLAGS += -mlong-calls \
++                -I$(abs_driver_rflib_shared_srcdir) \
+                 -I$(abs_driver_rflib_linux_srcdir) \
+                 -I$(abs_driver_shared_srcdir) \
+                 -I$(abs_wireless_shared_srcdir) \
+--- wireless/driver/linux/old_Kbuild	2011-07-24 09:54:52.023786000 +0200
++++ wireless/driver/linux/Kbuild	2011-07-24 09:56:01.096644000 +0200
+@@ -48,7 +48,8 @@
+ 
+ mtlk-libs := $(driver_rflib_builddir)/mtlk_rflib.a
+ 
+-EXTRA_CFLAGS += -I$(abs_driver_shared_srcdir)       \
++EXTRA_CFLAGS += -mlong-calls \
++                -I$(abs_driver_shared_srcdir)       \
+                 -I$(abs_wireless_shared_srcdir)     \
+                 -I$(abs_fw_shared_srcdir)           \
+                 -I$(abs_rtlogger_shared_srcdir)     \

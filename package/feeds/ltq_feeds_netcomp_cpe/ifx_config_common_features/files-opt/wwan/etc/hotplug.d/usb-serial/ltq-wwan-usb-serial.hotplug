@@ -1,0 +1,110 @@
+#!/bin/sh
+
+# Include model information
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		. /etc/rc.conf 2>&-
+		ENVLOADED="1"
+	fi
+fi
+
+local k_un_mods="ppp_async crc-ccitt option usbserial"
+
+get_val ()
+{
+	grep "$1":|cut -d: -f2-|tail -1|sed 's/ *[ ]/_/g;s/^_//'
+}
+
+get_PINCODE ()
+{
+	cwi=0;
+	while [ $cwi -lt $cell_wan_Count ]; do
+		eval [ '$'cwan_$cwi'_ena' = "1" ] && break
+		cwi=$((cwi+1))
+	done
+	eval [ '$'cwan_$cwi'_usePIN' = "1" ] && {
+		eval PINCODE='$'cwan_$cwi'_PIN'
+	}
+}
+
+ltq_wwan_status_write ()
+{
+	killall -9 gcom >&- 2>&-
+	get_PINCODE
+	[ -n "$PINCODE" ] && {
+		COMGTPIN="$PINCODE" gcom -d /dev/ttyUSB0 PIN
+	}
+	wwan_data=`gcom -d /dev/ttyUSB0 info`
+	wwan_sig=`echo $PINCODE|gcom -d /dev/ttyUSB0`
+	modemManu=`echo "$wwan_data"|get_val Manufacturer`
+	modemModel=`echo "$wwan_data"|get_val Model`
+	esn_imei=`echo "$wwan_data"|get_val IMEI`
+	[ -z "$esn_imei" ] && esn_imei=0
+	sigStrngthPct=`echo "$wwan_sig"|get_val "Signal Quality"`
+	([ -z "$sigStrngthPct" ] || [ "$sigStrngthPct" = "ERROR" ]) && sigStrngthPct=99 || {
+		sigStrngthPct=`echo $sigStrngthPct|cut -d, -f1` 
+	}
+	simStat=`echo "$wwan_sig"|grep "SIM ready"`
+	[ $? -eq 0 ] && simStat=1 || simStat=0
+	cel_oper=`echo "$wwan_sig"|get_val "Home network"`
+	[ -n "$cel_oper" ] && {
+		cel_oper=`echo $cel_oper|cut -d\" -f2`
+		[ -z $cel_oper ] && cel_oper="unknown"
+		cel_oper="$cel_oper(Home-Network)"
+	} || {
+		cel_oper=`echo "$wwan_sig"|get_val "Roaming network"`
+		[ -n "$cel_oper" ] && {
+			cel_oper=`echo $cel_oper|cut -d\" -f2`
+			[ -z $cel_oper ] && cel_oper="unknown"
+			cel_oper="$cel_oper(Roaming-Network)"
+		} || {
+			[ -z "$cel_oper" ] && cel_oper="unregistered"
+		}
+	}
+
+	echo -en "cellWanType 0\nmodemManu $modemManu\n" > $1
+	echo -en "modemModel $modemModel\ncel_oper $cel_oper\n" >> $1
+	echo -en "esn_imei $esn_imei\nsigStrngthPct $sigStrngthPct\n" >> $1
+	echo -en "simStat $simStat\ncellWanSta 0\n" >> $1
+}
+
+unload_k_mods() {
+	local kmods
+	for kmods in $k_un_mods; do
+		rmmod $kmods
+	done
+}
+
+start_flag="0"
+[ "$ACTION" = add ] && {
+	echo $DEVPATH | grep "ifxusb_hcd\/usb" | grep "\/ttyUSB0" >&- 2>&-
+	[ $? -eq 0 ] && {
+		sleep 1
+		ltq_wwan_status_write /tmp/cwan_status.txt
+		if [ "$wanphy_phymode" = "5" ]; then
+			start_flag="1"
+		elif [ -n "$dw_failover_state" -a "$dw_failover_state" = "1" ]; then
+			if [ "$dw_pri_wanphy_phymode" = "5" -o "$dw_sec_wanphy_phymode" = "5" ] && [ "$dw_standby_type" = "2" ]; then
+				start_flag="1"
+			elif [ "$dw_pri_wanphy_phymode" = "5" -a "$dw_standby_type" = "1" ]; then
+				start_flag="1"
+			fi
+		fi
+		if [ "$start_flag" = "1" ]; then
+			/etc/init.d/wwan_pppd.sh start
+		fi
+	}
+
+} || {
+	[ "$ACTION" = remove ] && {
+		echo $DEVPATH | grep "ifxusb_hcd\/usb" | grep "\/ttyUSB0" >&- 2>&-
+		[ $? -eq 0 ] && {
+			killall -9 gcom >&- 2>&-
+			rm -f /tmp/cwan_status.txt
+			/etc/init.d/wwan_pppd.sh stop
+			sleep 1
+			unload_k_mods
+		}
+	}
+}
+

@@ -1,0 +1,119 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. initial version
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+if [ "$CONFIG_FEATURE_QOS_PRIORITY_QUEUE" = "1" ]; then
+
+	iptables -t mangle -F QOS_PRIO
+	if [ "$QOS_PRIO" = "1" ]; then
+                i=0
+                while [ "$i" -ge 0 -a "$i" -lt "$QP_Count" ]; do
+			#PRIORITY: 0~7 priority, 8 Disable, 7 is the highest priority.
+                        	eval QOS_PRIO_PRIOITY='$QP_PRIO'${i}
+			if [ "$QOS_PRIO_TYPE" != "8" ]; then
+			
+                       		eval QOS_PRIO_PROTO='$QP_PROTO'${i}
+                        	eval QOS_PRIO_SIP='$QP_IP_SRC_IP'${i}
+                        	eval QOS_PRIO_SMSK='$QP_IP_SRC_MASK'${i}
+                        	eval QOS_PRIO_DIP='$QP_IP_DST_IP'${i}
+                        	eval QOS_PRIO_DMSK='$QP_IP_DST_MASK'${i}
+                        	eval QOS_PRIO_SPORT_START='$QP_PORT_SRC_START'${i}
+                        	eval QOS_PRIO_SPORT_END='$QP_PORT_SRC_END'${i}
+                       		eval QOS_PRIO_DPORT_START='$QP_PORT_DST_START'${i}
+                       		eval QOS_PRIO_DPORT_END='$QP_PORT_DST_END'${i}
+                        	eval QOS_PRIO_IF='$QP_IF'${i}
+                       		eval QOS_PRIO_TYPE='$QP_TYPE'${i}
+#DIR : 0:upstream, 1:downstream
+                        	eval QOS_PRIO_DIR='$QP_DIR'${i}
+				IPTABLE_CMD="iptables -t mangle -A QOS_PRIO -p $QOS_PRIO_PROTO"
+				if [ "$QOS_PRIO_SIP" != "*" ]; then
+					IPTABLE_CMD="$IPTABLE_CMD -s $QOS_PRIO_SIP"
+					if [ "$QOS_PRIO_SMSK" != "0" ]; then
+						IPTABLE_CMD="$IPTABLE_CMD/$QOS_PRIO_SMSK"
+					fi
+				fi
+				if [ "$QOS_PRIO_DIP" != "*" ]; then
+					IPTABLE_CMD="$IPTABLE_CMD -d $QOS_PRIO_DIP"
+					if [ "$QOS_PRIO_DMSK" != "0" ]; then
+						IPTABLE_CMD="$IPTABLE_CMD/$QOS_PRIO_DMSK"
+					fi
+				fi
+				if [ "$QOS_PRIO_SPORT_START" != "*" ]; then
+					IPTABLE_CMD="$IPTABLE_CMD --sport $QOS_PRIO_SPORT_START"
+					if [ "$QOS_PRIO_SPORT_START" != "$QOS_PRIO_SPORT_END" ]; then
+						IPTABLE_CMD="$IPTABLE_CMD:$QOS_PRIO_SPORT_END"
+					fi
+				fi
+				if [ "$QOS_PRIO_DPORT_START" != "*" ]; then
+					IPTABLE_CMD="$IPTABLE_CMD --dport $QOS_PRIO_DPORT_START"
+					if [ "$QOS_PRIO_DPORT_START" != "$QOS_PRIO_DPORT_END" ]; then
+						IPTABLE_CMD="$IPTABLE_CMD:$QOS_PRIO_DPORT_END"
+					fi
+				fi
+				#IF: 0 ALL, 1 ~ 4 switch port 0 ~ 3, 5 WLAN
+				case "$QOS_PRIO_IF" in
+				1)
+					IPTABLE_CMD="$IPTABLE_CMD -i swport0"
+					;;
+				2)
+					IPTABLE_CMD="$IPTABLE_CMD -i swport1"
+					;;
+				3)
+					IPTABLE_CMD="$IPTABLE_CMD -i swport2"
+					;;
+				4)
+					IPTABLE_CMD="$IPTABLE_CMD -i swport3"
+					;;
+				5)
+					IPTABLE_CMD="$IPTABLE_CMD -i eth2"
+					;;
+				esac
+				
+				# There are 4 priority types, 0:None 1:8021P 2:IP PTOS 3. All. None means only queue packets to priority queues, 802.1P means queue packets to priority queues and change the priority bits in 802.1p header. IP PTOS means queue packets to priority queues and change the priority bits in IP Precedence TOS bits, All means queue packets to priority queues and change both of 802.1P and IP Precedence TOS bits.
+				# The values of QOS_PRIO_DIR are 0 (upstream) and 1 (upsteram). Because of the lan bandwidth are enough to forward download packets, it is unnecessary to queue the packets to priority and just change the priority bits of headers.
+				# There are 3 groups of MARK. group 1, the mark value are from 0 ~ 7 and set from ifx_nfext_sw_phyport driver, the value of 1 ~ 7 is mean the 802.1p priority get from packet header.
+				# Group 2, the values are from 8 ~ 15 and set from user priority setting. The 802.1p header will be changed.
+				# Group 3, the values are from 16 ~ 23 and set from user priority setting. The 802.1p header will not be changed.
+				# do not apply priority to header
+				if [ "$QOS_PRIO_TYPE" = "0" -a "$QOS_PRIO_DIR" = "0" ]; then
+					${IPTABLE_CMD} -j MARK --set-mark "$(( $QOS_PRIO_PRIOITY + 16 ))"
+				fi
+				
+				# only apply priority bits to 802.1p
+				if [ "$QOS_8021P" = "1" ]; then
+					if [ "$QOS_PRIO_TYPE" = "1" -o "$QOS_PRIO_TYPE" = "3" ]; then
+						${IPTABLE_CMD} -j MARK --set-mark "$(( $QOS_PRIO_PRIOITY + 8 ))"
+					fi
+				fi
+				if [ "$QOS_IPPTOS" = "1" ]; then
+					# only apply priority bits to ip precedence tos bits
+					if [ "$QOS_PRIO_TYPE" = "2" -a "$QOS_PRIO_DIR" = "0" ]; then
+						${IPTABLE_CMD} -j MARK --set-mark "$(( $QOS_PRIO_PRIOITY + 16 ))"
+					fi
+					# apply to both or apply to ip precedence tos bit
+					if [ "$QOS_PRIO_TYPE" = "3" -o "$QOS_PRIO_TYPE" = "2" ]; then
+						${IPTABLE_CMD} -j PTOS --set-ptos "$(( $QOS_PRIO_PRIOITY \* 32 ))" 
+					fi
+				fi
+				if [ "$QOS_8021P" = "1" -o "$QOS_IPPTOS" = "1" ]; then
+					${IPTABLE_CMD} -j RETURN
+				fi
+					
+			fi
+                        i=$(( $i + 1 ))
+                done
+        fi
+fi

@@ -1,0 +1,32 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+	 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#WAN="`/etc/rc.d/get_wan_if $1`"
+. /etc/rc.d/get_wan_if $1
+WAN=$WAN_IFNAME
+
+	/usr/sbin/status_oper SET "ddns" status start
+#start() {
+	if [ "$serviceIndex" = "1" ]; then
+		/usr/sbin/ez-ipupdate -S dhs -u $user1:$passwd1 -h $host1.dyn.dhs.org -i $WAN -d > /dev/null 2>&1 
+	fi
+	if [ "$serviceIndex" = "2" ]; then
+		/usr/sbin/ez-ipupdate -S dyndns -u $user2:$passwd2 -h $host2.dyndns.org -i $WAN -d > /dev/null 2>&1 
+	fi
+	if [ "$serviceIndex" = "3" ]; then
+		/usr/sbin/ez-ipupdate -S dyns -u $user3:$passwd3 -h $host3.dyns.cx -i $WAN -d > /dev/null 2>&1 
+	fi
+#}
+

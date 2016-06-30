@@ -1,0 +1,38 @@
+#!/bin/sh
+
+OUTPUT="/tmp/cmd_output"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+#TBD: how to know if $1 is IP or PPP connection
+if [ $# -eq 1 ]; then
+	if [ "$OAM_ENABLE" = "1" ]; then
+		eval VCC_SETTING='$'wan_${1}_vcc
+#		VPI=`echo $VCC_SETTING | cut -f2 -d "_" | cut -f1 -d "/"`
+		VPI=${VCC_SETTING#*_}
+		VPI=${VPI%%\/*}
+#		VCI=`echo $VCC_SETTING | cut -f2 -d "_" | cut -f2 -d "/"`
+		VCI=${VCC_SETTING#*_}
+		VCI=${VCI#*\/}
+		VCI=${VCI%%_*}
+		. /etc/rc.d/init.d/oam_apply_setting DISABLE 0 F5 $VPI $VCI
+		# multiPVC issue, need to check
+		#/etc/rc.d/init.d/oam_apply_setting DISABLE 0 F4 $VPI
+	fi
+else
+	killall -9 oamd >&- 2>&-
+fi
+			echo $VCC_SETTING > "$OUTPUT"
+			VPI=`sed -n 's,_.*,,;s,/.*,,;p' "$OUTPUT"`
+			VCI=`sed -n 's,^.*_,,;s,^.*/,,;p' "$OUTPUT"`
+

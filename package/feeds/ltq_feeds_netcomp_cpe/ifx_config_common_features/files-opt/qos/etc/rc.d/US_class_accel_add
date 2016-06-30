@@ -1,0 +1,631 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+		# To Read Remark VID & VPRIO From Tmp. It is tempurary.
+		if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		fi
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+
+IPTABLES="iptables"
+IP6TABLES="ip6tables"
+EBTABLES="ebtables"
+
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+QOS_INTF_WAN_ALL=4
+QOS_INTF_WAN=15
+QOS_INTF_SPECIFIC=8
+QOS_INTF_LAN_ETH=1
+
+
+# define QOS type 
+# NOTE: thease values should match with the values in the enum
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1 
+QOS_TYPE_802_1P=2 
+
+QOS_1P_MASK=0x20000000
+QOS_VLANID_MASK=0x40000000
+QOS_1QSELECT_CLEAR=0x9FFFFFFF
+
+#Manamohan,Added on 20,April 2012
+QOS_802_1P_MASK=0x1c000
+
+# Read the index passed as command line parameter passed as this script
+i=$1
+j=$2
+
+
+#Get the qId of the classifier
+eval cl_qId='$'qcl_${i}_qId
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		;;
+esac
+
+n=0
+while [ $n -lt $qos_queue_Count ]
+do
+	eval qCpeId='$'qq_${n}_cpeId
+	if [ $qCpeId -eq $cl_qId ]; then
+		eval queue_prio='$'qq_${n}_qPrio
+		vconfig_skb_prio=`expr -$queue_prio + 8`
+		eval qIfType='$'qq_${n}_qIfType	
+			# read each parameters from rc.conf
+			eval QOS_CPEID='$'qcl_${i}_cpeId
+			eval QOS_ORDER='$'qcl_${i}_order
+
+			if [ $2 -eq 1 ]; then
+				if [ $QOS_ORDER -gt $1 ]; then
+					QOS_ORDER=$(( $1 + 1 )) 
+				fi
+			fi
+
+			eval QOS_ACCEL_DISABLE='$'qcl_${i}_disableAccel
+			eval QOS_TYPE='$'qcl_${i}_type
+			#eval QOS_IFTYPE='$'qcl_${i}_ifType
+			eval QOS_INTFTYPE='$'qcl_${i}_ifType
+			eval QOS_IFTYPE='$'qcl_${i}_classifType
+			eval QOS_SPECIF='$'qcl_${i}_specIf
+			eval QOS_QID='$'qcl_${i}_qId
+			eval QOS_IFNAME='$'qcl_${i}_ifname
+			eval QOS_ENABLE='$'qcl_${i}_enable
+			eval QOS_RATELMT='$'qcl_${i}_rateLmt
+			eval QOS_RATECTRENBL='$'qcl_${i}_rateCtrlEnbl
+			eval QOS_L3PROTO='$'qcl_${i}_l3proto
+			#NF_MARK=$QOS_QID
+			NF_MARK=0
+
+			eval QOS_PROTO='$'qcl_${i}_proto
+			eval QOS_PROTOEXCL='$'qcl_${i}_protoExcl
+
+			eval QOS_DSTIP='$'qcl_${i}_dstIP
+			eval QOS_DSTIPMASK='$'qcl_${i}_dstIPMask
+			eval QOS_DSTIPEXCL='$'qcl_${i}_dstIPExcl
+
+			eval QOS_SRCIP='$'qcl_${i}_srcIP
+			eval QOS_SRCIPMASK='$'qcl_${i}_srcIPMask
+			eval QOS_SRCIPEXCL='$'qcl_${i}_srcIPExcl
+	
+			eval QOS_DSTPORT='$'qcl_${i}_dstPort
+			eval QOS_DSTPORTEND='$'qcl_${i}_dstPortEnd
+			eval QOS_DSTPORTEXCL='$'qcl_${i}_dstPortExcl
+
+			eval QOS_SRCPORT='$'qcl_${i}_srcPort
+			eval QOS_SRCPORTEND='$'qcl_${i}_srcPortEnd
+			eval QOS_SRCPORTEXCL='$'qcl_${i}_srcPortExcl
+
+			eval QOS_SRCMAC='$'qcl_${i}_srcMac
+			eval QOS_SRCMACMASK='$'qcl_${i}_srcMacMask
+			eval QOS_SRCMACEXCL='$'qcl_${i}_srcMacExcl
+
+			eval QOS_DSTMAC='$'qcl_${i}_dstMac
+			eval QOS_DSTMACMASK='$'qcl_${i}_dstMacMask
+			eval QOS_DSTMACEXCL='$'qcl_${i}_dstMacExcl
+			
+			eval QOS_INDSCP='$'qcl_${i}_inDscp
+			eval QOS_INDSCPEXCL='$'qcl_${i}_inDscpExcl
+			eval QOS_DSCPMARK='$'qcl_${i}_dscpMark
+
+			eval QOS_INVLANID='$'qcl_${i}_vlanId
+			eval QOS_INVLANIDEXCL='$'qcl_${i}_vlanIdExcl
+			eval QOS_INVLANIDMARK='$'qcl_${i}_vlanMark
+
+			eval QOS_IN802_1P='$'qcl_${i}_inPBits
+			eval QOS_IN802_1PEXCL='$'qcl_${i}_inPBitsExcl
+			eval QOS_802_1PMARK='$'qcl_${i}_PBitsMark
+
+			eval QOS_VLANIP='$'qcl_${i}_vlanId
+			eval QOS_VLANIDEXCL='$'qcl_${i}_vlanIdExcl
+			eval QOS_FWPOLICY='$'qcl_${i}_fwPolicy
+
+			# 802-1P remarking for ATM/PTM modes in SW.
+			# Change the Egress map of the vconfig interface as per the 802-1P remarking value specified through Web.
+			# Argument-1 for ipqos_common indicates 'vconfig changes for 8021P remarking'
+		        # Argument-2 for ipqos_common indicates 'add/delete the vconfig egress map for 8021P remarking'	
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM ] || [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then 
+				if [ $QOS_802_1PMARK != -1 ] && [ $QOS_TYPE -eq $QOS_TYPE_MFC ] || [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+					. /etc/rc.d/ipqos_common 1 0
+				fi
+			fi
+
+
+		#if [ "$target" != "GRX2" -a "$target" != "RT2" -o $QOS_RATECTRENBL -eq 1  ]; then
+			#echo "Manamohn::::Enter the not eq grx2 part"
+
+			# For MFC classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+				in_1p=0
+				in_vid=0	
+				if [ ! -z $QOS_DSTIP ] || [ $QOS_PROTO != -1 ] || [ ! -z $QOS_SRCIP ] || [ $QOS_DSTPORT != -1 ] || [ $QOS_SRCPORT != -1 ] || [ $QOS_INDSCP != -1 ]; then	
+					if [ $QOS_L3PROTO -eq 1 ]; then
+						QOS_RULE_L2="-p ipv4"
+					else
+						QOS_RULE_L2V6="-p ipv6"
+					fi	
+				fi		
+				if [ $QOS_IN802_1P != -1 ] || [ $QOS_INVLANID != -1 ]; then
+					QOS_RULE_1Q="-p 8021Q"
+				fi
+
+				#check and add protocol
+				if [ $QOS_PROTO != -1 ]; then
+					QOS_RULE="-p"
+					QOS_RULE_V6="-protocol"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-protocol"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-protocol"
+					if [ $QOS_PROTOEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_V6="$QOS_RULE_V6 !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_PROTO"
+					QOS_RULE_V6="$QOS_RULE_V6 $QOS_PROTO"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_PROTO"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_PROTO"
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#check and add destination ip
+				if [ ! -z $QOS_DSTIP ]; then
+					QOS_RULE="$QOS_RULE -d"
+					QOS_RULE_V6="$QOS_RULE_V6 -destination"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-destination"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-destination"
+					if [ $QOS_DSTIPEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_V6="$QOS_RULE_V6 !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_DSTIP"
+					QOS_RULE_V6="$QOS_RULE_V6 $QOS_DSTIP"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTIP"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_DSTIP"
+					if [ ! -z $QOS_DSTIPMASK ]; then
+						QOS_RULE="$QOS_RULE/$QOS_DSTIPMASK"
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_DSTIPMASK"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6/$QOS_DSTIPMASK"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add source ip address
+				if [ ! -z $QOS_SRCIP ]; then
+					QOS_RULE="$QOS_RULE -s"
+					QOS_RULE_V6="$QOS_RULE_V6 -source"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-source"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-source"
+					if [ $QOS_SRCIPEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_V6="$QOS_RULE_V6 !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_SRCIP"
+					QOS_RULE_V6="$QOS_RULE_V6 $QOS_SRCIP"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCIP"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_SRCIP"
+					if [ ! -z $QOS_SRCIPMASK ]; then
+						QOS_RULE="$QOS_RULE/$QOS_SRCIPMASK"
+						QOS_RULE_V6="$QOS_RULE_V6/$QOS_SRCIPMASK"
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_SRCIPMASK"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6/$QOS_SRCIPMASK"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add dest port
+				if [ $QOS_DSTPORT != -1 ]; then
+					QOS_RULE="$QOS_RULE --dport"
+					QOS_RULE_V6="$QOS_RULE_V6 --destination-port"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-destination-port"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-destination-port"
+					if [ $QOS_DSTPORTEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_V6="$QOS_RULE_V6 !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_DSTPORT"
+					QOS_RULE_V6="$QOS_RULE_V6 $QOS_DSTPORT"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTPORT"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_DSTPORT"
+					if [ $QOS_DSTPORTEND != -1 ]; then
+						QOS_RULE="$QOS_RULE:$QOS_DSTPORTEND"
+						QOS_RULE_V6="$QOS_RULE_V6:$QOS_DSTPORTEND"
+						QOS_RULE_L2="$QOS_RULE_L2:$QOS_DSTPORTEND"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6:$QOS_DSTPORTEND"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add src port
+				if [ $QOS_SRCPORT != -1 ]; then
+					QOS_RULE="$QOS_RULE --sport"
+					QOS_RULE_V6="$QOS_RULE_V6 --source-port"
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-source-port"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-source-port"
+					if [ $QOS_SRCPORTEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_V6="$QOS_RULE_V6 !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_SRCPORT"
+					QOS_RULE_V6="$QOS_RULE_V6 $QOS_SRCPORT"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCPORT"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_SRCPORT"
+					if [ $QOS_SRCPORTEND != -1 ]; then
+						QOS_RULE="$QOS_RULE:$QOS_SRCPORTEND"
+						QOS_RULE_V6="$QOS_RULE_V6:$QOS_SRCPORTEND"
+						QOS_RULE_L2="$QOS_RULE_L2:$QOS_SRCPORTEND"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6:$QOS_SRCPORTEND"
+					fi
+					QOS_RULE_LOCAL="$QOS_RULE"
+				fi
+
+				#Check and add source mac
+				if [ ! -z $QOS_SRCMAC ]; then
+					src_mac=1
+					QOS_RULE="$QOS_RULE -m mac --mac-source"
+					QOS_RULE_V6="$QOS_RULE_V6 -m mac --mac-source"
+					QOS_RULE_L2="$QOS_RULE_L2 -s"
+				#	QOS_RULE_mac="-s"
+					if [ $QOS_SRCMACEXCL -ne 0 ]; then
+						QOS_RULE="$QOS_RULE !"
+						QOS_RULE_V6="$QOS_RULE_V6 !"
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE="$QOS_RULE $QOS_SRCMAC"
+					QOS_RULE_V6="$QOS_RULE_V6 $QOS_SRCMAC"
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCMAC"
+					if [ ! -z $QOS_SRCMACMASK ]; then
+						QOS_RULE="$QOS_RULE/$QOS_SRCMACMASK"
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_SRCMACMASK"
+					fi
+				fi
+				
+				#Check and add source mac
+				if [ ! -z $QOS_DSTMAC ]; then
+					dst_mac=1
+				#	QOS_RULE_1Q="$QOS_RULE_1Q -d"
+					QOS_RULE_L2="$QOS_RULE_L2 -d"
+					if [ $QOS_DSTMACEXCL -ne 0 ]; then
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTMAC"
+					if [ ! -z $QOS_DSTMACMASK ]; then
+						QOS_RULE_L2="$QOS_RULE_L2/$QOS_DSTMACMASK"
+					fi
+				fi
+	
+				#Check and add DSCP match
+				if [ $QOS_INDSCP != -1 ]; then
+					QOS_RULE="$QOS_RULE -m dscp --dscp $QOS_INDSCP"
+					QOS_RULE_V6="$QOS_RULE_V6 -m dscp --dscp $QOS_INDSCP"
+					# Mapping DSCP to TOS
+					QOS_TOS_MAP=$((`$QOS_INDSCP<<2`))
+					QOS_TOS_MAP=$(echo $QOS_TOS_MAP | awk '{printf "%x", $1}')
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-tos $QOS_TOS_MAP"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-tclass $QOS_TOS_MAP"
+					QOS_RULE_LOCAL="$QOS_RULE"
+       				fi
+
+				#Check and add 802.1P match
+				if [ $QOS_IN802_1P != -1 ]; then
+					# Shift Incoming 1P value so that it matches the designated 1P bit positions in NFMARK
+					# This logic only used for Routed case i.e for Iptables
+					Incom_802_1p=$((`$QOS_IN802_1P<<14`))
+					in_1p=1
+					#Framing QOS Rule for Bridge scenario i.e for Ebtables
+					QOS_RULE_1P="-p 8021Q --vlan-prio"
+					if [ $QOS_IN802_1PEXCL -ne 0 ]; then
+						QOS_RULE_1P="$QOS_RULE_1Q !"
+					fi
+					QOS_RULE_1P="$QOS_RULE_1P $QOS_IN802_1P"
+		       		fi
+				#Check and add VLAN ID match
+				if [ $QOS_INVLANID != -1 ]; then
+					# Shift Incoming VlanId value so that it matches the designated VlanId bit positions in NFMARK
+					# This logic only used for Routed case i.e for Iptables
+					if [ $QOS_INVLANIDEXCL -eq 0 ]; then
+						Incom_VID=$((`$QOS_INVLANID<<17`))
+						in_vid=1
+					fi
+					# Framing QOS Rule for Bridge scenario i.e for Ebtables
+					QOS_RULE_VID="-p 8021Q --vlan-id"
+					if [ $QOS_INVLANIDEXCL -ne 0 ]; then
+						QOS_RULE_VID="$QOS_RULE_VID !"
+					fi
+					QOS_RULE_VID="$QOS_RULE_VID $QOS_INVLANID"
+				fi				
+				# Check if this session has been marked to be removed from acceleration
+				if [ $QOS_ACCEL_DISABLE != 0 ]; then
+					#echo "$NF_MARK is the nfmark before masking the 13th bit"
+					#If the user has set this classifier instance to be non-accelerated
+					#set bit 13 in NFMARK header to 1
+					#NF_MARK |=1<<13
+					NF_MARK=$(($NF_MARK|1<<13))
+					#echo "$NF_MARK is the nfmark after masking the 13th bit"
+				fi
+
+				#Ingress Interface Classification 
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+					QOS_RULE="$QOS_RULE -i $QOS_SPECIF"	
+					QOS_RULE_L2="$QOS_RULE_L2 -i $QOS_SPECIF"
+					QOS_RULE_LOCAL="$QOS_RULE"	
+				fi
+			
+					#Ingress Interface Classification 
+					if [ $QOS_INTFTYPE -eq $QOS_INTF_LAN ]; then
+						QOS_RULE="$QOS_RULE -m physdev --physdev-in eth0"	
+						QOS_RULE_LOCAL="$QOS_RULE"	
+					fi
+				
+				# iptables action to perform is always insert
+				act="I"
+				
+				# Form iptable rules for classifier which is disabled from acceleration
+				# add rule to set 13th bit in NF mark in dedicated iptable chain outside QoS
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					if [ $qm_AccelMngr -eq 1 -a $QOS_ACCEL_DISABLE -eq 1 ]; then
+						echo "Disabling Acceleration for MFC classifier $QOS_ORDER"			
+						CLASS_ACCEL_DISABLE_NAME="US_CLASS_ACCEL_DISABLE_$QOS_CPEID"	
+					
+						if [ $QOS_L3PROTO -eq 1 ];then
+						IPTABLES_RULE="$IPTABLES -t mangle -N $CLASS_ACCEL_DISABLE_NAME"
+						$IPTABLES_RULE
+							#add a dummy rule for ipv6 for same order to keep orders in sync
+							IP6TABLES_RULE="$IP6TABLES -t mangle -N $CLASS_ACCEL_DISABLE_NAME"
+							$IP6TABLES_RULE
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IP6TABLES_RULE="$IP6TABLES -t mangle -N $CLASS_ACCEL_DISABLE_NAME"
+							$IP6TABLES_RULE
+							#add a dummy rule for ipv4 for same order to keep orders in sync
+							IPTABLES_RULE="$IPTABLES -t mangle -N $CLASS_ACCEL_DISABLE_NAME"
+							$IPTABLES_RULE
+
+						fi
+					
+						# Insert the rule to jump to ACCEL_DISABLE chain rule in CLASS_ACCEL_DISABLE at given order
+				
+						if [ $QOS_L3PROTO -eq 1 ];then
+						IPTABLES_RULE="$IPTABLES -t mangle -$act US_CLASS_ACCEL_DISABLE $QOS_ORDER -j $CLASS_ACCEL_DISABLE_NAME"
+						$IPTABLES_RULE
+
+							#add a dummy rule for ipv6 for same order to keep orders in sync
+							IP6TABLES_RULE="$IP6TABLES -t mangle -$act US_CLASS_ACCEL_DISABLE $QOS_ORDER -j $CLASS_ACCEL_DISABLE_NAME"
+							$IP6TABLES_RULE
+						#echo $IPTABLES_RULE 	
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPTABLES_RULE="$IP6TABLES -t mangle -$act US_CLASS_ACCEL_DISABLE $QOS_ORDER -j $CLASS_ACCEL_DISABLE_NAME"
+							$IPTABLES_RULE
+							
+							#add a dummy rule for ipv4 for same order to keep orders in sync
+							IPTABLES_RULE="$IPTABLES -t mangle -$act US_CLASS_ACCEL_DISABLE $QOS_ORDER -j $CLASS_ACCEL_DISABLE_NAME"
+							$IPTABLES_RULE
+							#echo $IPTABLES_RULE 	
+						fi
+
+
+						# Add the iptable rule with classification input in to the appropriate chain
+						if [ $QOS_L3PROTO -eq 1 ];then
+						IPTABLES_RULE="$IPTABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME $QOS_RULE -j MARK --set-mark $NF_MARK"
+						$IPTABLES_RULE
+						#echo $IPTABLES_RULE 	
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPTABLES_RULE="$IP6TABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME $QOS_RULE -j MARK --set-mark $NF_MARK"
+							$IPTABLES_RULE
+							#echo $IPTABLES_RULE 	
+						fi
+					
+						if [ $QOS_L3PROTO -eq 1 ];then
+						IPTABLES_RULE="$IPTABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME -m mark --mark $NF_MARK -j ACCEPT"
+						$IPTABLES_RULE
+						#echo $IPTABLES_RULE 	
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPTABLES_RULE="$IP6TABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME -m mark --mark $NF_MARK -j ACCEPT"
+							$IPTABLES_RULE
+							#echo $IPTABLES_RULE 	
+						fi
+
+						
+	
+					fi
+				fi
+
+				#add rules for downstream classifiers
+				if [ $QOS_IFTYPE -eq $QOS_INTF_WAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL ]; then
+					if [ $qm_AccelMngr -eq 1 -a $QOS_ACCEL_DISABLE -eq 1 ]; then
+						echo "Disabling Acceleration for MFC classifier $QOS_ORDER"			
+						CLASS_ACCEL_DISABLE_NAME="DS_CLASS_ACCEL_DISABLE_$QOS_CPEID"	
+					
+						IPTABLES_RULE="$IPTABLES -t mangle -N $CLASS_ACCEL_DISABLE_NAME"
+						$IPTABLES_RULE
+						#echo $IPTABLES_RULE 	
+						#IPTABLES_RULE="$IPTABLES -t mangle -I $CLASS_ACCEL_DISABLE_NAME 1  -j RETURN"
+						#$IPTABLES_RULE
+					
+						# Insert the rule to jump to ACCEL_DISABLE chain rule in CLASS_ACCEL_DISABLE at given order
+						IPTABLES_RULE="$IPTABLES -t mangle -$act DS_CLASS_ACCEL_DISABLE $QOS_ORDER -j $CLASS_ACCEL_DISABLE_NAME"
+						$IPTABLES_RULE
+						#echo $IPTABLES_RULE 	
+
+						# Add the iptable rule with classification input in to the appropriate chain
+						IPTABLES_RULE="$IPTABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME $QOS_RULE -j MARK --set-mark $NF_MARK"
+						$IPTABLES_RULE
+						#echo $IPTABLES_RULE 	
+					
+						IPTABLES_RULE="$IPTABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME -m mark --mark $NF_MARK -j ACCEPT"
+						$IPTABLES_RULE
+						#echo $IPTABLES_RULE 	
+						
+	
+					fi
+				fi
+			#end of MFC classification
+			fi
+
+			# For DSCP classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+				#Check and add DSCP match
+				if [ $QOS_INDSCP != -1 ]; then
+					QOS_RULE="-m dscp --dscp $QOS_INDSCP"
+					QOS_RULE_V6="-m dscp --dscp $QOS_INDSCP"
+					QOS_RULE_L2="-p ipv4"
+					QOS_RULE_L2V6="-p ipv6"
+					QOS_TOS_MAP=$(($QOS_INDSCP|1<<2))
+					QOS_TOS_MAP=$(echo $QOS_TOS_MAP | awk '{printf "%x", $1}')
+					QOS_RULE_L2="$QOS_RULE_L2 --ip-tos $QOS_TOS_MAP"
+					QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip-tos $QOS_TOS_MAP"
+				fi
+				
+				# Check if this session has been marked to be removed from acceleration
+				if [ $QOS_ACCEL_DISABLE != 0 ]; then
+					#echo "$NF_MARK is the nfmark before masking the 13th bit"
+					#If the user has set this classifier instance to be non-accelerated
+					#set bit 13 in NFMARK header to 1
+					#NF_MARK |=1<<13
+					NF_MARK=$(($NF_MARK|1<<13))
+					#echo "$NF_MARK is the nfmark after masking the 13th bit"
+				fi
+	
+				#Ingress Interface Classification 
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+					QOS_RULE="$QOS_RULE -i $QOS_SPECIF"	
+					QOS_RULE_V6="$QOS_RULE_V6 -i $QOS_SPECIF"	
+					QOS_RULE_L2="$QOS_RULE_L2 -i $QOS_SPECIF"	
+				fi
+
+				act="A"
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					
+					if [ $qm_AccelMngr -eq 1 -a $QOS_ACCEL_DISABLE -eq 1 ]; then
+						#substituting order with CPEID
+						QOS_ORDER=$QOS_CPEID
+
+						echo "Disabling Acceleration for classifier DSCP classifier"			
+						CLASS_ACCEL_DISABLE_NAME="US_CLASS_ACCEL_DISABLE_$QOS_CPEID"	
+						#CLASS_ACCEL_DISABLE_NAME="US_CLASS_ACCEL_DISABLE_DSCP_$QOS_CPEID"	
+					
+						IPTABLES_RULE="$IPTABLES -t mangle -N $CLASS_ACCEL_DISABLE_NAME"
+						$IPTABLES_RULE
+
+
+						IPTABLES_RULE="$IPTABLES -t mangle -$act US_CLASS_ACCEL_DISABLE -j $CLASS_ACCEL_DISABLE_NAME"
+						$IPTABLES_RULE
+
+
+						# Add the iptable rule with classification input in to the appropriate chain
+						IPTABLES_RULE="$IPTABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME $QOS_RULE -j MARK --set-mark $NF_MARK"
+						$IPTABLES_RULE
+	
+						IPTABLES_RULE="$IPTABLES -t mangle -A $CLASS_ACCEL_DISABLE_NAME -m mark --mark $NF_MARK -j ACCEPT"
+						$IPTABLES_RULE
+					fi
+
+				fi
+
+			fi
+
+			# For 802.1P classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+				in_1p=0
+				QOS_RULE_L2=""
+				#Check and add 802.1P match
+				if [ $QOS_IN802_1P != -1 ]; then
+					Incom_802_1p=$(($QOS_IN802_1P|1<<14))
+					in_1p=1
+					QOS_RULE_L2="-p 8021Q --vlan-prio"
+					if [ $QOS_IN802_1PEXCL -ne 0 ]; then
+						QOS_RULE_L2="$QOS_RULE_L2 !"
+					fi
+					QOS_RULE_L2="$QOS_RULE_L2 $QOS_IN802_1P"
+        			fi
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+				
+				
+				
+				#fi
+				#if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+		
+
+				#fi
+			fi
+		#end of not eq grx2
+ 		#fi 
+		
+		
+		# Flow15 switch based classification
+	
+		#if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL -o $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+		 
+			
+			
+		#end of hw classifier
+		#fi
+         
+	fi
+
+
+	QOS_RULE=""
+	n=$(( $n + 1 ))
+done

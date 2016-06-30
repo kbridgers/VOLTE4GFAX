@@ -1,0 +1,106 @@
+#!/bin/sh
+
+# To support all platforms, find out where the platform file is located, and link to it from /tmp:
+if [ -e  /etc/rc.d/mtlk_init_platform.sh ]
+then 
+	init_platform_source=/etc/rc.d
+elif [ -e  /root/mtlk/etc/mtlk_init_platform.sh ]
+then
+	init_platform_source=/root/mtlk/etc
+else
+	init_platform_source=/mnt/jffs2/etc
+fi
+if [ ! -e /tmp/mtlk_init_platform.sh ]
+then
+	ln -s $init_platform_source/mtlk_init_platform.sh /tmp/mtlk_init_platform.sh
+fi
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "wave_wlan_init: args: $*"
+
+###########################################################
+# The WLAN LEDs are defined in Linux kernel board
+# configuration file. The wlan_leds_scan function scans the
+# /sys/class/leds/ directory for predefined LED devices with
+# the nomenclature <function>:<color1>[:<color2>[:<color3>]]
+# e.g. a multicolor WPS LED would be named
+#   /sys/class/leds/wps:green:red:amber
+# or single color WLAN LEDs would be named
+#   /sys/class/leds/wlan0:green
+#   /sys/class/leds/wlan0:red
+#
+# The output of this scan operation are shell variable
+# exports which can be used for the LED handling. For the
+# given example, the variables
+#   led_wps_green=/sys/class/leds/wps:green:red:amber
+#   led_wps_red=/sys/class/leds/wps:green:red:amber
+#   led_wps_amber=/sys/class/leds/wps:green:red:amber
+#   wps_green=1
+#   wps_red=2
+#   wps_amber=3
+#   led_wps_count=1
+# and
+#   led_wlan0_green=/sys/class/leds/wlan0:green
+#   led_wlan0_red=/sys/class/leds/wlan0:red
+#   wlan0_green=1
+#   wlan0_red=2
+#   led_wlan0_count=2
+# are exported.
+
+wlan_leds_scan () {
+	led_num=0
+	func=$1
+	
+	for led in `ls /sys/class/leds/$func:* 2> /dev/null`; do
+		color_num=1
+		let led_num=$led_num+1
+		let field=$color_num+1
+		color=`echo $led |  cut -d ':' -f $field`
+		while [ "x$color" != "x" ]; do
+			eval $func\_$color=$color_num
+			echo "$func"_"$color=$color_num" >> $LED_VARS_FILE
+			eval led_$func\_$color=$led
+			echo led_"$func"_"$color=$led" >> $LED_VARS_FILE
+			let color_num=$color_num+1
+			let field=$color_num+1
+			color=`echo $led |  cut -d ':' -f $field`
+		done
+	done
+	eval led_$func\_count=$led_num
+	echo led_"$func"_count=$led_num >> $LED_VARS_FILE
+}
+
+if [ ! -e $LED_VARS_FILE ]
+then
+	wlan_leds_scan wlan0
+	wlan_leds_scan wlan1
+	wlan_leds_scan wps
+	wlan_leds_scan apmode
+	wlan_leds_scan band
+fi
+
+# Count physical interfaces
+(. $ETC_PATH/mtlk_wlan_count.sh should_run) && (. $ETC_PATH/mtlk_wlan_count.sh start)
+
+# Setup WLAN interface mapping file
+(. $ETC_PATH/wave_wlan_update_mapping should_run) && (. $ETC_PATH/wave_wlan_update_mapping create)
+
+# Bringing up the RT Logger
+(. $ETC_PATH/wave_wlan_init_rtlogger.sh should_run) && (. $ETC_PATH/wave_wlan_init_rtlogger.sh start)
+
+# Get calibration file from FLASH
+(. $ETC_PATH/wave_wlan_init_eeprom should_run) && (. $ETC_PATH/wave_wlan_init_eeprom start)
+
+# Create softlinks needed in /tmp
+(. $ETC_PATH/mtlk_wls_links.sh should_run) && (. $ETC_PATH/mtlk_wls_links.sh start)
+
+# Insmod WAVE driver
+(. $ETC_PATH/mtlk_insmod_wls_driver.sh should_run) && (. $ETC_PATH/mtlk_insmod_wls_driver.sh start)
+
+# Set country
+(. $ETC_PATH/mtlk_init_country.sh should_run) && (. $ETC_PATH/mtlk_init_country.sh start)
+
+print2log DBG "wave_wlan_init done"

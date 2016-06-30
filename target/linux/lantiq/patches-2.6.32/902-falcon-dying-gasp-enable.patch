@@ -1,0 +1,41 @@
+--- a/arch/mips/lantiq/falcon/prom.c
++++ b/arch/mips/lantiq/falcon/prom.c
+@@ -22,14 +22,37 @@
+ 
+ #include "../prom.h"
+ 
++/* mapping to linux hw-accessor routines */
++#define reg_r32(reg)			__raw_readl(reg)
++#define reg_w32(val, reg)		__raw_writel(val, reg)
++#define reg_w32_mask(clear, set, reg)	reg_w32((reg_r32(reg) & ~(clear)) | (set), reg)
++
++static struct gpon_reg_sys1 * const sys1 = (struct gpon_reg_sys1 *)GPON_SYS1_BASE;
+ static struct gpon_reg_status * const pSTATUS = (struct gpon_reg_status *)GPON_STATUS_BASE;
+ 
+ #define SOC_FALCON		"Falcon"
+ 
++static int config_dying_gasp = 0;
++static int __init parse_dying_gasp(char *str)
++{
++	str++;
++	get_option(&str, &config_dying_gasp);
++	return 0;
++}
++__setup("dying_gasp", parse_dying_gasp);
++
+ void __init
+ ltq_soc_setup(void)
+ {
+-	/* not used */
++	if (config_dying_gasp >=4) {
++		sys1_w32_mask(INFRAC_DGASPEN_EN, 0, infrac);
++	} else {
++		sys1_w32_mask(INFRAC_DGASPEN | INFRAC_DGASPHYS_MASK,
++			INFRAC_DGASPEN_EN |
++			((config_dying_gasp << INFRAC_DGASPHYS_OFFSET) &
++				INFRAC_DGASPHYS_MASK),
++			infrac);
++	}
+ }
+ 
+ void __init

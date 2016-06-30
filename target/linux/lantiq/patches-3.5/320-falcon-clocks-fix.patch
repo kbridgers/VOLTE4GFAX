@@ -1,0 +1,29 @@
+From 901a99e034e489f399c336a24961b33f4ae732d5 Mon Sep 17 00:00:00 2001
+From: John Crispin <blogic@openwrt.org>
+Date: Tue, 7 Aug 2012 08:01:34 +0200
+Subject: [PATCH] MIPS: lantiq: falcon clocks were not enabled properly
+
+As a result of a non populated ->bits field inside the clock struct, the clock
+domains were never powered on the Falcon. Until now we only used domains that
+were also used and powered by the bootloader.
+
+Signed-off-by: John Crispin <blogic@openwrt.org>
+---
+ arch/mips/lantiq/falcon/sysctrl.c |    1 +
+ 1 files changed, 1 insertions(+), 0 deletions(-)
+
+diff --git a/arch/mips/lantiq/falcon/sysctrl.c b/arch/mips/lantiq/falcon/sysctrl.c
+index ba0123d..2d4ced3 100644
+--- a/arch/mips/lantiq/falcon/sysctrl.c
++++ b/arch/mips/lantiq/falcon/sysctrl.c
+@@ -171,6 +171,7 @@ static inline void clkdev_add_sys(const char *dev, unsigned int module,
+ 	clk->cl.con_id = NULL;
+ 	clk->cl.clk = clk;
+ 	clk->module = module;
++	clk->bits = bits;
+ 	clk->activate = sysctl_activate;
+ 	clk->deactivate = sysctl_deactivate;
+ 	clk->enable = sysctl_clken;
+-- 
+1.7.2.5
+

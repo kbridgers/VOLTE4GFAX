@@ -1,0 +1,291 @@
+#!/bin/sh
+
+file_udhcpd="/ramdisk/etc/udhcpd.conf"
+file_prefix="/ramdisk/etc/udhcpd_"
+file_suffix=".conf"
+
+OUTPUT="/tmp/cmd_output${1}"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+remove_output()
+{
+	rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/config.sh ]; then
+                . /etc/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+if [ -n "$1" -a "$1" = "route_add" -o "$1" = "route_del" ]; then
+
+	i=0
+	while [ $i -lt $lan_dhcps_condserv_Count ]
+        do
+	    eval poolOrder='$'ldc_${i}_poolOrder
+            dhcp_file=$file_prefix$poolOrder$file_suffix
+			if [ -r $dhcp_file ]; then
+                # these orders (1p, 3p, 8p) are based on the dhcpd config file.
+                # if there is a order change, then the same has to be updated here
+				#ipAddr=`"$SED" -n 's,,^.*start[ ]*,,;1p' "$dhcp_file"`
+				#netmask=`"$SED" -n 's,,^.*subnet[ ]*,,;8p' "$dhcp_file"`
+				#intf=`"$SED" -n 's,,^.*interface[ ]*,,;3p' "$dhcp_file"`
+					
+				ipAddr="`grep start $dhcp_file | "$SED" -n 's,^.*start[ ]*,,;1p'`"
+				netmask="`grep subnet $dhcp_file | "$SED" -n 's,^.*subnet[ ]*,,;1p'`"
+			    	intf="`grep interface $dhcp_file | "$SED" -n 's,^.*interface[ ]*,,;1p'`"
+				eval dhcp_mode='$'ldc_${i}_dhcpServerRelay
+
+				# OIFS=$IFS
+				# IFS=.
+		
+				# set -- $ipAddr
+				# ipAddr1=$1
+				# ipAddr2=$2
+				# ipAddr3=$3
+				# ipAddr4=$4
+	
+				# set -- $netmask
+				# mask1=$1
+				# mask2=$2
+				# mask3=$3
+				# mask4=$4
+	
+				# IFS=$OIFS
+			
+				# netAddr1=$(($ipAddr1 & $mask1))
+				# netAddr2=$(($ipAddr2 & $mask2))
+				# netAddr3=$(($ipAddr3 & $mask3))
+				# netAddr4=$(($ipAddr4 & $mask4))
+
+				# netAddr=$netAddr1"."$netAddr2"."$netAddr3"."$netAddr4
+				# if [ "$1" = "route_add" ]; then
+				# 	route add -net $netAddr netmask $netmask $intf 2> /dev/null
+				# else
+				# 	route del -net $netAddr netmask $netmask $intf 2> /dev/null
+				# fi
+		if [ "$1" = "route_add" ]; then
+                	if [ -n "$dhcp_mode" -a "$dhcp_mode" = "1" ]; then 
+       		                /usr/sbin/route_util ADD ${ipAddr} ${netmask} $lan_main_0_ipAddr ${intf}
+				
+			fi
+                else 
+                	if [ -n "$dhcp_mode" -a "$dhcp_mode" = "1" ]; then 
+       		           	/usr/sbin/route_util DEL ${ipAddr} ${netmask} $lan_main_0_ipAddr ${intf}
+			fi
+                fi
+			
+		if [ -n "$1" -a "$1" = "route_del" ]; then
+			#Remove the dhcp cond pool conf file
+			#rm -rf $dhcp_file
+			echo > $dhcp_file
+		fi			
+
+
+			else
+				echo "Cant open $dhcp_file" > /dev/NULL
+			fi
+			i=$(( $i + 1 ))		
+	done
+else
+	rm -rf /ramdisk/etc/$file_prefix*
+	# DHCPD Files Creation and Static Route addtion
+	if [ -n "$CONFIG_FEATURE_DHCP_SERVER" -a "$CONFIG_FEATURE_DHCP_SERVER" = "1" ]; then
+
+	       i=0
+               while [ $i -lt $lan_dhcps_condserv_Count ]
+               do
+                eval status='$'ldc_${i}_fEnable
+                if [ -n "$status" -a "$status" = "1" ]; then
+					eval srcInterface='$'ldc_${i}_srcInterface
+					eval vendorClassId='$'ldc_${i}_vendorClassId
+					eval clientId='$'ldc_${i}_ClientId
+					eval userClassId='$'ldc_${i}_UserClassId
+					eval macAddr='$'ldc_${i}_macAddr
+					eval macAddrMask='$'ldc_${i}_macAddrMask
+					eval dhcp_mode='$'ldc_${i}_dhcpServerRelay
+					eval startAddr='$'ldc_${i}_minAddress
+					eval endAddr='$'ldc_${i}_maxAddress
+					eval minAddress='$'ldc_${i}_minAddress
+					eval maxAddress='$'ldc_${i}_maxAddress
+					eval reservedAddress='$'ldc_${i}_reservedAddr
+					eval netMask='$'ldc_${i}_netMask
+					eval dnsServers='$'ldc_${i}_dnsServers
+					eval domainName='$'ldc_${i}_domainName
+					eval routers='$'ldc_${i}_routers
+					eval dhcpLease='$'ldc_${i}_dhcpLease
+					eval dhcpServerIp='$'ldc_${i}_dhcpServerIpAddr
+					eval poolOrder='$'ldc_${i}_poolOrder
+					eval iface='$'lan_main_0_interface
+					dhcp_file=$file_prefix$poolOrder$file_suffix
+			
+                    # dhcp_mode : 1 - server, 0 - relay
+					if [ $dhcp_mode -eq 0 ]; then
+						eval relayIntf='$'default_wan_conn_iface
+                                        else
+                                                relayIntf=""
+					fi
+					if [ -n "$vendorClassId" ]; then
+						echo "option vendorclass $vendorClassId start"> "$dhcp_file"
+					else
+						echo "option vendorclass default start"> "$dhcp_file"
+					fi
+					if [ -n "$userClassId" ]; then
+						echo "option userclass $userClassId start">> "$dhcp_file"
+					else
+						echo "option userclass default start">> "$dhcp_file"
+					fi
+		
+					if [ -n "$clientId" ]; then
+						echo "option clientid $clientId start">> "$dhcp_file"
+					else
+						echo "option clientid default start">> "$dhcp_file"
+					fi
+					if [ -n "$macAddr" ]; then
+						echo "macaddr $macAddr">> "$dhcp_file"
+					fi
+		
+					if [ -n "$minAddress" ]; then
+					        echo "start $minAddress">> "$dhcp_file"
+					fi
+		
+					if [ -n "$maxAddress" ]; then
+						echo "end $maxAddress">> "$dhcp_file"
+					fi	
+					
+					if [ -n "$iface" ]; then
+						echo "interface $iface">> "$dhcp_file"
+					fi
+		
+					if [ -n "$reservedAddress" ]; then
+				        echo "option reservedaddr $reservedAddress">> "$dhcp_file"
+					fi
+		
+					if [ -n "$dhcp_mode" ]; then
+						if [ "$dhcp_mode" = "1" ];then
+				             		echo "dhcpmode 0">> "$dhcp_file"
+				             	else
+				             		echo "dhcpmode 1" >> "$dhcp_file"
+				             	fi
+					fi
+						
+					if [ -n "$relayIntf" ]; then
+                        echo "relayif $relayIntf">>$dhcp_file
+					fi
+		
+					# if [ -n "$dnsServers" ]; then
+				    #    echo "option dns $dnsServers">> "$dhcp_file"
+ 	                # fi
+		
+					if [ -n "$netMask" ]; then
+						echo "option subnet $netMask">> "$dhcp_file"
+					fi
+					
+					# if [ -n "$routers" ]; then
+					#	echo "option router $routers">> "$dhcp_file"
+					# fi
+		
+					if [ -n "$domainName" ]; then
+						echo "option domain $domainName">> "$dhcp_file"
+					fi
+		
+					if [ -n "$dhcpLease" ]; then
+						echo "option lease $dhcpLease">> "$dhcp_file"
+					fi
+		
+		
+		
+					if [ -n "$macAddrMask" ]; then
+						echo "macaddrmask $macAddrMask">> "$dhcp_file"
+					fi
+		
+					#if [ -n "$poolOrder" ]; then
+					#	echo "option poolorder $poolOrder">> "$dhcp_file"
+					#fi
+					
+					if [ -n "$dhcpServerIp" ]; then
+						echo "dhcpserverIp $dhcpServerIp">> "$dhcp_file"
+					fi
+
+					echo "lease_file /var/lib/misc/udhcpd$poolOrder.leases">> "$dhcp_file"
+
+					if [ -n "$clientId" ]; then
+						echo "option clientid $clientId end">> "$dhcp_file"
+					else
+						echo "option clientid default end">> "$dhcp_file"
+					fi
+					if [ -n "$userClassId" ]; then
+						echo "option userclass $userClassId end">> "$dhcp_file"
+					else
+						echo "option userclass default end">> "$dhcp_file"
+					fi
+		
+					if [ -n "$vendorClassId" ]; then
+						echo "option vendorclass $vendorClassId end">> "$dhcp_file"
+					else
+						echo "option vendorclass default end">> "$dhcp_file"
+					fi
+					
+					# Start of Route add
+					# OIFS=$IFS
+		            # IFS=.
+		
+		            # set -- $minAddress
+		            # ipAddr1=$1
+		            # ipAddr2=$2
+		            # ipAddr3=$3
+		            # ipAddr4=$4
+		
+		            # set -- $netMask
+		            # mask1=$1
+		            # mask2=$2
+		            # mask3=$3
+		            # mask4=$4
+		
+		            # IFS=$OIFS
+		
+		            # netAddr1=$(($ipAddr1 & $mask1))
+		            # netAddr2=$(($ipAddr2 & $mask2))
+		            # netAddr3=$(($ipAddr3 & $mask3))
+		            # netAddr4=$(($ipAddr4 & $mask4))
+		
+		            # netAddr=$netAddr1"."$netAddr2"."$netAddr3"."$netAddr4
+		            # route add -net $netAddr netmask $netMask $srcInterface 2> /dev/null
+					# End of Static Route Add
+
+			# If Server Mode add the route
+                	if [ -n "$dhcp_mode" -a "$dhcp_mode" = "1" ]; then 
+                    		/usr/sbin/route_util ADD ${minAddress} ${netMask} $lan_main_0_ipAddr $lan_main_0_interface
+                	fi
+
+			if [ -n "$dhcp_mode" -a "$dhcp_mode" = "0" -a "$rule" = "0" ]; then
+				iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p udp --dport 67 -j ACCEPT 2> /dev/NULL
+				iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p udp --dport 67 -j ACCEPT
+				rule=1
+			fi 
+
+
+		fi
+	
+		        i=$(( $i + 1 ))
+	
+           done
+	   	for pool_file in `ls $file_prefix*$file_suffix 2>/dev/null`
+		do
+			cat "$pool_file" >> "$file_udhcpd"
+		done
+
+	     fi
+fi

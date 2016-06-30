@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "running wave_wlan_enable_vap with $*" 
+
+apIndex=$1
+timestamp "wave_wlan_enable_vap:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+# Create interface 
+(. $ETC_PATH/mtlk_init_mbss.sh should_run $apIndex) && (. $ETC_PATH/mtlk_init_mbss.sh create_config $apIndex) && (. $ETC_PATH/mtlk_init_mbss.sh start $apIndex)
+# Set all driver params on this AP index
+(. $ETC_PATH/mtlk_set_driver_params.sh should_run $apIndex) && (. $ETC_PATH/mtlk_set_driver_params.sh create_config $apIndex) && (. $ETC_PATH/mtlk_set_driver_params.sh start $apIndex)
+# Add interface to PPA and bring it up 
+(. $ETC_PATH/mtlk_set_wls_if.sh should_run $apIndex) && (. $ETC_PATH/mtlk_set_wls_if.sh start $apIndex)
+# Start hostapd 
+(. $ETC_PATH/mtlk_init_hostapd.sh should_run $apIndex) && (. $ETC_PATH/mtlk_init_hostapd.sh create_config $apIndex) && (. $ETC_PATH/mtlk_init_hostapd.sh start $apIndex)
+# Start drvhlpr if needed
+(. $ETC_PATH/mtlk_drvhlpr.sh should_run $apIndex) && (. $ETC_PATH/mtlk_drvhlpr.sh create_config $apIndex) && (. $ETC_PATH/mtlk_drvhlpr.sh start $apIndex)
+# Start WPS PBC wait script
+(. $ETC_PATH/mtlk_wps_pbc.sh should_run $apIndex) && (. $ETC_PATH/mtlk_wps_pbc.sh create_config $apIndex) && (. $ETC_PATH/mtlk_wps_pbc.sh start $apIndex)
+
+print2log DBG "wave_wlan_enable_vap done" 
+timestamp "wave_wlan_enable_vap:$apIndex:done"

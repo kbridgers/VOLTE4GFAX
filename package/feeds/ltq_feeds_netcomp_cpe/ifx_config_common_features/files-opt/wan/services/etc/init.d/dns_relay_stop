@@ -1,0 +1,8 @@
+#!/bin/sh
+
+#stop() {
+	killall -9 dnrd 2> /dev/null
+	/bin/rm -rf /ramdisk/etc/dnrd
+	mkdir /ramdisk/etc/dnrd
+	/usr/sbin/dnrd
+#}

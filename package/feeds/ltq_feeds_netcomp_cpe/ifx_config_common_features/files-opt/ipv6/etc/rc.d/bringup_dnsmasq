@@ -1,0 +1,198 @@
+#!/bin/sh
+OUTPUT="/tmp/cmd_dhcp6s"
+SED="/bin/sed"
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		. /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+copy_ipv4_resolv()
+{
+	SRCRESOLVFILE="/etc/resolv.conf"
+	DSTRESOLVFILE="/var/resolv6.conf"
+
+	if [ -f $SRCRESOLVFILE ]; then
+		cat $SRCRESOLVFILE | while read line
+		do
+			grep "$line" $DSTRESOLVFILE 2>&1 >  /dev/null
+			if [ $? -ne 0 ]; then
+				echo $line >> $DSTRESOLVFILE
+			fi
+		done
+	fi
+}
+
+start_dnsmasq()
+{
+	copy_ipv4_resolv
+	/usr/sbin/dnsmasq -u root --resolv-file=/var/resolv6.conf --resolv-file=/etc/resolv.conf --resolv-file=/ramdisk/etc/resolv.conf 2>/dev/null
+}
+
+case "$1" in
+	restart)
+		#echo "Killed dnsmasq !!!!"
+		touch /var/resolv6.conf
+		killall -9 dnsmasq # check to implement HUP signal support
+		#check if used for resolv6.conf 
+		#echo "Started dnsmasq again !!!!"
+
+                #AMS
+                echo -n > /var/resolv6.conf
+		# populate resolv.conf for the wan connection $2
+		if [ -n "$2" -a "$2" != "0" ]; then
+			if [ "$3" = "ppp" ]; then
+		        	WAN_TAG="WanPPP${2}_IF_IPv6_Dns"
+			else
+				WAN_TAG="WanIP${2}_IF_IPv6_Dns"
+			fi
+		        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv61`"
+		        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+		                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                		if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+		                        echo nameserver $DNS >> /var/resolv6.conf
+                		fi
+		                DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv62`"
+                		if [ -n "$DNS" -a "$DNS" != "0" ]; then
+		                        F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                		        if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+		                                echo nameserver $DNS >> /var/resolv6.conf
+                		        fi
+		                fi
+		        fi
+		fi
+
+		# populate resolv.conf for wan connections in wan_main_index
+		wan_idx=0
+		 while [ $wan_idx -lt $wan_ip_Count ]; do
+		        WAN_TAG="WanIP${wan_idx}_IF_IPv6_Dns"
+		        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv61`"
+		        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+		                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+		                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+		                        echo nameserver $DNS >> /var/resolv6.conf
+                		        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv62`"
+		                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                		                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+		                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                		                        echo nameserver $DNS >> /var/resolv6.conf
+		                                fi
+                		        fi
+		                fi
+		        fi
+		wan_idx=`expr $wan_idx + 1`
+		done
+
+		wan_idx=0
+		 while [ $wan_idx -lt $wan_ppp_Count ]; do
+		        WAN_TAG="WanPPP${wan_idx}_IF_IPv6_Dns"
+		        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv61`"
+		        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+		                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+		                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+		                        echo nameserver $DNS >> /var/resolv6.conf
+                		        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv62`"
+		                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                		                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+		                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                		                        echo nameserver $DNS >> /var/resolv6.conf
+		                                fi
+                		        fi
+		                fi
+		        fi
+		wan_idx=`expr $wan_idx + 1`
+		done
+                #AMS
+
+		start_dnsmasq
+		;;
+	stop)
+		echo "Stopped dnsmasq !!!!"
+		killall -9 dnsmasq # check to implement HUP signal support
+		#check if used for resolv6.conf
+
+                #AMS
+                echo -n > /var/resolv6.conf
+                # populate resolv.conf for the wan connection $2
+                if [ -n "$2" -a "$2" != "0" ]; then
+			if [ "$3" = "ppp" ]; then
+		        	WAN_TAG="WanPPP${2}_IF_IPv6_Dns"
+			else
+				WAN_TAG="WanIP${2}_IF_IPv6_Dns"
+                      	fi 
+			DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv61`"
+                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                                        echo nameserver $DNS >> /var/resolv6.conf
+                                fi
+                                DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv62`"
+                                if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                                        F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                                        if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                                                echo nameserver $DNS >> /var/resolv6.conf
+                                        fi
+                                fi
+                        fi
+                fi
+
+                # populate resolv.conf for wan connections in wan_main_index
+                wan_idx=0
+                 while [ $wan_idx -lt $wan_ip_Count ]; do
+                        WAN_TAG="WanIP${wan_idx}_IF_IPv6_Dns"
+                        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv61`"
+                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                                        echo nameserver $DNS >> /var/resolv6.conf
+                                        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv62`"
+                                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                                                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                                                        echo nameserver $DNS >> /var/resolv6.conf
+                                                fi
+                                        fi
+                                fi
+                        fi
+                wan_idx=`expr $wan_idx + 1`
+                done
+                wan_idx=0
+                 while [ $wan_idx -lt $wan_ppp_Count ]; do
+                        WAN_TAG="WanPPP${wan_idx}_IF_IPv6_Dns"
+                        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv61`"
+                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                                        echo nameserver $DNS >> /var/resolv6.conf
+                                        DNS="`/usr/sbin/status_oper GET $WAN_TAG DNSv62`"
+                                        if [ -n "$DNS" -a "$DNS" != "0" ]; then
+                                                F_DNS=`"$SED" -n "/$DNS/p" /var/resolv6.conf`
+                                                if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+                                                        echo nameserver $DNS >> /var/resolv6.conf
+                                                fi
+                                        fi
+                                fi
+                        fi
+                wan_idx=`expr $wan_idx + 1`
+                done
+                #AMS
+
+		start_dnsmasq
+		;;
+	reconf)
+		copy_ipv4_resolv
+		killall -HUP dnsmasq 2> /dev/null
+		if [ $? -ne 0 ]; then 
+			start_dnsmasq
+		fi
+		;;
+esac
+

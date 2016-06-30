@@ -1,0 +1,182 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+SED="/bin/sed"
+OUTPUT="/tmp/cmd_output"
+eval g_wan_phy_mode='$'wanphy_phymode
+eval g_wan_tc_mode='$'wanphy_tc
+
+
+	if [ -z "$CONFIG_FEATURE_IFX_TR69_DEVICE" -o "$CONFIG_FEATURE_IFX_TR69_DEVICE" = "0" ]; then
+		
+		case $# in
+		1)
+		. /etc/init.d/get_wan_mode $g_wan_phy_mode $g_wan_tc_mode
+		if [ "$1" = "start" ]; then
+
+			if [ "$wanMode" = "2" ]; then
+				#/sbin/ifconfig eth0 > "$OUTPUT"
+				#MAC_ADDR_BEGIN=`"$SED" -n 's,^.*HWaddr,,;1p' "$OUTPUT"`
+
+				MAC_ADDR_BEGIN="`/usr/sbin/status_oper GET dev_info mac_addr`"
+				ETH_WAN_MAC_ADDR=`echo $MAC_ADDR_BEGIN|/usr/sbin/next_macaddr 1`
+  			/sbin/ifconfig eth1 hw ether $ETH_WAN_MAC_ADDR
+				/sbin/ifconfig eth1 0.0.0.0 up
+				# Add eth1 as WAN interface to PPA
+				. /etc/rc.d/ppa_config.sh addwan "eth1"
+			elif [ "$wanMode" = "4" -o "$wanMode" = "3" ]; then
+				#/sbin/ifconfig eth0 > "$OUTPUT"
+				#MAC_ADDR_BEGIN=`"$SED" -n 's,^.*HWaddr,,;1p' "$OUTPUT"`
+
+				MAC_ADDR_BEGIN="`/usr/sbin/status_oper GET dev_info mac_addr`"
+				PTM_WAN_MAC_ADDR=`echo $MAC_ADDR_BEGIN|/usr/sbin/next_macaddr 2`
+  			/sbin/ifconfig ptm0 hw ether $PTM_WAN_MAC_ADDR
+				/sbin/ifconfig ptm0 0.0.0.0 up
+				# Add ptm0 as WAN interface to PPA
+				. /etc/rc.d/ppa_config.sh addwan "ptm0"
+			elif [ "$wanMode" = "7" ]; then
+				# workaround for lte0 interface not getting registered to PPA
+				/sbin/ifconfig lte0 down
+				/sbin/ifconfig lte0 up
+			fi
+			
+			# create interfaces corresponding to each active VC channel in rc.conf based on global WAN mode
+			vc_idx=0
+			if [ "$wanMode" = "0" ]; then
+				if ps ax | grep -v grep | grep br2684ctld > /dev/null
+					then
+						/usr/sbin/br2684ctl -K
+						killall -9 br2684ctld
+						rm -f /var/run/br2684ctld.pid
+						/usr/sbin/br2684ctld
+					else
+						/usr/sbin/br2684ctld
+				fi
+				while [ $vc_idx -lt $adsl_vcchannel_Count ]
+				do
+					. /etc/rc.d/create_mpoa_if $vc_idx
+					vc_idx=`expr $vc_idx + 1`
+				done
+			fi
+		fi
+		# create interfaces corresponding to each active VLAN channel in rc.conf based on global WAN mode
+		vlan_idx=0
+		while [ $vlan_idx -lt $vlan_ch_cfg_Count ]
+		do
+			startFlag="0"
+			eval pcpeSec='$'vlanch_${vlan_idx}_pcpeSec 
+			eval vlanid='$'vlanch_${vlan_idx}_vlanId
+			if [ "$wanMode" = "0" ]; then
+				if [ "$pcpeSec" = "adsl_vcchannel" ]; then
+					startFlag="1"
+				fi
+			
+			elif [ "$wanMode" = "3" -o "$wanMode" = "4" ]; then
+				if [ "$pcpeSec" = "ptm_channel" ]; then
+					startFlag="1"
+				fi
+			
+			elif [ "$wanMode" = "1" ]; then
+				if [ "$pcpeSec" = "eth_channel" ]; then
+					eval eth_iface='$'vlanch_${vlan_idx}_l2ifName
+					iface_name=`echo $eth_iface | $SED -n "s,\..*,,;1p"`
+					if [ "$iface_name" = "eth0" ];then
+						startFlag="1"
+					fi
+				fi
+			
+			elif [ "$wanMode" = "2" ]; then
+				if [ "$pcpeSec" = "eth_channel" ]; then
+					eval eth_iface='$'vlanch_${vlan_idx}_l2ifName
+					iface_name=`echo $eth_iface | $SED -n "s,\..*,,;1p"`
+					if [ "$iface_name" = "eth1" ];then
+						startFlag="1"
+					fi
+				fi
+			fi
+
+			if [ "$startFlag" = "1" ]; then
+				if [ "$1" = "start" ]; then
+					. /etc/rc.d/create_vlan_intrf $vlan_idx $vlanid
+				elif [ "$1" = "stop" ]; then
+					. /etc/rc.d/delete_vlan_intrf $vlan_idx $vlanid
+				fi
+			fi
+			vlan_idx=`expr $vlan_idx + 1`
+		done
+
+		if [ "$1" = "stop" ]; then
+			vc_idx=0
+			if [ "$wanMode" = "0" ]; then
+				while [ $vc_idx -lt $adsl_vcchannel_Count ]
+				do
+					/usr/sbin/status_oper SET VCChannel${vc_idx}_Info STATUS DISCONNECTED
+					vc_idx=`expr $vc_idx + 1`
+				done
+				/usr/sbin/br2684ctl -K
+			fi
+			if [ "$wanMode" = "2" ]; then
+				/sbin/ifconfig eth1 0.0.0.0 down
+			elif [ "$wanMode" = "4" -o "$wanMode" = "3" ]; then
+				/sbin/ifconfig ptm0 0.0.0.0 down
+			elif [ "$wanMode" = "7" ]; then
+				/sbin/ifconfig lte0 down
+			fi
+		fi
+		;;
+		2)
+		# create interface corresponding to VLAN channel with $2 in rc.conf based on global WAN mode
+		vc_idx=0
+		vlan_idx=0
+		eval pcpeSec='$'vlanch_${2}_pcpeSec 
+		eval vlanid='$'vlanch_${2}_vlanId
+		eval vlan_baseif='$'vlanch_${2}_baseIf
+		if [ "$1" = "start" ]; then
+			/sbin/ifconfig $vlan_baseif 0.0.0.0 up
+			if [ "$vlan_baseif" = "ptm0" ]; then
+				#/sbin/ifconfig eth0 > "$OUTPUT"
+				#MAC_ADDR_BEGIN=`"$SED" -n 's,^.*HWaddr,,;1p' "$OUTPUT"`
+				MAC_ADDR_BEGIN="`/usr/sbin/status_oper GET dev_info mac_addr`"
+				PTM_WAN_MAC_ADDR=`echo $MAC_ADDR_BEGIN|/usr/sbin/next_macaddr 2`            
+	                        /sbin/ifconfig ptm0 hw ether $PTM_WAN_MAC_ADDR
+			fi
+		fi
+			if [ "$pcpeSec" = "adsl_vcchannel" ]; then
+				while [ $vc_idx -lt $adsl_vcchannel_Count ]
+				do
+					eval vc_l2if='$'VCChannel_${vc_idx}_l2ifName
+					if [ "$vc_l2if" = "$vlan_baseif" ]; then
+						if [ "$1" = "start" ]; then
+							/etc/rc.d/create_mpoa_if $vc_idx
+						else
+							/etc/rc.d/delete_mpoa_if $vc_idx
+						fi
+						break
+					fi
+					vc_idx=`expr $vc_idx + 1`
+				done
+			fi
+			if [ "$1" = "start" ]; then
+				. /etc/rc.d/create_vlan_intrf $2 $vlanid
+			elif [ "$1" = "stop" ]; then
+				. /etc/rc.d/delete_vlan_intrf $2 $vlanid
+				# /sbin/ifconfig $vlan_baseif 0.0.0.0 down
+			fi
+		;;
+		*)
+		;;
+		esac
+
+	fi

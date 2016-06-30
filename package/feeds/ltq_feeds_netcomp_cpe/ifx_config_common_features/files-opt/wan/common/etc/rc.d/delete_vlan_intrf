@@ -1,0 +1,39 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# evaluate pcpeid and parent phy section 
+
+eval pcpeid='$'vlanch_${1}_pcpeId
+eval pcpeSec='$'vlanch_${1}_pcpeSec
+eval vlanid='$'vlanch_${1}_vlanId
+eval l2If='$'vlanch_${1}_baseIf
+
+if [ "$vlanid" != "-1" ]; then
+		# create mpoa interface
+		if [ "$pcpeSec" = "adsl_vcchannel" ]; then	
+			. /etc/rc.d/delete_mpoa_if ${l2If} ${vlanid}
+		fi
+
+		# create eth interface
+		if [ "$pcpeSec" = "eth_channel" ]; then	
+			. /etc/rc.d/delete_eth_if ${l2If} ${vlanid}
+		fi
+
+		# create PTM interface
+		if [ "$pcpeSec" = "ptm_channel" ]; then
+			. /etc/rc.d/delete_ptm_if ${l2If} ${vlanid}
+		fi
+fi

@@ -1,0 +1,65 @@
+Index: ppp-2.4.4/pppd/ipv6cp.c
+===================================================================
+--- ppp-2.4.4.orig/pppd/ipv6cp.c	2012-01-26 10:27:05.000000000 +0530
++++ ppp-2.4.4/pppd/ipv6cp.c	2012-01-26 10:54:16.211963831 +0530
+@@ -232,11 +232,19 @@
+     { "-ipv6", o_bool, &ipv6cp_protent.enabled_flag,
+       "Disable IPv6 and IPv6CP", OPT_PRIOSUB | OPT_ALIAS },
+ 
++#ifdef __linux__
++    { "ipv6cp-accept-local", o_bool, &ipv6cp_wantoptions[0].accept_local,
++      "Accept peer's interface identifier for us", 1 },
++
++    { "ipv6cp-use-ipaddr", o_bool, &ipv6cp_wantoptions[0].use_ip,
++      "Use (default) IPv4 address as interface identifier", 1 },
++#else
+     { "ipv6cp-accept-local", o_bool, &ipv6cp_allowoptions[0].accept_local,
+       "Accept peer's interface identifier for us", 1 },
+ 
+     { "ipv6cp-use-ipaddr", o_bool, &ipv6cp_allowoptions[0].use_ip,
+       "Use (default) IPv4 address as interface identifier", 1 },
++#endif
+ 
+ #if defined(SOL2) || defined(__linux__)
+     { "ipv6cp-use-persistent", o_bool, &ipv6cp_wantoptions[0].use_persistent,
+@@ -1119,8 +1127,9 @@
+     }
+ 
+     if (demand && (eui64_iszero(wo->ourid) || eui64_iszero(wo->hisid))) {
+-	option_error("local/remote LL address required for demand-dialling\n");
+-	exit(1);
++	notice("local/remote LL address required for demand-dialling\n");
++	notice("Initilised local/remote LL address in the ipv6_demand_conf () in  demand-dialling\n");
++//	exit(1); /* initilised local/remote LL address in the ipv6_demand_conf ()*/
+     }
+ }
+ 
+@@ -1135,6 +1144,28 @@
+ {
+     ipv6cp_options *wo = &ipv6cp_wantoptions[u];
+ 
++#ifdef __linux__
++   if (!wo->opt_local) {       /* init interface identifier */
++        if (eui64_iszero(wo->ourid)) {
++            eui64_setlo32(wo->ourid, (0x0a404040 + ifunit));
++            if (!eui64_iszero(wo->ourid))
++                wo->opt_local = 1;
++        }
++
++        while (eui64_iszero(wo->ourid))
++            eui64_magic(wo->ourid);
++
++    }
++
++    if (!wo->opt_remote) {
++        if (eui64_iszero(wo->hisid)) {
++            eui64_setlo32(wo->hisid, (0x0a707070 + ifunit));
++            if (!eui64_iszero(wo->hisid))
++                wo->opt_remote = 1;
++        }
++     }
++#endif
++
+ #if defined(__linux__) || defined(SOL2) || (defined(SVR4) && (defined(SNI) || defined(__USLC__)))
+ #if defined(SOL2)
+     if (!sif6up(u))

@@ -1,0 +1,179 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+		  CONFIGLOADED="1"
+fi
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+	QOS_INTF_LAN_ETH_1=1
+
+case "$wanphy_phymode" in
+	0)	
+		TC_ACTION=0  #TC rules ADD action input for TCP ACK Prio
+		ADSL_MODE_ON=1 #denotes ADSL Mode
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+		esac
+		;;
+	1)
+		TC_ACTION=2 #TC rules DELETE action input for TCP ACK Prio
+		ADSL_MODE_ON=0
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+                	DEF_UPSTREAM_RATE="1048576"
+	                DEF_DOWNSTREAM_RATE="1048576"
+		else
+       		        DEF_UPSTREAM_RATE="102400"
+                	DEF_DOWNSTREAM_RATE="102400"
+                fi
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	2)
+		TC_ACTION=2 #TC rules DELETE action input for TCP ACK Prio
+		ADSL_MODE_ON=0
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+               	DEF_UPSTREAM_RATE="1048576"
+	        DEF_DOWNSTREAM_RATE="1048576"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	3)
+		TC_ACTION=2 #TC rules DELETE action input for TCP ACK Prio
+		ADSL_MODE_ON=0
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="60000"
+                DEF_DOWNSTREAM_RATE="100000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="99800kbit"
+                RATE_UNIT=kbit
+		;;
+esac
+
+ACTUAL_UPSTREAM_RATE=$DEF_UPSTREAM_RATE
+ACTUAL_DOWNSTREAM_RATE=$DEF_DOWNSTREAM_RATE
+
+
+# read queue rates from file /tmp/ipqos_rates
+if [ -f /tmp/ipqos_rates ]; then
+	. /tmp/ipqos_rates
+#here these atm and ptm macros are kept since only adsl script can put these rates first. For wan ethernet, the rates are negotiated later at end of this script in qos_rate_update
+	if [ ! -z $IPQOS_UP_RATE ]; then
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+		fi
+	fi
+	if [ ! -z $IPQOS_DOWN_RATE ]; then
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+		fi
+	fi
+fi
+
+
+MAX_UPSTREAM_RATE_TMP=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+MAX_DOWNSTREAM_RATE_TMP=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+/usr/sbin/status_oper SET "qos_bk" "up_link_rate" "$MAX_UPSTREAM_RATE_TMP" "down_link_rate" "$MAX_DOWNSTREAM_RATE_TMP" "queue_method" "0"
+#if [ $qm_portRateLimEnab -ne 1 ]; then
+#/bin/sed -i -e "s,^qm_upPortRateLim=.*,qm_upPortRateLim=\"$MAX_UPSTREAM_RATE_TMP\",g" /ramdisk/flash/rc.conf
+#/etc/rc.d/backup
+/usr/sbin/status_oper -u -f /etc/rc.conf SET "qos_queuemgmt" "qm_upPortRateLim" "$MAX_UPSTREAM_RATE_TMP" "qm_downPortRateLim" "$MAX_DOWNSTREAM_RATE_TMP"
+#fi
+MAX_UPSTREAM_RATE=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+MAX_DOWNSTREAM_RATE=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+
+#Update the QoS Flags
+#/usr/sbin/status_oper SET "qos_bk" "queue_method" "0"
+queuecfg -c 0/0
+
+#Update the Rates
+queuecfg -r 0/0
+
+if [ $wanphy_phymode -eq 1 -a $qm_enable -eq 0 ]; then
+
+# Setting egress cos map for mii0 interfaces
+wan_index=`echo $wan_main_index | tr ',' ' '`
+for i in $wan_index
+do
+	eval wanmode='$'wan_${i}_wanMode
+	# perform mapping only if wanmode is mii0
+	if [ $wanmode -eq 1 ]; then
+		eval vlan='$'wan_${i}_vlanId
+		#set egress cos map
+		#vconfig set_egress_map eth0.$vlan 802.1p skb-Prio
+		vconfig set_egress_map eth0.$vlan 0 0
+		vconfig set_egress_map eth0.$vlan 1 0
+		vconfig set_egress_map eth0.$vlan 2 0
+		vconfig set_egress_map eth0.$vlan 3 0
+		vconfig set_egress_map eth0.$vlan 4 0
+		vconfig set_egress_map eth0.$vlan 5 0
+		vconfig set_egress_map eth0.$vlan 6 0
+		vconfig set_egress_map eth0.$vlan 7 3
+	fi
+done
+
+
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=6 eClassMode=3 nTrafficClass=0
+	#MIICR: To disable Flow control for Port 6 (CPU port)
+	if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_DANUBE" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_DANUBE" = "1" ]; then
+	        /usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0xF5 nData=0x677
+	elif [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+		/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0xF5 nData=0xabb
+	fi
+
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=0
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=3
+fi
+
+#Call to make TCP ACK Prioritization when QOS is disabled
+if [ $ADSL_MODE_ON -eq 1 -a $qm_enable -eq 0 -a $qm_tcpackprio -eq 1 ]; then
+	. /etc/rc.d/ipqos_common 0 $TC_ACTION
+fi
+
+#Update the negotiated rates
+qos_rate_update &

@@ -1,0 +1,97 @@
+add machtype for SFP
+
+--- a/arch/mips/lantiq/falcon/Kconfig
++++ b/arch/mips/lantiq/falcon/Kconfig
+@@ -18,6 +18,10 @@ config LANTIQ_MACH_MDU
+ 	bool "MDU"
+ 	default n
+ 
++config LANTIQ_MACH_SFP
++	bool "SFP"
++	default n
++
+ endmenu
+ 
+ endif
+--- a/arch/mips/lantiq/falcon/Makefile
++++ b/arch/mips/lantiq/falcon/Makefile
+@@ -7,4 +7,5 @@ obj-$(CONFIG_LANTIQ_MACH_EASY98000) += d
+ obj-$(CONFIG_LANTIQ_MACH_EASY98020) += mach-easy98020.o
+ obj-$(CONFIG_LANTIQ_MACH_95C3AM1)   += mach-95C3AM1.o
+ obj-$(CONFIG_LANTIQ_MACH_MDU) += mach-mdu.o
++obj-$(CONFIG_LANTIQ_MACH_SFP) += mach-sfp.o
+ 
+--- /dev/null
++++ b/arch/mips/lantiq/falcon/mach-sfp.c
+@@ -0,0 +1,59 @@
++#include <linux/init.h>
++#include <linux/platform_device.h>
++#include <linux/mtd/mtd.h>
++#include <linux/mtd/partitions.h>
++#include <linux/interrupt.h>
++#include <linux/spi/spi.h>
++#include <linux/spi/flash.h>
++#include "../machtypes.h"
++
++#include "devices.h"
++
++#ifdef CONFIG_MTD_PARTITIONS
++static struct mtd_partition sfp_spi_partitions[] =
++{
++	{
++		.name	= "uboot",
++		.offset	= 0x0,
++		.size	= 0x40000,
++	},
++	{
++		.name	= "uboot_env",
++		.offset	= 0x40000,
++		.size	= 0x40000,	/* 2 sectors for redundant env. */
++	},
++	{
++		.name	= "linux",
++		.offset	= 0x80000,
++		.size	= 0xF80000,	/* map only 16 MiB */
++	},
++};
++
++static struct flash_platform_data sfp_spi_flash_platform_data = {
++	.name = "sflash",
++	.parts = sfp_spi_partitions,
++	.nr_parts = ARRAY_SIZE(sfp_spi_partitions)
++};
++#endif
++
++static struct spi_board_info sfp_spi_flash_data __initdata = {
++	.modalias		= "m25p80",
++	.bus_num		= 0,
++	.chip_select		= 0,
++	.max_speed_hz		= 10 * 1000 * 1000,
++	.mode			= SPI_MODE_3,
++#ifdef CONFIG_MTD_PARTITIONS
++	.platform_data		= &sfp_spi_flash_platform_data
++#endif
++};
++
++static void __init sfp_init(void)
++{
++	falcon_register_spi_flash(&sfp_spi_flash_data);
++	falcon_register_i2c();
++}
++
++MIPS_MACHINE(LANTIQ_MACH_SFP,
++			"SFP",
++			"SFP Module",
++			sfp_init);
+--- a/arch/mips/lantiq/machtypes.h
++++ b/arch/mips/lantiq/machtypes.h
+@@ -47,6 +47,9 @@ enum lantiq_mach_type {
+ 
+ 	/* MDU platform */
+ 	LANTIQ_MACH_MDU,		/* MDU Board */
++
++	/* SFP platform */
++	LANTIQ_MACH_SFP,		/* SFP Module */
+ };
+ 
+ #endif

@@ -1,0 +1,214 @@
+/******************************************************************************
+
+                              Copyright (c) 2012
+                            Lantiq Deutschland GmbH
+
+  For licensing information, see the file 'LICENSE' in the root folder of
+  this software module.
+
+  ****************************************************************************/
+
+I.) FIRMWARE files
+------------------
+
+Using or update-ing FIRMWARE files
+=================================
+
+In some cases board need only few or none of them.
+
+COMPILING with FW files (not using filesystem, at the moment only cpe, vip):
+----------------------------------------------------------------------------
+Firmware files must be located in folder /bin. Then following links in same
+folder must be created to this 3 FW files or new FW files must be renamed.
+Example:
+1.) <board>_bbd_fx<o|s>.c --> 2cpe_600.c
+2.) <board>_pPRAMfw.c --> edspPRAMfw_RTP_0_17_64_V22.c
+3.) <board>_pDRAMfw.c --> edspDRAMfw_RTP_0_17_64_V22.c
+
+USING filesystem
+----------------
+Firmware files located on BOARD must be in folder /lib/firmware. The names
+must be following:
+1.) <board>_bbd_fx<o|s>.bin
+2.) pramfw.bin
+3.) dramfw.bin
+4.) voice_<board>_firmware.bin
+
+NOTE: Not all of files mentioned above are needed to run board. Each board
+      needs different set of files.
+NOTE: <board> - vin-cpe, vin-vip, danube, ar9...
+
+
+1. HOW TO COMPILE
+-----------------
+
+1.1 VxWorks / GNU
+=================
+
+Prerequisite is to know how to prepare board in VxWorks and use VxWorks.
+
+For VINETIC 2CPE:
+-----------------
+Open project "vxworks_tapidemo_cpe.wpj" in Tornado ver. 2.0 in compile it.
+Create output file "vxworks_tapidemo_cpe.out".
+Download this file to board and start it.
+
+For DuSLIC-xT:
+--------------
+Open project "vxworks_tapidemo_dxt.wpj" in Tornado ver. 2.0 in compile it.
+Create output file "vxworks_tapidemo_dxt.out".
+Download this file to board and start it.
+
+NOTICE:
+For additional support following compiler flags are added to the project
+properties:
+   a.) VBD support --> -DTAPI_V21 -DTAPI_SIGNAL_SUPPORT
+   b.) QoS (Quality of Service) --> -DQOS_SUPPORT -DAPP
+   c.) FXO support only used on DANUBE board at them moment --> -DFXO
+   d.) To compile for old stream 1.1 additional flag is used --enable-old_stream
+
+
+1.2 Linux
+=========
+
+a) Examples for the different platforms:
+
+EASY3332 ( => CPE)
+
+../configure --build=i686-pc-linux --host=powerpc-linux-uclibc --enable-warnings --with-kernel-incl=${HOME}/projects/uclibc/buildroot/build_powerpc/staging_dir/powerpc-linux-uclibc/include --prefix=/exports/${USER}_easy3332_24/opt/ifx --with-system=EASY3332 --enable-fs --with-drv-incl=/var/vob/comacsd/comacsd_driver --with-ifxos-incl=/var/vob/comacsd/comacsd_lib/lib_ifxos/src/include
+
+EASY334 ( => VIP/M/C/S)
+
+../configure --build=i686-pc-linux --host=powerpc-linux-uclibc --enable-warnings --with-kernel-incl=${HOME}/projects/uclibc/buildroot/build_powerpc/staging_dir/powerpc-linux-uclibc/include --prefix=/exports/${USER}_easy334_24/opt/ifx --with-system=EASY334 --enable-fs --with-drv-incl=/var/vob/comacsd/comacsd_driver --with-ifxos-incl=/var/vob/comacsd/comacsd_lib/lib_ifxos/src/include
+
+DANUBE ( VMMC )
+
+../configure --build=i686-pc-linux --host=mips-linux --enable-warnings --with-kernel-incl=/home/${USER}/linux_danube/include --prefix=/exports/${USER}_danube/opt/ifx --with-system=EASY50712 --enable-fs --enable-debug --with-drv-incl=/var/vob/comacsd/comacsd_driver --with-ifxos-incl=/var/vob/comacsd/comacsd_lib/lib_ifxos/src/include
+
+INCAIP2
+
+../configure --build=i686-pc-linux --host=mips-linux --enable-warnings --with-kernel-incl=/view/${USER}_view/var/vob/comacsd/comacsd_blr_ciip1/os/ifx-com-linux/source/kernel/opensource/linux-2.4.31/include --prefix=/exports/${USER}_inca2/opt/ifx --with-system=INCAIP2 --enable-fs --with-drv-incl=/var/vob/comacsd/comacsd_driver --with-ifxos-incl=/var/vob/comacsd/comacsd_lib/lib_ifxos/src/include
+
+EASY3201 ( => DXT)
+
+../configure --build=i686-pc-linux --host=powerpc-linux-uclibc --enable-warnings --with-kernel-incl=${HOME}/projects/uclibc/buildroot/build_powerpc/staging_dir/powerpc-linux-uclibc/include --prefix=/exports/${USER}_easy3201_24/opt/ifx --with-system=EASY3201 --enable-fs --with-drv-incl=/var/vob/comacsd/comacsd_driver --with-ifxos-incl=/var/vob/comacsd/comacsd_lib/lib_ifxos/src/include
+
+VINAX ( VMMC )
+
+../configure --build=i686-pc-linux --host=mips-linux --enable-warnings --with-kernel-incl=/home/${USER}/linux_danube/include --prefix=/exports/${USER}_vinax/opt/ifx --with-system=EASY80800 --enable-fs --enable-debug --with-drv-incl=/var/vob/comacsd/comacsd_driver --with-ifxos-incl=/var/vob/comacsd/comacsd_lib/lib_ifxos/src/include
+
+EASY336 (SVIP)
+../configure --build=i686-pc-linux --host=mips-linux --with-vos-incl=/home/${USER}/comacsd/comacsd_lib/lib_vos/include --with-vos-lib=/home/${USER}/comacsd/comacsd_lib/lib_vos/build_dir/src --with-system=EASY336 --with-kernel-incl=/home/${USER}/projects/open_wrt/build_dirs/build_mips_svip_easy336/linux/include --with-tapiincl=/home/${USER}/comacsd/comacsd_driver/drv_tapi/include --enable-vos-include=/home/${USER}/comacsd/comacsd_lib/lib_vos/include --enable-vos-library=/home/${USER}/comacsd/comacsd_lib/lib_vos/build_dir/src --enable-svip-include=/home/${USER}/comacsd/comacsd_system/svip/common --enable-svip-library=/home/${USER}/comacsd/comacsd_system/svip/build_dir/common --with-drvincl=/home/${USER}/comacsd/comacsd_driver --prefix=/nfsexports/${USER}/svip_easy336/opt/ifx --enable-fs --with-vxt
+
+b) make
+c) make install
+
+1.2.1 Additional arguments
+--------------------------
+
+Parameter '--with-drvincl=' is used to specify main folder where subfolders for
+needed drivers are located. if folder drv_vmmc is located in /var/drivers then
+'--with-drvincl=/var/drivers' would be passed.
+
+For EASY3201(Duslic-XT), EASY50712(Danube), EASY508XX(AR9, GR9) and 
+EASY3332(Vinetic-CPE) support of TAPI Reset funcionalty was added. Tapidemo for 
+those boards by default uses IFX_TAPI_DEV_START to initialize TAPI. 
+To use IFX_TAPI_CH_INIT, Tapidemo must be compiled with "--enable-channel-init" flag.
+
+NOTICE:
+For additional support following arguments are appended to upper compile lines:
+   - fax/modem support --> --enable-fax/modem
+   - fax t38 (also enables fax/modem support) --> --enable-fax_t38
+   - QoS (Quality of Service) --> --enable-qos
+   - Duslic FXO for Danube board (EASY50712) --> --enable-duslic-fxo
+   - DECT support --> --enable-dect
+
+1.2.2 File structure
+--------------------
+
+Tapidemo (configure.in script) checks if all require drivers exist 
+below the directory passed with '--with-drvincl'. 
+Example for EASY50712 '--with-drvincl=/home/ifx/drivers'
+ 
+/home/ifx/drivers/
+    |--- drv_tapi-3.x.x
+    |--- drv_ter1x66-2.3.4         
+    |--- drv_daa-n.n.n
+    |--- drv_vmmc-n.n.n
+    |--- drv_mps_vmmc-n.n.n
+    |--- drv_duslic-n.n.n
+    |--- drv_peb3324-n.n.n
+
+'Configure' displays information if any driver is missing. 
+If there are more than one directory for given driver then proper information
+is printed. In such situation it is necessary to select only one version, for
+example by creating symboling link.
+E.g. there are 2 versions of drv_tapi: drv_tapi-3.7.1 and drv_tapi-3.7.2
+configure will print following trace:
+
+searching for directory with driver drv_tapi... find more than one ( drv_tapi-3.7.1, drv_tapi-3.7.2 )
+
+Now it is necessary to create symboling link 'drv_tapi' which will point to 
+desired version, and run configure again.
+
+Not all drivers are necessary to start Tapidemo. Some of them are used for 
+additional options e.g. FXO. 
+Following list shows dependences between drivers and options for EASY50712:
+1. drv_peb3324 - used for the EASY50510 extension board. If it is present, 
+                 Tapidemo can be started with option '-b 3' - EASY50712+EASY50510.
+2. drv_duslic and drv_daa - used for DuSLIC FXO support. If they are present, and Tapidemo is compiled
+                 with --enable-duslic-fxo flag then Tapidemo can be started with option '-x'.                  
+3. drv_ter1x66 - used for Teridian FXO support. If it is present, Tapidemo can use Teridian FXO,
+                 e.g. extension board Teridian73M1866.                 
+
+
+2. HOW TO GET DOCUMENTATION
+---------------------------
+
+a) doxygen
+
+change to ./doc directory and execute <doxygen doxyconfig>
+
+b) user manuls: Software Description (TAPIDEMO_UM_SD_...) and User’s Guide
+(TAPIDEMO_UM_UG_...) are located in separate directories in ./doc directory
+
+
+
+4. Tests
+--------
+
+Run your executable with appropriate parameters.
+Use the help option to view the parameters
+
+4.1 VxWorks / GNU
+=================
+
+tapidemo "-h"
+
+4.2 Linux
+=========
+
+./tapidemo -h
+
+
+5. File .tapidemorc
+-------------------
+
+Path to downloads (firmware and BBD files) can be changed by using .tapidemorc 
+file. This file should be placed in user home directory.  
+In .tapidemorc file following line should be placed to set downloads path :
+
+DOWNLOADS="path_to_downloads_directory"
+
+Path name must be in quotes and ended with slash '/'.
+If there is no .tapidemorc file or path specified in file does not exist then 
+default path is used.
+
+
+6. FXO limitation
+------------------
+Short pause/delay is necessary after dialing '05<FXO number>'. It is caused by 
+the PCM i/f, which is then configured and activated. If digit after 
+'05<FXO number>' is dialed too fast (e.g. redial is used), it will be not 
+detected on second board.
+

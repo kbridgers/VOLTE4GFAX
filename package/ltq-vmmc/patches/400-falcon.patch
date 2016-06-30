@@ -1,0 +1,52 @@
+--- a/src/mps/drv_mps_vmmc_falcon.c
++++ b/src/mps/drv_mps_vmmc_falcon.c
+@@ -30,9 +30,14 @@
+ #include "ifxos_interrupt.h"
+ #include <linux/gpio.h>
+ #include <sys1_reg.h>
+-#include <falcon.h>
++#include <gpon_reg_base.h>
+ #include <falcon_irq.h>
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0))
+ #include <vpe.h>
++#else
++#include <asm/vpe.h>
++#include <softdog_vpe.h>
++#endif
+ #include <sysctrl.h>
+ void (*ifx_bsp_basic_mps_decrypt)(unsigned int addr, int n) = (void (*)(unsigned int, int))0xbf000290;
+ 
+@@ -56,6 +61,23 @@ void (*ifx_bsp_basic_mps_decrypt)(unsign
+ #define VPE1_WDOG_TMOUT_MIN 20
+ #define VPE1_WDOG_TMOUT_MAX 5000
+ 
++#define OPTIC_PMA_BASE	(KSEG1 | 0x1DD00000)
++   /** reset and power down control for PMD
++       Not Specified */
++#define GPON_PMD_RESETCONTROL (OPTIC_PMA_BASE + 0x00000280)
++
++#ifndef PMA_PMD_RESETCONTROL_DLL_PD
++/* Fields of "reset and power down control for PMD" */
++/** dll pmd power down
++    0 .. no pd, 1 .. pd */
++#define PMA_PMD_RESETCONTROL_DLL_PD 0x00000800
++#endif
++#ifndef PMA_PMD_RESETCONTROL_DLL_RSTN
++/** dll pmd reset
++    0 .. reset, 1 .. no reset */
++#define PMA_PMD_RESETCONTROL_DLL_RSTN 0x00000400
++#endif
++
+ /* ============================= */
+ /* Global variable definition    */
+ /* ============================= */
+@@ -454,6 +476,9 @@ void sys_hw_setup (void)
+    sys1_hw_activate (ACTS_MPS | ACTS_GPTC);
+    /* GPTC:CLC:RMC = 1 */
+    ltq_w32 (0x00000100, (u32 *)(KSEG1 | 0x1E100E00));
++   /* enable voice pll: clear powerdown and deactivate reset by settin RSTN */
++   ltq_w32_mask (PMA_PMD_RESETCONTROL_DLL_RSTN | PMA_PMD_RESETCONTROL_DLL_PD,
++	PMA_PMD_RESETCONTROL_DLL_RSTN, (u32 *)(GPON_PMD_RESETCONTROL));
+ }
+ 
+ #ifndef VMMC_WITH_MPS

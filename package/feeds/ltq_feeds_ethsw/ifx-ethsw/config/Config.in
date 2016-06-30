@@ -1,0 +1,5 @@
+config FEATURE_IFX_GPHY_WEB_GUI
+	bool 'GPHY WEB GUI'
+	help
+	  GPHY Web GUI interface for debug supported
+

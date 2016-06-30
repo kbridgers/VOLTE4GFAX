@@ -1,0 +1,42 @@
+CONFIG_MIPS_VPE_LOADER requires us to provide physical_memsize for VPE1
+
+--- a/arch/mips/lantiq/prom.c
++++ b/arch/mips/lantiq/prom.c
+@@ -24,6 +24,8 @@
+ DEFINE_SPINLOCK(ebu_lock);
+ EXPORT_SYMBOL_GPL(ebu_lock);
+ 
++unsigned long physical_memsize = 0L;
++
+ /*
+  * this struct is filled by the soc specific detection code and holds
+  * information about the specific soc type, revision and name
+@@ -62,6 +64,9 @@ extern u32 dtb_appended[16 * 1024];
+ void __init plat_mem_setup(void)
+ {
+ 	struct boot_param_header *bph = (struct boot_param_header *) dtb_appended;
++	/* assume 16M as default incase uboot fails to pass proper ramsize */
++	unsigned long memsize = 16;
++	char **envp = (char **) KSEG1ADDR(fw_arg2);
+ 
+ 	ioport_resource.start = IOPORT_RESOURCE_START;
+ 	ioport_resource.end = IOPORT_RESOURCE_END;
+@@ -75,6 +80,18 @@ void __init plat_mem_setup(void)
+ 	 * parsed resulting in our memory appearing
+ 	 */
+ 	__dt_setup_arch(bph);
++
++	while (*envp) {
++		char *e = (char *)KSEG1ADDR(*envp); printk("e=%s\n", e);
++		if (!strncmp(e, "memsize=", 8)) {
++			e += 8;
++			if (strict_strtoul(e, 0, &memsize))
++				pr_warning("bad memsize specified\n");
++		}
++		envp++;
++	}
++	memsize *= 1024 * 1024;
++	physical_memsize = memsize; printk("MEMSIZE = %lu\n", physical_memsize);
+ }
+ 
+ __attribute__((weak))

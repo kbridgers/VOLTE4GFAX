@@ -1,0 +1,88 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "running wave_wlan_radio_enable_disable: args: $*"	
+
+apIndex=$1
+
+timestamp "wave_wlan_radio_enable_disable:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+wlan_count_vap=`host_api get $$ $apIndex wlanInterfaceCount`
+if [ -z $wlan_count_vap ]; then  wlan_count_vap=0; fi
+print2log DBG "wave_wlan_radio_enable_disable: wlan_count_vap=$wlan_count_vap"
+
+ifconfig_all_if()
+{
+	if_operation=$1
+	timestamp "wave_wlan_radio_modify:ifconfig_all_if:$if_operation:$apIndex:begin"
+	
+	# Going over all VAPs and physical and performing ifconfig down or up to all interfaces belonging to currently changed physical wlan.
+	current_if=0
+	while [ "$current_if" -lt "$wlan_count_vap" ]
+	do
+		print2log DBG "wave_wlan_radio_enable_disable: current value in while for current_if: $current_if"
+		
+		# Check who is the parent of the current interface in the loop.
+		radioCpeId=`$STATUS_OPER -f $CONFIGS_PATH/rc.conf GET "wlan_main" "wlmn_${current_if}_radioCpeId"`
+		parent_if=`$STATUS_OPER -f $WAVE_MAP_CPEID GET "$WAVE_MAP_SECTION" "wlmap_${radioCpeId}"`
+		
+		# If no parent was found, the interface is not WAVE
+		if [ -z "$parent_if" ]
+		then
+			let current_if=$current_if+1
+			continue
+		fi
+		
+		parent_index=`find_index_from_wave_if $parent_if`
+
+		# Checking if the parent of the current interface in the loop is the interface on which the script was called
+		if [ "$parent_if" != "$wlan" ]
+		then
+			let current_if=$current_if+1
+			continue
+		fi
+		
+		# Check if interface is enabled
+		apEnable=`host_api get $$ $current_if apEnable`
+		if [ "$apEnable" = "$NO" ]
+		then
+			let current_if=$current_if+1
+			continue
+		fi
+		
+		# Perform the requested operation
+		if [ "$if_operation" = "down" ] 
+		then
+			# Get the interface name
+			current_if_name=`find_wave_if_from_index $current_if`
+			ifconfig $current_if_name $if_operation
+		else
+			# Instead of up - reload security configuration
+			$ETC_PATH/mtlk_init_hostapd.sh reload $current_if
+		fi	
+		let current_if=$current_if+1
+	done
+	timestamp "wave_wlan_radio_modify:ifconfig_all_if:$if_operation:$apIndex:done"
+}
+
+
+# Check if enabling or disabling the radio.
+wlsEnable=`host_api get $$ $apIndex WLSEnabled`
+
+# Going over all VAPs and physical and enabling/disabling only interfaces belonging to currently changed physical wlan.
+if [ "$wlsEnable" = "$YES" ]
+then
+	ifconfig_all_if up
+else
+	ifconfig_all_if down
+fi
+
+print2log DBG "wave_wlan_radio_enable_disable: Done"
+
+timestamp "wave_wlan_radio_enable_disable:$apIndex:done"

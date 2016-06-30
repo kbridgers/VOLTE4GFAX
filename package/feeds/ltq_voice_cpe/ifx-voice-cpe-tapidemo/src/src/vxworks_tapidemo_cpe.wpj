@@ -1,0 +1,487 @@
+Document file - DO NOT EDIT
+
+<BEGIN> BUILD_PPC860gnu_BUILDRULE
+vxworks_tapidemo_cpe.out
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_AR
+arppc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_ARCHIVE
+$(PRJ_DIR)/PPC860gnu/ifx_tapi_demo.a
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_AS
+ccppc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_CC
+ccppc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_CFLAGS
+-g \
+	-O0 \
+	-mcpu=860 \
+	-ansi \
+	-nostdinc \
+	-DRW_MULTI_THREAD \
+	-D_REENTRANT \
+	-fvolatile \
+	-fno-builtin \
+	-fno-for-scope \
+	-DVXWORKS \
+	-DTAPI_V21 \
+	-DENABLE_TRACE \
+	-DTAPI_DTMF \
+	-DCPU=PPC860 \
+	-DTAPI_VOICE \
+	-DEASY3332 \
+	-DVIN_2CPE \
+	-Wall \
+	-I$(WIND_BASE)/target/h \
+	-DCPU=PPC860 \
+	-DSTREAM_1_2 \
+	-DENABLE_TRACE \
+	-DHAVE_DRV_TAPI_HEADERS \
+	-DHAVE_DRV_EASY3332_HEADERS \
+	-DHAVE_DRV_VINETIC_HEADERS \
+	-DNO_SNPRINTF \
+	-save-temps \
+	-I$(PRJ_DIR)/common/src \
+	-I$(PRJ_DIR)/drv_peb3324/include \
+	-I$(PRJ_DIR)/drv_tapi/include \
+	-I$(PRJ_DIR)/boards \
+	-I$(PRJ_DIR)/../bin \
+	-I$(PRJ_DIR)/../abacus \
+	-I$(PRJ_DIR)/.. \
+	-I$(PRJ_DIR) \
+	-I. \
+	-I$(PRJ_DIR)/../bin \
+	-I$(PRJ_DIR)/abacus \
+	-I$(PRJ_DIR)/.. \
+	-I$(PRJ_DIR) \
+	-I. \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_tapi/include \
+	-I$(PRJ_DIR)/../../../comacsd_lib/lib_ifxos/src/include \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_easy3332/include \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_easy3332/lib_easy3332 \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_peb3324/include
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_CFLAGS_AS
+-g \
+	-mcpu=860 \
+	-ansi \
+	-nostdinc \
+	-fvolatile \
+	-fno-builtin \
+	-fno-for-scope \
+	-P \
+	-x \
+	assembler-with-cpp \
+	-I. \
+	-I$(WIND_BASE)/target/h \
+	-DCPU=PPC860
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_CPP
+ccppc -E -P -xc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_LD
+ldppc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_LDDEPS
+
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_LDFLAGS
+-X -N
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_LD_PARTIAL_FLAGS
+-X -r
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_NM
+nmppc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_OPTION_DEFINE_MACRO
+-D
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_OPTION_INCLUDE_DIR
+-I
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_POST_BUILD_RULE
+
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_PRJ_LIBS
+
+<END>
+
+<BEGIN> BUILD_PPC860gnu_MACRO_SIZE
+sizeppc
+<END>
+
+<BEGIN> BUILD_PPC860gnu_RO_DEPEND_PATH
+{$(WIND_BASE)/target/h/} \
+	{$(WIND_BASE)/target/src/} \
+	{$(WIND_BASE)/target/config/}
+<END>
+
+<BEGIN> BUILD_PPC860gnu_TC
+::tc_PPC860gnu
+<END>
+
+<BEGIN> BUILD_RULE_archive
+
+<END>
+
+<BEGIN> BUILD_RULE_objects
+
+<END>
+
+<BEGIN> BUILD_RULE_vxworks_tapidemo_cpe.out
+
+<END>
+
+<BEGIN> BUILD__CURRENT
+PPC860gnu
+<END>
+
+<BEGIN> BUILD__LIST
+PPC860gnu tapidemo_archive
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_BUILDRULE
+archive
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_AR
+arppc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_ARCHIVE
+$(PRJ_DIR)/tapidemo_archive/ifx_tapi_demo.a
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_AS
+ccppc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_CC
+ccppc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_CFLAGS
+-g \
+	-O0 \
+	-mcpu=860 \
+	-ansi \
+	-nostdinc \
+	-DRW_MULTI_THREAD \
+	-D_REENTRANT \
+	-fvolatile \
+	-fno-builtin \
+	-fno-for-scope \
+	-DVXWORKS \
+	-DTAPI_V21 \
+	-DENABLE_TRACE \
+	-DTAPI_DTMF \
+	-DTAPI_VOICE \
+	-DEASY3332 \
+	-DVIN_2CPE \
+	-DSTREAM_1_2 \
+	-DHAVE_DRV_TAPI_HEADERS \
+	-DHAVE_DRV_EASY3332_HEADERS \
+	-DHAVE_DRV_VINETIC_HEADERS \
+	-DNO_SNPRINTF \
+	-Wall \
+	-I$(WIND_BASE)/target/h \
+	-DCPU=PPC860 \
+	-save-temps \
+	-I$(PRJ_DIR)/common/src \
+	-I$(PRJ_DIR)/boards \
+	-I$(PRJ_DIR)/../bin \
+	-I$(PRJ_DIR)/.. \
+	-I$(PRJ_DIR) \
+	-I. \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_tapi/include \
+	-I$(PRJ_DIR)/../../../comacsd_lib/lib_ifxos/src/include \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_easy3332/include \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_easy3332/lib_easy3332 \
+	-I$(PRJ_DIR)/../../../comacsd_driver/drv_peb3324/include
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_CFLAGS_AS
+-g \
+	-mcpu=860 \
+	-ansi \
+	-nostdinc \
+	-fvolatile \
+	-fno-builtin \
+	-fno-for-scope \
+	-P \
+	-x \
+	assembler-with-cpp \
+	-I. \
+	-I$(WIND_BASE)/target/h \
+	-DCPU=PPC860
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_CPP
+ccppc -E -P -xc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_LD
+ldppc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_LDFLAGS
+-X -N
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_LD_PARTIAL_FLAGS
+-X -r
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_NM
+nmppc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_OPTION_DEFINE_MACRO
+-D
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_OPTION_INCLUDE_DIR
+-I
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_POST_BUILD_RULE
+
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_PRJ_LIBS
+
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_MACRO_SIZE
+sizeppc
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_RO_DEPEND_PATH
+{$(WIND_BASE)/target/h/} \
+	{$(WIND_BASE)/target/src/} \
+	{$(WIND_BASE)/target/config/}
+<END>
+
+<BEGIN> BUILD_tapidemo_archive_TC
+::tc_PPC860gnu
+<END>
+
+<BEGIN> CORE_INFO_TYPE
+::prj_vxApp
+<END>
+
+<BEGIN> CORE_INFO_VERSION
+2.0
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/abstract.c_objects
+abstract.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/abstract.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/analog.c_objects
+analog.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/analog.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/board_easy3332.c_objects
+board_easy3332.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/board_easy3332.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/cid.c_objects
+cid.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/cid.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/common.c_objects
+common.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/common.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/conference.c_objects
+conference.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/conference.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/device_vinetic_cpe.c_objects
+device_vinetic_cpe.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/device_vinetic_cpe.c_tool
+C/C++ compiler
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/duslic.c_objects
+duslic.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/duslic.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/event_handling_msg.c_objects
+event_handling_msg.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/event_handling_msg.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/feature.c_objects
+feature.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/feature.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/lib_tapi_signal.c_objects
+lib_tapi_signal.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/lib_tapi_signal.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/parse_cmd_arg.c_objects
+parse_cmd_arg.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/parse_cmd_arg.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/pcm.c_objects
+pcm.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/pcm.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/qos.c_objects
+qos.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/qos.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/state_trans.c_objects
+state_trans.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/state_trans.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/tapidemo.c_objects
+tapidemo.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/tapidemo.c_tool
+C/C++ compiler
+<END>
+
+
+
+<BEGIN> FILE_$(PRJ_DIR)/voip.c_objects
+voip.o
+<END>
+
+<BEGIN> FILE_$(PRJ_DIR)/voip.c_tool
+C/C++ compiler
+<END>
+
+<BEGIN> PROJECT_FILES
+$(PRJ_DIR)/tapidemo.c \
+	$(PRJ_DIR)/common.c \
+	$(PRJ_DIR)/cid.c \
+	$(PRJ_DIR)/conference.c \
+	$(PRJ_DIR)/qos.c \
+	$(PRJ_DIR)/abstract.c \
+	$(PRJ_DIR)/event_handling_msg.c \
+	$(PRJ_DIR)/voip.c \
+	$(PRJ_DIR)/feature.c \
+	$(PRJ_DIR)/pcm.c \
+	$(PRJ_DIR)/analog.c \
+	$(PRJ_DIR)/parse_cmd_arg.c \
+	$(PRJ_DIR)/lib_tapi_signal.c \
+	$(PRJ_DIR)/state_trans.c \
+	$(PRJ_DIR)/board_easy3332.c \
+	$(PRJ_DIR)/device_vinetic_cpe.c
+<END>
+
+<BEGIN> userComments
+<Enter description here>
+<END>
+

@@ -1,0 +1,131 @@
+MTLK_Name,MTLK_Default_-_AP,MTLK_Default_-_STA,Physcal AP/VAP/STA,UGW_Phase,UGW_Section,UGW_Prefix,UGW_Name,Conversion_Func_-_Get,Conversion_Func_-_Set,Indexing_hint,Notes
+MacCloningAddr,,00:00:00:00:00:00,STA,4 (STA/VB),lan_bd_cfg,lbc,endPtClonedMAC,,,no_indexing,
+BridgeMode,,2,STA,4 (STA/VB),lan_bd_cfg,lbc,endPtNetMode,0->2;1->3;2->1,1->2;2->0;3->1,no_indexing,"This parameter could be not special - it's ouw feature, we should synchronize the values!"
+ESSID,,,STA,4 (STA/VB),wlan_profile,wlprof,ssid,,,no_indexing,Updated after WPS session or from Web
+LoopBreakingEnabled,,0,STA,4 (STA/VB),lan_bd_cfg,lbc,endPtLBEna,,,no_indexing,
+NonProcSecurityMode,,1,STA,4 (STA/VB),wlan_profile,wlprof,authType, 2->4; 3->3 else read encrType: 0->1; 1->2,1:encrType=0;authType=0;beaconType=0; 2: encrType=1;beaconType=0; 3->3; 4->2,no_indexing,In MTLK open=1; wep=2; personal=3; enterprise=4; based on encrType (in MAPI 0=open; 1=WEP; 2=TKIP; 3=AES;  =TKIP_AES) and authType (2=RADIUS; 3=PSK)
+NonProc_Authentication,,1,STA,4 (STA/VB),wlan_profile,wlprof,authType,0->1; 1->2,1->0; 2->1,no_indexing,In MTLK: 3=Automatic mode;1=Open;2=Pre-Shared Key
+NonProc_WPA_Enterprise_Mode,,3,STA,4 (STA/VB),wlan_profile,wlprof,beaconType,1->1;2->2;3->3,1->1;2->2;3->3; 4->3,no_indexing,WPA=1; WPA2=2; mixed=3; mixed restricted=4(not allowed WPA+CCMP or WPA2+TKIP). Since mode 4 is buggy - despite the fact mode 3 is illegal - we are not ommiting mode 3. Requested only when security_mode=3 To recheck in WPS - possible bug there
+NonProc_WPA_Personal_Mode,,3,STA,4 (STA/VB),wlan_profile,wlprof,beaconType,1->1;2->2;3->3,1->1;2->2;3->3; 4->3,no_indexing,WPA=1; WPA2=2; mixed=3; mixed restricted=4(not allowed WPA+CCMP or WPA2+TKIP). Since mode 4 is buggy - despite the fact mode 3 is illegal - we are not ommiting mode 3. Requested only when security_mode=3 To recheck in WPS - possible bug there
+NonProc_WPA_Enterprise_Encapsulation,,2,STA,4 (STA/VB),wlan_profile,wlprof,encrType,2->0;3->1;4->2,0->2;1->3;2->4,no_indexing,In MTLK: TKIP=0; CCMP=1; BOTH=2 Requested only when security_mode=4
+NonProc_WPA_Personal_Encapsulation,,2,STA,4 (STA/VB),wlan_profile,wlprof,encrType,2->0;3->1;4->2,0->2;1->3;2->4,no_indexing,In MTLK: TKIP=0; CCMP=1; BOTH=2 Requested only when security_mode=3
+NonProc_WPA_Enterprise_Certificate,, ,STA,5 (currently not implemented),wlan_profile,wlprof,certificate,,,no_indexing,
+NonProc_WPA_Enterprise_Radius_Username,,Metalink,STA,4 (STA/VB),wlan_profile,wlprof,useName,,,no_indexing,
+NonProc_WPA_Enterprise_Radius_Password,,xxxxxxxxxxx,STA,5 (currently not implemented),wlan_profile,wlprof,radiusPassword,,,no_indexing,
+NonProc_WPS_ActivateWPS,,1,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,wpsEna,,,no_indexing,Make sure to update correct wlwps<1>_0 or  wlwps<2>_0 according to wlan<no.>;make sure wlan_wps_Count is at least what you are about to update
+L2NAT_DefHostManual,,0,STA,4 (STA/VB),wlan_wave300,wlwav,L2NAT_DefHostManual,,,,
+L2NAT_DefHost,,00:00:00:00:00:00,STA,4 (STA/VB),wlan_wave300,wlwav,L2NAT_DefHost,,,,
+L2NAT_AgeTO,,600,STA,4 (STA/VB),wlan_wave300,wlwav,L2NAT_AgeTO,,,,
+dot11dActive,,1,STA,4 (STA/VB),wlan_wave300,wlwav,dot11dActive,,,,
+ChannelAnnouncementEnable,,1,STA,4 (STA/VB),wlan_wave300,wlwav,ChannelAnnouncementEnable,,,,
+PowerSelection,,0,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,powerLvl,0->0;1->-3; 2->-6; 3->-9,0->0;-3->1; -6->2;-9->3,no_indexing,rc.conf: Following line must be defined in capabilites: powerLvl=”12;25;50;100” Power-Level-12% : 3 Power-Level-25% : 2 Power-Level-50% : 1 Power-Level-100% : 0 PowerSelection is not in Driver doc
+PowerIncreaseVsDutyCycle,,0,STA,4 (STA/VB),wlan_wave300,wlwav,PowerIncreaseVsDutyCycle,,,,PwrVsDutyCycle not in Driver doc
+Debug_SoftwareWatchdogEnable,1,,STA,4 (STA/VB),wlan_wave300,wlwav,Debug_SoftwareWatchdogEnable,,,,This parameter doesn't exist in driver anymore
+Wildcard_ESSID,,,STA,4 (STA/VB),wlan_scan,wlscan,ssidWildcard,,,no_indexing,
+AlgoCalibrMask,,255,STA,4 (STA/VB),wlan_wave300,wlwav,AlgoCalibrMask,,,,AlgoCalibrMask is not in Driver doc
+AlgoOnLineCalibrMask,,59,STA,4 (STA/VB),wlan_wave300,wlwav,AlgoOnLineCalibrMask,,,,OnlineACM is not in Driver doc
+TxPower,,0,STA,4 (STA/VB),wlan_wave300,wlwav,TxPower,,,,In dBm
+KeepaliveInterval,,30000,STA,4 (STA/VB),wlan_wave300,wlwav,KeepaliveInterval,,,,
+STBC,,0,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,nSTBCrx,,,no_indexing,
+ShortCyclicPrefix,,0,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,nGuardIntvl,2->1;0->1; 1->0,0->1; 1->0,no_indexing,In UGW: 0=400nsec; 1=800nsec; 2=auto. In MTLK 1(enable) =400nsec; 0(disable)=800nsec. ShortCyclcPrfx is not in Driver doc
+ChannelBonding,,2,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,nChanWidth,0->0;1->2;2->1,0->0;1->2;2->1,no_indexing,In MTLK: 0=20MHz; 1=40MHz; 2=auto. In UGW: 0=20MHz; 2=40MHz; 1=auto. Wrong values explanation in the Driver doc
+AdvancedCoding,,1,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,nLDPCen,,,no_indexing,AdvancedCoding is missing in Driver doc
+ShortSlotTimeOptionEnabled,,1,STA,4 (STA/VB),wlan_wave300,wlwav,ShortSlotTimeOptionEnabled,,,,ShortSlotTime is missing in Driver doc
+ShortPreamble,,1,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,preamble,0->1; 1->1; 2->0; 3->1,0->2; 1->1,no_indexing,In UGW None=0;Short=1;Long=2;Auto=3. ShortPreamble is missing in Driver doc
+ERPProtectionType,1,,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,ctsProtctMode,,,no_indexing,0=None;1=RTS/CTS;2=CTS2Self
+dot11nProtectionType,1,,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,ctsProtctMode,,,no_indexing,0=None;1=RTS/CTS;2=CTS2Self
+LongRetryLimit,,7,STA,4 (STA/VB),wlan_wave300,wlwav,LongRetryLimit,,,,
+ShortRetryLimit,,7,STA,4 (STA/VB),wlan_wave300,wlwav,ShortRetryLimit,,,,
+TxMsduLifetime,,512,STA,4 (STA/VB),wlan_wave300,wlwav,TxMsduLifetime,,,,
+WepKeys_DefaultKey0,,12345,STA,4 (STA/VB),wlan_profile,wlprof,wepKey0,,,no_indexing,
+WepKeys_DefaultKey1,,12345,STA,4 (STA/VB),wlan_profile,wlprof,wepKey1,,,no_indexing,See above
+WepKeys_DefaultKey2,,12345,STA,4 (STA/VB),wlan_profile,wlprof,wepKey2,,,no_indexing,See above
+WepKeys_DefaultKey3,,12345,STA,4 (STA/VB),wlan_profile,wlprof,wepKey3,,,no_indexing,See above
+WepTxKeyIdx,,0,STA,4 (STA/VB),wlan_profile,wlprof,actWepKey,,,no_indexing,
+NonProc_WepKeyLength,,,STA,5 (currently not in rc.conf),wlan_profile,wlprof,wepEncrLvl,Implement like in AP when added to rc.conf meanwhile count  from default key,Implement like in AP when added to rc.conf meanwhile store as is,no_indexing,Check the length of the string and choose 128 or 64
+WepEncryption,,0,STA,4 (STA/VB),wlan_profile,wlprof,encrType,1->1;  any other->0,1->1; any other; don't set,no_indexing,UGW use encrType for WEP and other sec modes
+FrequencyBand,,2,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,freqBand,0->1; 1->0; 2->2,0->1; 1->0; 2->2,no_indexing,In MTLK:0=5;1=2.4;2=both. In UGW: 0=2.4 GHz;1=5 GHz;2=Dual Freq;3=Concurrent Dual Freq
+Country,,"""US""",STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,country,,,no_indexing,
+AC_BK_UseAggregation,,0,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_UseAggregation,,,,In UGW there is one set of parameters for all Acs. nAMPDUena defines if the aggregation enabled (?); nAMPDUdir defines the direction: 1=use;2=use and accept; nAMPDUfrms is max number of frames; nBAWsize that is block aknowledge (aggregation?) window size and there are several parameters that define A-MSDU aggregation. Since these are not helpfull (or do they?); we define our own params. To keep investigating.
+AC_BK_AcceptAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_AcceptAggregation,,,,
+AC_BK_MaxNumOfPackets,,7,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_MaxNumOfPackets,,,,
+AC_BK_MaxNumOfBytes,,12000,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_MaxNumOfBytes,,,,
+AC_BK_TimeoutInterval,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_TimeoutInterval,,,,
+AC_BK_MinSizeOfPacketInAggr,,10,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_MinSizeOfPacketInAggr,,,,
+AC_BK_ADDBATimeout,,0,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_ADDBATimeout,,,,
+AC_BK_AggregationWindowSize,,64,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BK_AggregationWindowSize,,,,
+AC_BE_UseAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_UseAggregation,,,,See above
+AC_BE_AcceptAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_AcceptAggregation,,,,See above
+AC_BE_MaxNumOfPackets,,10,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_MaxNumOfPackets,,,,See above
+AC_BE_MaxNumOfBytes,,16000,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_MaxNumOfBytes,,,,See above
+AC_BE_TimeoutInterval,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_TimeoutInterval,,,,See above
+AC_BE_MinSizeOfPacketInAggr,,10,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_MinSizeOfPacketInAggr,,,,See above
+AC_BE_ADDBATimeout,,0,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_ADDBATimeout,,,,See above
+AC_BE_AggregationWindowSize,,64,STA,4 (STA/VB),wlan_wave300,wlwav,AC_BE_AggregationWindowSize,,,,See above
+AC_VI_UseAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_UseAggregation,,,,See above
+AC_VI_AcceptAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_AcceptAggregation,,,,See above
+AC_VI_MaxNumOfPackets,,7,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_MaxNumOfPackets,,,,See above
+AC_VI_MaxNumOfBytes,,12000,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_MaxNumOfBytes,,,,See above
+AC_VI_TimeoutInterval,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_TimeoutInterval,,,,See above
+AC_VI_MinSizeOfPacketInAggr,,10,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_MinSizeOfPacketInAggr,,,,See above
+AC_VI_ADDBATimeout,,0,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_ADDBATimeout,,,,See above
+AC_VI_AggregationWindowSize,,64,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VI_AggregationWindowSize,,,,See above
+AC_VO_UseAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_UseAggregation,,,,See above
+AC_VO_AcceptAggregation,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_AcceptAggregation,,,,See above
+AC_VO_MaxNumOfPackets,,2,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_MaxNumOfPackets,,,,See above
+AC_VO_MaxNumOfBytes,,10000,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_MaxNumOfBytes,,,,See above
+AC_VO_TimeoutInterval,,1,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_TimeoutInterval,,,,See above
+AC_VO_MinSizeOfPacketInAggr,,10,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_MinSizeOfPacketInAggr,,,,See above
+AC_VO_ADDBATimeout,,0,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_ADDBATimeout,,,,See above
+AC_VO_AggregationWindowSize,,64,STA,4 (STA/VB),wlan_wave300,wlwav,AC_VO_AggregationWindowSize,,,,See above
+Use11QMap,,0,STA,4 (STA/VB),wlan_wave300,wlwav,Use11QMap,,,,Not in driver doc.
+UsePwrAmp,,0,STA,4 (STA/VB),wlan_wave300,wlwav,UsePwrAmp,,,,Not in driver doc.
+UpDebugLevel,,0,STA,4 (STA/VB),wlan_wave300,wlwav,UpDebugLevel,,,,Not in driver doc.
+network_type,2,,STA,4 (STA/VB),gen_bd_cfg,gbc,mode,1->2; else 0,2->1; else 0,no_indexing,In UGW: 0=STA;1=AP;2=AUTO   in MTLK AP=2;STA=0
+WLSEnabled,,1,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,radioEna,,,no_indexing,
+WPS_IgnoreSelectedRegistrar,,0,STA,4 (STA/VB),wlan_wave300,wlwav,WPS_IgnoreSelectedRegistrar,,,,In UGW when 'setupLock' set to True new registrar can not be added - is it our case? not sure what it means recheck
+WPS_BSSID_USAGE,,1,STA,4 (STA/VB),wlan_wave300,wlwav,WPS_BSSID_USAGE,,,,
+NeverConnected,,1,STA,4 (STA/VB),wlan_profile,wlprof,ssid,If empty string return 1 else 0,Nothing should be done,no_indexing,
+DisconnectOnNACKs,,1,STA,4 (STA/VB),wlan_wave300,wlwav,DisconnectOnNACKs,,,,Param definition is not synchronised with Driver doc
+NetworkModeSTA,,30,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,standard,0->19;1->10;2->17;3->18;5->23;6->22;7->14; 4->Read wlan_phy.freqBand: if 0 (2.4GHz) return 20 else return 12,10->1;12->4;14->7;17->2;18->3;19->0;20->4;22->6;23->5,no_indexing,In MTLK: 0=abg; 10=a;14=an;19=bg;30=abgn. In UGW: 0=11bg;1=11a;2=11b;3=11g;4=11n;5=11bgn;6=11gn;7=11an
+FixedRate,,auto,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,txRate,"if 0 return ""auto"" else     ""6.0""->0;""9.0""->1;""12.0""->2;""18.0""->3;""24.0""->4;""36.0""->5;""48.0""->6;""54.0""->7;""2.0""->8;""5.5""->9;""11.0""->10;""1.0""->11","If ""auto""  =0 else     0->""6.0"";1->""9.0"";2->""12.0"";3->""18.0"";4->""24.0"";5->""36.0"";6->""48.0"";7->""54.0"";8->""2.0"";9->""5.5"";10->""11.0"";11->""1.0""",no_indexing,
+FixedHTRate,,auto,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,txRate,"if 0 return ""auto"" else read ChannelBonding ; if 1 (CB) ""13""->15;""27.0""->16;""40.5""->17;""54.0""->18;""81.0""->19;""108.0""->20;""121.5""->21;""135.0""->22;""27.0""->23;""54.0""->24;""81.0""""->25;""108.0""->26;""162.0""->27;""216.0""->28;""243.0""->29;""270.0""""->30     else (NCB)          ""6.5""->15;""13.0""->16;""19.5""->17;""26.0""->18;""39.0""->19;""52.0""->20;""58.5""->21;""65.0""->22;""13.0""->23;""26.0""->24;""39.0""->25;""53.0""->26;""78.0""->27;""107.0""->28;""117.0""->29;""130.0""->30","If ""auto""  =0 else: set autoRateFallbackEna=0;     read ChannelBonding     if 1 (CB)       15->""13"";16->""27.0"";17->""40.5"";18->""54.0"";19->""81.0"";20->""108.0"";21->""121.5"";22->""135.0"";23->""27.0"";24->""54.0"";25->""81.0"";26->""108.0"";27->""162.0"";28->""216.0"";29->""243.0"";30->""270.0""     else (NCB)          15->""6.5"";16->""13.0"";17->""19.5"";18->""26.0"";19->""39.0"";20->""52.0"";21->""58.5"";22->""65.0"";23->""13.0"";24->""26.0"";25->""39.0"";26->""53.0"";27->""78.0"";28->""107.0"";29->""117.0"";30->""130.0""",no_indexing,"Param definition in Driver doc uses word ""forced"" and not ""fixed"". There is difference in values between WEB and tables in the document."
+RTSThreshold,,1600,STA,4 (STA/VB),wlan_sta_cfg,wlstacfg,rtsThrsld,,"""auto""->set to 1600 else use value",no_indexing,
+RFMgmtRefreshTime,,1000,STA,4 (STA/VB),wlan_wave300,wlwav,RFMgmtRefreshTime,,,,
+RFMgmtKeepAliveTimeout,,60,STA,4 (STA/VB),wlan_wave300,wlwav,RFMgmtKeepAliveTimeout,,,,
+RFMgmtAveragingAlpha,,40,STA,4 (STA/VB),wlan_wave300,wlwav,RFMgmtAveragingAlpha,,,,
+RFMgmtMetMarginThreshold,,1100,STA,4 (STA/VB),wlan_wave300,wlwav,RFMgmtMetMarginThreshold,,,,
+RFMgmtForced,,0,STA,4 (STA/VB),wlan_wave300,wlwav,RFMgmtForced,,,,
+Scan_Cache_Timeout,,300,STA,4 (STA/VB),wlan_wave300,wlwav,Scan_Cache_Timeout,,,,
+MACWdTimeoutMs,,30000,STA,4 (STA/VB),wlan_wave300,wlwav,MACWdTimeoutMs,,,,
+MACWdPeriodMs,,50000,STA,4 (STA/VB),wlan_wave300,wlwav,MACWdPeriodMs,,,,
+Ant_selection,,0,STA,4 (STA/VB),wlan_wave300,wlwav,Ant_selection,,,,
+Support_3TX,,0,STA,4 (STA/VB),wlan_wave300,wlwav,Support_3TX,,,,
+WPS_PIN,,12345670,STA,4 (STA/VB),wlan_wps,wlwps,PIN,,,_0,???
+RTLoggerEnabled,,0,STA,4 (STA/VB),wlan_wave300,wlwav,RTLoggerEnabled,,,,
+ip_config_method,,,STA,4 (STA/VB),gen_bd_cfg,gbc,dhcpClntEna,0->1; 1->0,0->1; 1->0,no_indexing,In MTLK: DHCP=0 static=1; In UGW the opposite
+WirelessMgmtEnabled,,,STA,4 (STA/VB),gen_bd_cfg,gbc,wlanMgmt,,,no_indexing,
+subnet_lan,,,STA,4 (STA/VB),gen_bd_cfg,gbc,mgmtNetMask,,,no_indexing,
+ip_lan,,,STA,4 (STA/VB),gen_bd_cfg,gbc,mgmtIP,,,no_indexing,
+EEPROMCountryValid,,0,STA,4 (STA/VB),wlan_wave300,wlwav,EEPROMCountryValid,,,,
+NonProc_WPA_Personal_PSK,,12345670,STA,4 (STA/VB),wlan_profile,wlprof,passPhrase,,,no_indexing,
+wlan_count,,1,,4 (STA/VB),wlan_wave300,wlwav,wlan_count,if not in wave300 conf file return CONFIG_FEATURE_IFX_CONCURRENT_DUAL_WIRELESS,count min of set value and CONFIG_FEATURE_IFX_CONCURRENT_DUAL_WIRELESS and store,,This parameter is set on init; in the future it should take into consideration between pci and platform settings
+wlanInterfaceCount,,1,,4 (STA/VB),wlan_wave300,wlwav,wlanInterfaceCount,return 1,do nothing,no_indexing,Workaround to be compatible with AP
+encrType,,,,,wlan_profile,wlprof,encrType,,,no_indexing,Used for handling special params do not remove
+authType,,,,,wlan_profile,wlprof,authType,,,no_indexing,Used for handling special params do not remove
+beaconType,,,,,wlan_profile,wlprof,beaconType,,,no_indexing,Used for handling special params do not remove
+wepKeyType,,,,,wlan_profile,wlprof,wepKeyType,,,no_indexing,Used for handling special params do not remove
+autoRateFallbackEna,,,,,wlan_sta_cfg,wlstacfg,autoRateFallbackEna,,,no_indexing,Used for handling special params do not remove
+boostMode,,3,STA,,wlan_sta_cfg,wlstacfg,boostMode,,,no_indexing,"Driver parameter name is TxPowerLimOpt.
+definition:
+0. Full Boost on all packets (Warning - This configuration may exceed regulation limits)
+1. Full boost on Data packets and no boost on Auto response packets
+2. Boost for all Packets, but under regulatory restrictions
+3. Boost for Data packet only, but under regulatory restrictions. Auto response packets are not boosted.
+4. No Boost
+By default, the driver is configured for option ""3"""
+RFMgmtEnable,,0,STA,,wlan_sta_cfg,wlstacfg,beamFrmType,,,no_indexing,"Definition:
+0. Beamforming is off
+1. Antenna selection is enabled.
+2. Explicit beamforming
+3. Implicit beamforming"

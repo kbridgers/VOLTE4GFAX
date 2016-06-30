@@ -1,0 +1,210 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+# Flush the chains for default classifier rules
+IPT_CMD="iptables -t mangle -F PREROUTE_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -F OUTPUT_DEFAULT"
+$IPT_CMD
+
+# Remove the references to the default classifier chains from IPQOS_LAN_ING and IPQOS_OUTPUT
+#IPT_CMD="iptables -t mangle -D IPQOS_LAN_ING -j PREROUTE_DEFAULT"
+IPT_CMD="iptables -t mangle -D PREROUTING -j PREROUTE_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -D IPQOS_OUTPUT -j OUTPUT_DEFAULT"
+$IPT_CMD
+
+
+
+	# Flush IPQOS_LAN_ING chain
+	IPT_CMD="iptables -t mangle -F IPQOS_LAN_ING"
+	$IPT_CMD
+	# Flush IPQOS_OUTPUT chain
+	IPT_CMD="iptables -t mangle -F IPQOS_OUTPUT"
+	$IPT_CMD
+
+# delete the chain added for wan traffic
+iptables -t mangle -D PREROUTING -m mark ! --mark 0x40000000 -j IPQOS_PREROUTE_SYSTEM
+iptables -t mangle -F IPQOS_PREROUTE_SYSTEM
+iptables -t mangle -X IPQOS_PREROUTE_SYSTEM
+
+	OUTPUT_SYSTEM_DELETE=0
+	# Remove chains added for RTP, SIP and TR69 management traffic
+	if [ ! -z $CONFIG_FEATURE_IFX_VOIP ]; then
+		if [ $CONFIG_FEATURE_IFX_VOIP -eq 1 ]; then
+			# delete chains added for upstream traffic
+			iptables -t mangle -D OUTPUT -j IPQOS_OUTPUT_SYSTEM
+			iptables -t mangle -F IPQOS_OUTPUT_SYSTEM
+			iptables -t mangle -F IPQOS_OUTPUT_RTP
+			iptables -t mangle -F IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -X IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -X IPQOS_OUTPUT_RTP
+			iptables -t mangle -X IPQOS_OUTPUT_SYSTEM
+
+			# Delete chains added for downstream traffic
+			iptables -t mangle -F IPQOS_PREROUTE_RTP
+			iptables -t mangle -F IPQOS_PREROUTE_SIP_MGMT
+			iptables -t mangle -X IPQOS_PREROUTE_SIP_MGMT
+			iptables -t mangle -X IPQOS_PREROUTE_RTP
+
+			OUTPUT_SYSTEM_DELETE=1
+		fi
+	fi
+
+	# Remove the chains added for TR69 management traffic, if it is not deleted	
+	if [ $OUTPUT_SYSTEM_DELETE -eq 0 ]; then
+		if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+			if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+				iptables -t mangle -D OUTPUT -j IPQOS_OUTPUT_SYSTEM
+				iptables -t mangle -F IPQOS_OUTPUT_SYSTEM
+				iptables -t mangle -F IPQOS_OUTPUT_SIP_MGMT
+				iptables -t mangle -X IPQOS_OUTPUT_SIP_MGMT
+				iptables -t mangle -X IPQOS_OUTPUT_SYSTEM
+
+				# Delete chains added for down stream traffic
+				iptables -t mangle -F IPQOS_PREROUTE_SIP_MGMT
+				iptables -t mangle -X IPQOS_PREROUTE_SIP_MGMT
+			fi
+		fi
+	fi
+
+	# Remove the traffic queues added for SIP, RTP traffic on downstream direction
+	tc qdisc del dev imq1 root handle 1: htb
+	# make imq1 interface down
+	ifconfig imq1 down
+
+
+	# Flush the INPUT_INTF_CHECK chain
+	# TBD: Should be done by system shutdown script if this this chain is using for purpose other than QoS
+	IPT_CMD="iptables -t mangle -F INPUT_INTF_CHECK"
+        $IPT_CMD
+
+	# Remove references to IPQOS_LAN_ING from PREROUTING chain
+	IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x40000000 -j IPQOS_LAN_ING"
+        $IPT_CMD
+	# Remove references to IPQOS_OUTPUT from OUTPUT chain
+        IPT_CMD="iptables -t mangle -D OUTPUT -j IPQOS_OUTPUT"
+        $IPT_CMD
+
+
+i=0
+
+# flush and delete all the chains created for adding the classifier rules
+while [ $i -lt $qos_class_Count ]
+do
+	eval QOS_CPEID='$'qcl_${i}_cpeId
+	QOS_CHAIN="LAN_$QOS_CPEID"
+	# Flush and delete all classifier chains created for LAN traffic
+	IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+	$IPT_CMD
+	IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+	$IPT_CMD
+
+	# Flush and delete all classifier chains created for Local traffic
+	QOS_CHAIN="OUTPUT_$QOS_CPEID"
+	IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+	$IPT_CMD
+	IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+	$IPT_CMD
+
+        i=$(( $i + 1 ))
+done
+
+
+	# Delete the the INPUT_INTF_CHECK chain form the system
+	# TBD: Should be done by system shutdown script if this this chain is using for purpose other than QoS
+	IPT_CMD="iptables -t mangle -D PREROUTING 1"
+	$IPT_CMD
+	IPT_CMD="iptables -t mangle -X INPUT_INTF_CHECK"
+        $IPT_CMD
+
+	# Delete IPQOS_LAN_ING chain from the system
+        IPT_CMD="iptables -t mangle -X IPQOS_LAN_ING"
+        $IPT_CMD
+	# Delete IPQOS_OUTPUT chain from the system
+        IPT_CMD="iptables -t mangle -X IPQOS_OUTPUT"
+        $IPT_CMD
+
+# Delete default classifier rule chains fom the system
+IPT_CMD="iptables -t mangle -X PREROUTE_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X OUTPUT_DEFAULT"
+$IPT_CMD
+
+# Delete the tc filters
+	#tc qdisc delete dev imq0 root handle 1: prio bands 8
+        tc qdisc del dev imq0 root handle 1: htb
+
+
+#delete mapping to IMQ
+#IPT_CMD="iptables -t mangle -D POSTROUTING -o ppp0 -j IMQ --todev 0"
+IPT_CMD="iptables -t mangle -D POSTROUTING -o ppp+ -j IMQ --todev 0"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -D POSTROUTING -o nas+ -j IMQ --todev 0"
+$IPT_CMD
+# remove imq device
+echo bringing down imq
+ifconfig imq0 down
+rmmod imq
+
+# if PPA is enabled, delete all the PPE queues and delete priorities
+ppe_ipqos=`/usr/sbin/status_oper GET IPQoS_Config ppe_ipqos`
+defvcc=`/usr/sbin/status_oper GET IPQoS_Config def_vcc`
+echo $ppe_ipqos
+echo $defvcc
+#change to PPE directory
+cd /proc/eth/
+
+#if [ "$ppe_ipqos" -eq "1" ]; then
+	echo bringing down hardware queues
+	n=0
+	max_q=8
+#	while [ $n -lt $max_q ]
+	
+	for n in 0 1 2 3 4 5 6 7
+	do
+		echo delete queue:$n >> /tmp/ipqos_log
+		echo pvc $defvcc del > prio
+		#n=`expr $n + 1`
+	done
+#fi	
+cd -
+
+
+wanmode=`/usr/sbin/status_oper GET IPQoS_Config def_wanMode` 
+
+if [ $wanmode -eq "0" ]; then
+
+	echo Enabling upstream acceleration as IPQoS is disabled
+	/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "ENABLED" "comment" " upstream PPA ENABLED as IPQoS is disable in ATM"
+	/etc/rc.d/ppa_up_config 1 &
+
+elif [ $wanmode -eq "1" ]
+then
+	
+	echo Enabling upstream acceleration as IPQoS is disabled
+	/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "ENABLED" "comment" " upstream PPA ENABLED as IPQoS is disable in MII0"
+	./etc/rc.d/ppa_up_config 1 &
+	
+fi
+
+
+
+# Mark as qos disabled in /tmp/ipqos_init_status
+echo "IPQOS_INIT_STATUS=\"0\"" > /tmp/ipqos_init_status
+
+
+

@@ -1,0 +1,143 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+mark=123
+iproute_file="/tmp/iproute2/rt_tables"
+
+if [ $# -eq 1 ]; then
+	eval temp='$'route_${1}_isPR
+	if [ "$temp" = "1" ]; then
+		# get the mark for this rule from cpeid and get the priority value from iproute_file
+		eval cpeid='$'route_${1}_cpeId
+		mark_value=`expr $mark + $cpeid`
+		i=`cat $iproute_file | grep t_${mark_value}`
+		mark_val=`echo $i | tr t_ " "`
+
+		# form command on similar lines of start script but here to delete the entry from mangle
+		iptable_rule="iptables -D IFX_MANGLE_POLICY_ROUTING -t mangle"
+		eval temp='$'route_${1}_fEnable
+		if [ "$temp" = "1" ]; then
+
+			eval temp='$'route_${1}_srcIp
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -s $temp"
+			fi
+
+			eval temp='$'route_${1}_srcMask
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule/$temp "
+			else
+				iptable_rule="$iptable_rule "
+			fi
+
+			eval temp='$'route_${1}_routeProto
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -p $temp "
+
+				eval temp='$'route_${1}_srcStartPort
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule --sport $temp "
+				fi
+
+				eval temp='$'route_${1}_dstStartPort
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule --dport $temp "
+				fi
+			fi
+
+			eval temp='$'route_${1}_dstIp
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -d $temp"
+			fi
+
+			eval temp='$'route_${1}_dstMask
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule/$temp "
+			else
+				iptable_rule="$iptable_rule "
+			fi
+
+			eval temp='$'route_${1}_diffserv
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -m dscp --dscp $temp "
+			fi
+
+			eval pr_cpeId='$'route_${1}_cpeId
+			t_mark=`expr $mark + $pr_cpeId`
+			#table and mark are same
+			eval temp='$'route_${1}_gw
+			if [ "$temp" -a "$temp" != "0.0.0.0" ]; then
+				ip route del default via $temp table t_${t_mark} 2> /dev/null
+			else
+				eval temp='$'route_${1}_routeIf
+				ip route del dev $temp table t_${t_mark} 2> /dev/null
+			fi
+
+			eval temp='$'route_${1}_routeIf
+			if [ -n "$temp" -a "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -i ! $temp -j MARK --set-mark 0x$t_mark"
+			else
+				iptable_rule="$iptable_rule -j MARK --set-mark 0x$t_mark"
+			fi
+
+		fi
+
+		ip rule del fwmark $mark_val table $i 2> /dev/null
+		ip route del table $i 2> /dev/null
+
+		ip route flush cache
+		$iptable_rule 2> /dev/null
+
+		# call the script del_line to remove this entry from the iproute_file
+		cat $iproute_file | /etc/rc.d/del_line "t_${mark_value}" $iproute_file
+	fi
+
+else
+
+	count=0
+	while [ "$count" != "$routing_Count" ]
+	do
+		eval temp='$'route_${count}_isPR
+		if [ "$temp" = "1" ]; then # is a policy route
+			pr_found="1"
+			eval temp='$'route_${count}_gw
+			if [ "$temp" -a "$temp" != "0.0.0.0" ]; then
+				ip route del default via $temp table t_${mark_val} 2> /dev/null
+			else
+				eval temp='$'route_${count}_routeIf
+				ip route del dev $temp table t_${mark_val} 2> /dev/null
+			fi
+		fi
+		count=`expr $count + 1`
+	done
+
+	if [ "$pr_found" = "1" ]; then
+		for i in `cat $iproute_file | tr \\n " "`
+		do
+			mark_val=`echo $i | tr t_ " "`
+
+			ip rule del fwmark $mark_val table $i 2> /dev/null
+			ip route del table $i 2> /dev/null
+		done
+
+		ip route flush cache
+		iptable_rule="iptables -F IFX_MANGLE_POLICY_ROUTING -t mangle"
+		$iptable_rule 2> /dev/null
+
+		rm -f /tmp/iproute2/rt_tables
+		touch /tmp/iproute2/rt_tables
+	fi
+fi

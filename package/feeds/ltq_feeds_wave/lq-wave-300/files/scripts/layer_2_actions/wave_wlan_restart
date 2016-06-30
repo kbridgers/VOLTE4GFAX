@@ -1,0 +1,20 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then
+    . /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "wave_wlan_restart: args: $*"
+
+timestamp "wave_wlan_restart:$apIndex:begin"
+
+/etc/rc.d/rc.bringup_wlan stop
+/etc/rc.d/rc.bringup_wlan uninit
+/etc/rc.d/rc.bringup_wlan init
+/etc/rc.d/rc.bringup_wlan start
+
+print2log DBG "wave_wlan_restart done"
+
+timestamp "wave_wlan_restart:$apIndex:done"
+

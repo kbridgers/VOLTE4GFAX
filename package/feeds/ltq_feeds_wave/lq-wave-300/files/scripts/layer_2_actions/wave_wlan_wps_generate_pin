@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "wave_wlan_wps_generate_pin: args: $*"
+apIndex=$1
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+new_pin=`hostapd_cli -i$wlan wps_ap_pin random`
+
+echo "pin=\"$new_pin\""
+
+print2log DBG "wave_wlan_wps_generate_pin: Done"

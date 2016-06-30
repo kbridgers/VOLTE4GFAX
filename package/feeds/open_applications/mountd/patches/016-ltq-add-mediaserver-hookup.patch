@@ -1,0 +1,20 @@
+Index: mountd-0.1/lib/mount.c
+===================================================================
+--- mountd-0.1.orig/lib/mount.c	2013-03-05 13:10:05.000000000 +0530
++++ mountd-0.1/lib/mount.c	2013-03-05 13:10:31.000000000 +0530
+@@ -165,6 +165,7 @@
+ 		snprintf(tmp2, 64, "../.run/mountd/%s", dev); /* Use releative symlink for anonymous ftp to access */
+ 		symlink(tmp2, tmp);
+ 		mount_new("/mnt/usb/.run/mountd/", dev);
++		system_printf("/etc/init.d/ltq_mediaserver_ctl.sh");
+ 	}
+ }
+ 
+@@ -562,6 +563,7 @@
+ 			mount_dump_uci_state();
+ 		}
+ 	}
++	system_printf("/etc/init.d/ltq_mediaserver_ctl.sh");
+ }
+ 
+ void mount_dump_list(void)

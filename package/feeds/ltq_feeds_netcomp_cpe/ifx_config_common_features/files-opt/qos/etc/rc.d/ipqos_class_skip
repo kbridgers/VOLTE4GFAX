@@ -1,0 +1,35 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+	order=$1
+	i=$2
+    eval QOS_CPEID='$'qcl_${i}_cpeId
+
+
+# Go to the chain defined by CPEID and insert a return rule in the 1st line of the chain.
+
+    eval LAN_CHAIN_NAME="LAN_$QOS_CPEID"
+    eval OUTPUT_CHAIN_NAME="OUTPUT_$QOS_CPEID"
+    	
+    IPTABLES_RULE="$IPTABLES -t mangle -I $LAN_CHAIN_NAME 1 -j RETURN"
+    $IPTABLES_RULE
+
+    IPTABLES_RULE="$IPTABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+    $IPTABLES_RULE
+
+
+
+

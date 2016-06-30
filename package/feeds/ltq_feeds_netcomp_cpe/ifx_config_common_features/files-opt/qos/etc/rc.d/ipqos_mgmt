@@ -1,0 +1,292 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+        fi
+		  if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		  fi
+                ENVLOADED="1"
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+                CONFIGLOADED="1"
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+					defQ=9
+					LAN_defQ=13
+				;;
+			1)
+				#wan mode is PTM
+					defQ=12
+					LAN_defQ=14
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+			defQ=10
+			LAN_defQ=15
+		;;
+	2)
+		#wan mode is MII1
+			defQ=11
+			LAN_defQ=16
+		;;
+	3)
+		#wan mode is PTM
+			defQ=12
+			LAN_defQ=14
+		;;
+esac
+#LAN_defQ=13
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+if [ "$target" == "VRX2" -a "$wanphy_phymode" == "2" ]; then
+       chain_vrx=0
+else
+       chain_vrx=1
+fi
+
+#if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ]; then
+if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ] || [ "$target" == "GRX3" ]; then
+   chain_selection=0
+else
+   chain_selection=1
+fi
+
+
+if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+	# flush the default chains to remeve previously configured rules
+	#IPT_CMD="iptables -t mangle -F PREROUTE_DEFAULT"
+	#$IPT_CMD
+	IPT_CMD="iptables -t mangle -F PREROUTE_US_DEFAULT"
+	$IPT_CMD
+	IPT_CMD="iptables -t mangle -F PREROUTE_DS_DEFAULT"
+	$IPT_CMD
+	
+	
+	EBT_CMD="ebtables -t filter -F PREROUTE_DEFAULT_US"
+	$EBT_CMD
+	EBT_CMD="ebtables -t filter -F PREROUTE_DEFAULT_DS"
+	$EBT_CMD
+	#EBT_CMD="ebtables -t filter -F PREROUTE_DEFAULT"
+	#$EBT_CMD
+	
+	IPT_CMD="iptables -t mangle -F OUTPUT_DEFAULT"
+	$IPT_CMD
+
+	# Add a rule to mark all the unclassified packet with the default queue for LAN traffic
+	IPT_CMD="iptables -t mangle -A PREROUTE_US_DEFAULT -j MARK --or-mark $defQ"
+	$IPT_CMD
+	EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT_US -j mark --mark-or $defQ --mark-target CONTINUE"
+	$EBT_CMD
+   if [ $chain_vrx -eq 1 ]; then
+	   IPT_CMD="iptables -t mangle -A PREROUTE_DS_DEFAULT -j MARK --set-mark $LAN_defQ"
+	   $IPT_CMD
+	   EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT_DS -j mark --mark-or $LAN_defQ --mark-target CONTINUE"
+	   $EBT_CMD
+   else
+	   IPT_CMD="iptables -t mangle -A PREROUTE_DS_DEFAULT -j MARK --set-mark 0x0"
+	   $IPT_CMD
+	   IPT_CMD="iptables -t mangle -A PREROUTE_DS_DEFAULT -j ACCEPT"
+	   $IPT_CMD
+	   EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT_DS -j mark --set-mark 0x0 --mark-target CONTINUE"
+	   $EBT_CMD
+	   EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT_DS -j ACCEPT"
+	   $EBT_CMD
+   fi
+
+
+
+# IPV6 START
+	if [ "$target" != "ARX1" ]; then
+
+		IPT_CMD="ip6tables -t mangle -F PREROUTE_US_DEFAULT"
+		$IPT_CMD
+#		IPT_CMD="ip6tables -t mangle -F OUTPUT_DEFAULT"
+#		$IPT_CMD
+		IPT_CMD="ip6tables -t mangle -A PREROUTE_US_DEFAULT -j MARK --or-mark $defQ"
+		$IPT_CMD
+	fi
+
+# IPV6 END
+fi
+
+
+# Mark the default DSCP if configured
+if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+	if [ $qm_defDSCP != "-1" ]; then
+		IPT_CMD="iptables -t mangle -A PREROUTE_US_DEFAULT -j DSCP --set-dscp $qm_defDSCP"
+		$IPT_CMD
+		if [ "$target" != "ARX1" ]; then
+			IPT_CMD="ip6tables -t mangle -A PREROUTE_US_DEFAULT -j DSCP --set-dscp $qm_defDSCP"
+			$IPT_CMD
+		fi
+		#qm_defTOS=$((qm_defDSCP<<2))
+		#EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT -j tos --set-tos $qm_defTOS"
+		#$EBT_CMD
+	fi
+else
+	if [ $qm_defDSCP != "-1" ]; then
+
+      IPT_CMD="iptables -t mangle -D PREROUTING -j PREROUTE_GLOBAL_DSCP"
+      $IPT_CMD
+
+	   IPT_CMD="iptables -t mangle -F PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	   IPT_CMD="iptables -t mangle -X PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	   IPT_CMD="iptables -t mangle -N PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+
+	   EBT_CMD="ebtables -t filter -N PREROUTE_GLOBAL_DSCP"
+	   $EBT_CMD
+
+	   IPT_CMD="iptables -t mangle -A PREROUTING -j PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	   EBT_CMD="ebtables -t filter -A FORWARD -j PREROUTE_GLOBAL_DSCP"
+	   $EBT_CMD
+
+		IPT_CMD="iptables -t mangle -A PREROUTE_GLOBAL_DSCP -m mark --mark 0x800/0x800 -j DSCP --set-dscp $qm_defDSCP"
+		$IPT_CMD
+		IPT_CMD="iptables -t mangle -A PREROUTE_GLOBAL_DSCP -m dscp --dscp $qm_defDSCP -j ACCEPT"
+		$IPT_CMD
+	
+      if [ "$target" != "ARX1" ]; then
+			IPT_CMD="ip6tables -t mangle -A PREROUTE_US_DEFAULT -j DSCP --set-dscp $qm_defDSCP"
+			$IPT_CMD
+		fi
+   else
+      IPT_CMD="iptables -t mangle -D PREROUTING -j PREROUTE_GLOBAL_DSCP"
+      $IPT_CMD
+
+	   IPT_CMD="iptables -t mangle -F PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	   IPT_CMD="iptables -t mangle -X PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	fi
+
+fi
+
+if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+	IPT_CMD="iptables -t mangle -A PREROUTE_US_DEFAULT -j IPQOS_QUEUE_MAP"
+	$IPT_CMD
+	EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT_US -j IPQOS_QUEUE_MAP"
+	$EBT_CMD
+   
+	if [ $chain_vrx -eq 1 ]; then
+		IPT_CMD="iptables -t mangle -A PREROUTE_DS_DEFAULT -j IPQOS_QUEUE_MAP"
+		$IPT_CMD
+		EBT_CMD="ebtables -t filter -A PREROUTE_DEFAULT_DS -j IPQOS_QUEUE_MAP"
+		$EBT_CMD
+	fi
+	
+	# Add a rule to mark all the unclassified packet with the default queue for LAN traffic
+	IPT_CMD="iptables -t mangle -A OUTPUT_DEFAULT -j MARK --set-mark $defQ"
+	$IPT_CMD
+
+# IPV6 START
+
+	if [ "$target" != "ARX1" ]; then
+		IPT_CMD="ip6tables -t mangle -A PREROUTE_US_DEFAULT -j IPQOS_QUEUE_MAP"
+		$IPT_CMD
+#		IPT_CMD="ip6tables -t mangle -A OUTPUT_DEFAULT -j MARK --set-mark $defQ"
+#		$IPT_CMD
+	fi
+
+# IPV6 END
+	# Mark the default DSCP if configured
+	if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+		if [ $qm_defDSCP != "-1" ]; then
+			IPT_CMD="iptables -t mangle -A OUTPUT_DEFAULT -j DSCP --set-dscp $qm_defDSCP"
+			$IPT_CMD
+			if [ "$target" != "ARX1" ]; then
+				IPT_CMD="ip6tables -t mangle -A OUTPUT_DEFAULT -j DSCP --set-dscp $qm_defDSCP"
+				$IPT_CMD
+			fi
+		fi
+	fi
+	IPT_CMD="iptables -t mangle -A OUTPUT_DEFAULT -j IPQOS_QUEUE_MAP"
+	$IPT_CMD
+#	if [ "$target" != "ARX1" ]; then
+#		IPT_CMD="ip6tables -t mangle -A OUTPUT_DEFAULT -j IPQOS_QUEUE_MAP"
+#		$IPT_CMD
+#	fi
+
+fi
+
+
+
+
+# if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_VR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_VR9_RT288" = "1" ]; then
+if [ $CONFIG_IFX_MODEL_NAME="GRX288_GW_HE_ETHWAN_NAND_SAMPLE" -o $CONFIG_IFX_MODEL_NAME="GRX288_RT_HE_DUALWLAN_NAND_ETHWAN" ]; then
+		
+	#Mark all unclassified traffic to default queue for LAN traffic. Def Queue in GRX288=Q31=>TC 7
+	# In switch add a rule with order 0 which is hit by all unclassified traffic and assign in to TC 7
+		 
+	if [ "$target" == "GRX2" -o "$target" == "RT2" -o "$target" == "ARX3" -o "$target" == "GRX3" ]; then
+	Traffic_Class=3
+	else
+	Traffic_Class=7
+	fi
+#	if [ $qm_defDSCP != "-1" ]; then
+#cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=5 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=1"
+#		$cmd >> /tmp/ipqos_tmp.log
+#		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=6 eDSCP_IngressRemarkingEnable=1 bDSCP_EgressRemarkingEnable=0"
+#		$cmd >> /tmp/ipqos_tmp.log
+#		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_CLASS_DSCP_SET nTrafficClass=$Traffic_Class nDSCP=$qm_defDSCP"
+		#echo $cmd
+#		$cmd >> /tmp/ipqos_tmp.log
+#   echo "Un commented"
+#	else	
+      echo "-------------------WAN PORTID is $WAN_PORT-----------------"
+		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$WAN_PORT eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1"
+		#echo "qm_defDSCP=$qm_defDSCP: add default class: $cmd"
+		$cmd >> /tmp/ipqos_tmp.log
+		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=6 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1"
+		#echo "qm_defDSCP=$qm_defDSCP: add default class: $cmd"
+		$cmd >> /tmp/ipqos_tmp.log
+	
+	if [ "$target" == "GRX2" -o "$target" == "RT2" -o "$target" == "VRX2" -o "$target" == "ARX3" -o "$target" == "GRX3" -o "$target" == "VRX3" ]; then
+
+		#echo "Entered this part in ipqos_mgmt"
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_1 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_2 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_3 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=$LAN_PORT_4 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=0
+
+	fi	
+		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_CLASS_DSCP_SET nTrafficClass=$Traffic_Class nDSCP=0"
+		#echo "remark default DSCP to $qm_defDSCP"
+		#echo $cmd
+		$cmd >> /tmp/ipqos_tmp.log
+#	fi
+fi
+
+

@@ -1,0 +1,49 @@
+#!/bin/sh
+
+OUTPUT="/tmp/cmd_output${1}"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+}
+remove_output()
+{
+	rm -f "$OUTPUT"
+}
+SED="/bin/sed"
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+flush_output
+
+if [ "$1" = "web" ]; then
+
+ 	echo ${default_wan_conn_conf_connName} > "$OUTPUT"
+ 	wan_idx=`"$SED" -n 's,WANIP,,;1p' "$OUTPUT"`
+ 	if [ -z "$wan_idx" ]; then
+ 		wan_idx=`"$SED" -n 's,WANPPP,,;1p' "$OUTPUT"`
+	fi
+ 	wan_ip="`/usr/sbin/status_oper GET WanIP${wan_idx}_IF_Info IP`"
+
+    if [ "$2" = "start" ]; then
+
+       if [ -n "${WEB_WAN_ENABLE}" -a "${WEB_WAN_ENABLE}" = "1" ]; then
+ 		   . /etc/rc.d/mgmt.sh start 0 ${wan_ip} 80 tcp
+ 		   . /etc/rc.d/mgmt.sh start 0 ${wan_ip} 443 tcp
+       fi
+
+    elif [ "$2" = "stop" ]; then
+
+	   . /etc/rc.d/mgmt.sh stop 0 ${wan_ip} 80 tcp
+	   . /etc/rc.d/mgmt.sh stop 0 ${wan_ip} 443 tcp
+
+    fi
+
+fi
+
+remove_output
+

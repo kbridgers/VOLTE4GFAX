@@ -1,0 +1,19 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		. /etc/rc.conf 2>/dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then		
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "wlan_sta_config: args: $*"
+$ETC_PATH/wave_wlan_stop  0
+$ETC_PATH/wave_wlan_start 0
+
+print2log DBG "wlan_sta_config done"	
+

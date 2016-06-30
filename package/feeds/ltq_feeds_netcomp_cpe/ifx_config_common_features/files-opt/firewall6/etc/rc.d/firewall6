@@ -1,0 +1,470 @@
+#!/bin/sh
+
+iptables_restore="ip6tables-restore"
+iptables="/usr/sbin/ip6tables"
+lan_if="br0"
+BASE_PLUGIN_PATH="/etc/fw6"
+PLUGIN_EXT="*.sh"
+TMPFILE="/tmp/.tmp.$$"
+FIREWALL_CACHE="/tmp/firewall_cache"
+BASE_XTABLES_SAVE="${FIREWALL_CACHE}/xtables_save"
+CONFIGDIR="/etc/fw6/lib/"
+RESTORE_ERROR_LOG="/tmp/ip6tables-restore-err.log"
+
+err_log()
+{
+	echo $*
+	echo $* >> /var/log/messages
+}
+usage()
+{
+	echo "$0 [start/stop/clear] [filter/mangle] [all/prefix/appfilter] arg1 arg2 .."
+	exit 1
+}
+
+if [ $# -lt 3 ];then
+	usage
+else
+	PLUGIN_PATH=${BASE_PLUGIN_PATH}/${2}
+	if [ ! -d ${PLUGIN_PATH} ]; then
+		usage
+	fi
+	XTABLES_SAVE=${BASE_XTABLES_SAVE}_${2}
+	XTABLES_SAVE_BACKUP=${BASE_XTABLES_SAVE}_${2}.lastknowngood
+	XTABLES_SAVE_FAULTY=${BASE_XTABLES_SAVE}_${2}.faulty
+	if [ ! -d ${FIREWALL_CACHE} ]; then
+		mkdir ${FIREWALL_CACHE}
+	fi
+	
+fi
+
+first_cmd=$1 #[start/stop/clear/restart]
+shift
+table=$1
+shift
+
+
+
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+if [ "$ipv6_status" != "1" -o ! -x ${iptables} ]; then
+	err_log "IPv6 is not enabled/ IPv6 Firewall is not supported"
+	return  2>/dev/null
+	exit 1
+fi
+
+is_firewall_enabled()
+{
+	if [ "$fwl_config_Enable" == "0" ]; then #Firewall disabled 
+                return 0
+        fi
+
+        if [ $fwl_config_Config -ge 2 2>/dev/null ]; then
+		return 1
+	fi
+	return 0
+}
+	
+
+#if it is 1; then ip6tables-restore required; dont reset this var
+FW_XTABLE_RESTORE_FLAG=1
+
+#hookvars
+FW_FILTER_LAN2WAN_FWD_ALLOW=
+FW_FILTER_LAN2WAN_FWD_DENY=
+FW_FILTER_WAN2LAN_FWD_ALLOW=
+FW_FILTER_WAN2LAN_FWD_DENY=
+FW_FILTER_LANINPUT_ALLOW=
+FW_FILTER_LANINPUT_DENY=
+FW_FILTER_WANINPUT_ALLOW=
+FW_FILTER_WANINPUT_DENY=
+FW_FILTER_FORWARD_INIT=
+FW_FILTER_INPUT_INIT=
+FW_FILTER_OUTPUT_INIT=
+
+FW_FILTER_INIT=
+FW_FILTER_FINISH=
+
+FW_MODULE_NAME=
+FW_MODULE_PRIORITY=
+
+FW_DISABLE_NOTIFIER=
+FW_ENABLE_NOTIFIER=
+
+#WARNING: Don't change the order of variable here
+FILTER_TABLE_SECTIONS="FW_FILTER_INIT \
+FW_FILTER_FINISH \
+FW_FILTER_FORWARD_INIT \
+FW_FILTER_INPUT_INIT \
+FW_FILTER_OUTPUT_INIT \
+FW_FILTER_LAN2WAN_FWD_ALLOW \
+FW_FILTER_LAN2WAN_FWD_DENY \
+FW_FILTER_WAN2LAN_FWD_ALLOW \
+FW_FILTER_WAN2LAN_FWD_DENY \
+FW_FILTER_LANINPUT_DENY \
+FW_FILTER_WANINPUT_DENY \
+FW_FILTER_LANINPUT_ALLOW \
+FW_FILTER_WANINPUT_ALLOW \
+FW_FILTER_OUTPUT_DENY \
+FW_FILTER_OUTPUT_ALLOW"
+
+reset_section_vars_filter()
+{
+	FW_FILTER_INIT=""
+	FW_FILTER_FINISH=""
+	FW_FILTER_LAN2WAN_FWD_ALLOW=""
+	FW_FILTER_LAN2WAN_FWD_DENY=""
+	FW_FILTER_WAN2LAN_FWD_ALLOW=""
+	FW_FILTER_WAN2LAN_FWD_DENY=""
+	FW_FILTER_LANINPUT_ALLOW=""
+	FW_FILTER_LANINPUT_DENY=""
+	FW_FILTER_WANINPUT_ALLOW=""
+	FW_FILTER_WANINPUT_DENY=""
+	FW_FILTER_FORWARD_INIT=""
+	FW_FILTER_INPUT_INIT=""
+	FW_FILTER_OUTPUT_INIT=""
+	FW_FILTER_DISABLE=""
+	FW_FILTER_MODULE_NAME=""
+	FW_FILTER_MODULE_PRIORITY=""
+	FW_FILTER_DISABLE_NOTIFIER=""
+	FW_FILTER_ENABLE_NOTIFIER=""
+	FW_FILTER_OUTPUT_DENY=""
+	FW_FILTER_OUTPUT_ALLOW=""
+}
+
+reset_section_vars()
+{
+	case $table in
+	filter)
+		reset_section_vars_filter
+		;;
+	esac
+}
+
+get_file_name()
+{
+	#$1=pririty #$2=hookname #$3=modulename
+	printf "${FIREWALL_CACHE}/%02d_${2}_${3}" $1
+}
+ipt() 
+{
+	echo $* >> $FWL_OUTFILE
+}
+load_static()
+{
+	cat  $* >> $FWL_OUTFILE
+}
+call_module()
+{
+	#$1=create will create hook files #$2=reset will reset hook files
+	#$2= module name with absolute path
+	#$3=could be argument to framework/module
+	#$4... rest all are args to module
+
+	operation=$1
+	shift
+	abs_module_name=$1
+	FW_MODULE_NAME="$(basename ${abs_module_name})"
+	shift
+
+	#absorb argument
+	case $1 in
+	debug)
+		debugme_start="set -x"
+		debugme_stop="set +x"
+		shift
+		;;
+	esac
+
+	# handle create /reset operation
+	case $operation in
+	create)
+
+		
+		eval module_disabled='$'FWL_${FW_MODULE_NAME}_DISABLED
+		eval prio='$'FWL_${FW_MODULE_NAME}_PRIORITY
+		if [ "${module_disabled}" -ne "1" 2>/dev/null \
+			-a -f $abs_module_name 2>/dev/null ]; then
+
+			eval $debugme_start
+			. $abs_module_name  $*
+			r=$?
+				
+			eval $debugme_stop
+			
+			if [  $r -eq 255 ]; then
+				err_log "Excluding module ${FW_MODULE_NAME} as firewall level is not 'high/low'"
+				return
+			fi
+			if [ $prio -ge 0 2>/dev/null ]; then
+				FW_MODULE_PRIORITY=$prio
+			fi
+
+			if [ $FW_MODULE_PRIORITY -lt 0 2>/dev/null \
+				-o $FW_MODULE_PRIORITY -gt 99 2>/dev/null ]; then
+				FW_MODULE_PRIORITY=50
+			fi
+		else
+			err_log  -e "Unable to load module: 
+name=\"${abs_module_name}\"\n\
+prio=\"${FW_MODULE_PRIORITY}\"\n\
+disabled=\"${module_disabled}\""
+			return
+		fi
+
+		for variable in ${AVAILABLE_HOOKS}
+		do
+			eval value='$'${variable}
+				if [ ! -z ${value} ]; then
+					FWL_OUTFILE="$(get_file_name ${FW_MODULE_PRIORITY} ${variable} ${FW_MODULE_NAME})"
+					eval $debugme_start
+					> ${FWL_OUTFILE}
+					eval "${value}" 
+					ret=$?
+					eval $debugme_stop
+
+					if [ $ret -ne 0 ]; then
+						err_log "error while executing ${value} of module ${FW_MODULE_NAME}"
+						> ${FWL_OUTFILE}
+					fi
+
+				fi
+		done 
+
+		if [ "$FW_ENABLE_NOTIFIER" != "" ]; then
+			eval $debugme_start
+			eval "${FW_ENABLE_NOTIFIER}"
+			eval $debugme_stop
+		fi
+		;;
+	reset)
+		for fl in `ls -1 ${FIREWALL_CACHE}/*_${FW_MODULE_NAME} 2>/dev/null ` 
+		do 
+			> $fl 
+		done
+
+		#search & execute FW_DISABLE_NOTIFIER if defined by module
+		grep "FW_DISABLE_NOTIFIER=" $abs_module_name 2>&1 > /dev/null
+		if [ $? -eq 0 ]; then
+			. $abs_module_name 2>/dev/null
+			if [ "$FW_DISABLE_NOTIFIER" != "" ]; then
+				eval $debugme_start
+				eval "${FW_DISABLE_NOTIFIER}"
+				eval $debugme_stop
+			fi
+		fi
+		;;
+	esac
+}
+
+reset_section_vars
+
+insmodall()
+{
+	insmod /lib/modules/*/ip6_tables.ko 2> /dev/null
+	insmod /lib/modules/*/ip6table_filter.ko 2> /dev/null
+	insmod /lib/modules/*/ip6t_REJECT.ko 2> /dev/null
+#	insmod /lib/modules/*/ip6t_ipv6header.ko 2> /dev/null
+#	sleep 2
+}
+
+clear_all_rules()
+{
+	${iptables} -t ${table} -F
+}
+
+
+ipv6_fw_userdef_chains()
+{
+	cat <<eof
+:wan2lan_forward - [0:0]
+:lan2wan_forward - [0:0]
+:lan_input - [0:0]
+:wan_input - [0:0]
+eof
+
+}
+
+builtin_start()
+{
+	case $table in
+	filter)
+		cat <<eof
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+eof
+		ipv6_fw_userdef_chains
+	;;
+	esac
+
+}
+builtin_finish()
+{
+	echo "COMMIT" 
+}
+
+get_affected_line_number()
+{
+	grep "Error occurred" ${RESTORE_ERROR_LOG} 2>/dev/null | sed "s/Error occurred at line: //" 2>/dev/null
+}
+
+backup_firewall_rules()
+{
+	cp -f ${XTABLES_SAVE} ${XTABLES_SAVE_BACKUP}
+}
+
+restore_firewall_rules()
+{
+	cp -f ${XTABLES_SAVE} ${XTABLES_SAVE_FAULTY}
+	cp -f ${XTABLES_SAVE_BACKUP} ${XTABLES_SAVE}
+	err_log "Restoring ip6tables rules from ${XTABLES_SAVE_BACKUP}. Please check ${XTABLES_SAVE_FAULTY}"
+	${iptables_restore} ${XTABLES_SAVE} 2> /dev/null
+	return $?
+}
+repair_xtables_save()
+{
+	repair_max_retry=100
+	repair_try=1
+	while [ $repair_try -le $repair_max_retry ]
+	do
+		bad_line=$(get_affected_line_number)
+		err_log "TRY:$repair_try Trying to repair firewall by disabling line number $bad_line"
+		expr $bad_line + 1 &>/dev/null
+		if [ $? -eq 0 ]; then
+			sed -i "${bad_line}s/^/#/" ${XTABLES_SAVE}
+			${iptables_restore} ${XTABLES_SAVE} 2> ${RESTORE_ERROR_LOG}
+			if [ $? -eq 0 ]; then
+				return 0
+			fi
+		fi
+		let repair_try++
+	done
+	err_log "Unable to recover ip6tables rules. Kindly check configuration & ${XTABLES_SAVE_FAULTY}"
+	restore_firewall_rules
+	if [ $? -eq 0 ]; then
+		return 0
+	fi
+	return 1
+
+}
+
+restore_xtables()
+{
+	
+	if [ $FW_XTABLE_RESTORE_FLAG -eq 1 2>/dev/null ]; then
+		> ${XTABLES_SAVE}
+		echo "$(builtin_start)" >> ${XTABLES_SAVE}
+		for hook_variable in ${AVAILABLE_HOOKS}
+		do
+			if [ "${hook_variable}" != "" ]; then
+				cat  ${FIREWALL_CACHE}/*_${hook_variable}_*  >> ${XTABLES_SAVE} 2>/dev/null
+			fi
+		done 
+		echo "$(builtin_finish)" >> ${XTABLES_SAVE}
+		${iptables_restore} ${XTABLES_SAVE} 2> ${RESTORE_ERROR_LOG}
+		if [ $? -ne 0 ]; then
+			repair_xtables_save
+		else
+			backup_firewall_rules	
+		fi
+	fi
+}
+
+
+
+
+create_plugin_cache()
+{
+	reset_section_vars
+	cmd=$1
+	shift
+	case $cmd in 
+	all)
+		for fl in $(find  $PLUGIN_PATH/ -type f 2>/dev/null) 
+		do 
+			reset_section_vars
+			call_module create $fl $*
+		done
+		;;
+	*)
+		call_module create  $PLUGIN_PATH/$cmd $*
+		;;
+	esac
+}
+
+reset_plugin_cache()
+{
+	reset_section_vars
+	cmd=$1
+	shift
+	case $cmd in 
+	all)
+		for fl in $(find  $PLUGIN_PATH/ -type f 2>/dev/null) 
+		do 
+			reset_section_vars
+			call_module reset $fl $*
+		done
+		clear_all_rules
+		;;
+	*)
+		call_module reset $PLUGIN_PATH/$cmd $*
+		;;
+	esac
+}
+
+
+
+firewall_disable()
+{
+	insmodall
+	reset_plugin_cache $*
+}
+
+case $table in
+filter)
+	AVAILABLE_HOOKS="$FILTER_TABLE_SECTIONS"
+	;;
+esac
+
+
+insmodall
+case $first_cmd in
+
+stop)
+	firewall_disable $*
+	restore_xtables
+	;;
+start)
+	create_plugin_cache $*
+	restore_xtables
+	;;
+restart)
+	firewall_disable $*
+	create_plugin_cache $*
+	restore_xtables
+	;;
+clear)
+	if [ -d $FIREWALL_CACHE 2>/dev/null ]; then
+		rm -f ${FIREWALL_CACHE}/* 2>/dev/null
+	fi
+	clear_all_rules
+	;;
+*)
+	usage
+	;;
+esac

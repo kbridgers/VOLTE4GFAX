@@ -1,0 +1,40 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#start() {
+    if [ -n "$ntp_fEnable" -a "$ntp_fEnable" = "1" ]; then
+        if [ "$ntp_NTPServer1" ]; then
+            NTPSERVERS=" -h $ntp_NTPServer1"
+        fi
+        if [ "$ntp_NTPServer2" ]; then
+            NTPSERVERS="$NTPSERVERS -h $ntp_NTPServer2"
+        fi
+        if [ "$ntp_NTPServer3" ]; then
+            NTPSERVERS="$NTPSERVERS -h $ntp_NTPServer3"
+        fi
+        if [ "$ntp_NTPServer4" ]; then
+            NTPSERVERS="$NTPSERVERS -h $ntp_NTPServer4"
+        fi
+        if [ "$ntp_NTPServer5" ]; then
+            NTPSERVERS="$NTPSERVERS -h $ntp_NTPServer5"
+        fi
+        if [ "$NTPSERVERS" ]; then
+		/usr/sbin/status_oper SET "ntp_status" STATUS "1"
+	    /usr/sbin/ntpclient -s $NTPSERVERS -o $ntp_TimeMinuteOffset &
+	    /usr/sbin/ifx_event_util NTP_SYNC_STATUS_CHANGE 1
+        fi
+    fi
+#}

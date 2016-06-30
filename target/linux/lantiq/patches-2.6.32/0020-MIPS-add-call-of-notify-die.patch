@@ -1,0 +1,45 @@
+This patch calls notify_die() inside the die() routine.
+Some const statements have to be removed because of warnings.
+
+This was partly taken from kernel 3.1.1 (without support for NOTIFY_STOP)
+
+--- a/arch/mips/kernel/traps.c
++++ b/arch/mips/kernel/traps.c
+@@ -351,15 +351,22 @@ void show_registers(const struct pt_regs
+ 	printk("\n");
+ }
+ 
++static int regs_to_trapnr(struct pt_regs *regs)
++{
++	return (regs->cp0_cause >> 2) & 0x1f;
++}
++
+ static DEFINE_SPINLOCK(die_lock);
+ 
+-void __noreturn die(const char * str, const struct pt_regs * regs)
++void __noreturn die(const char * str, struct pt_regs * regs)
+ {
+ 	static int die_counter;
+ #ifdef CONFIG_MIPS_MT_SMTC
+ 	unsigned long dvpret = dvpe();
+ #endif /* CONFIG_MIPS_MT_SMTC */
+ 
++	notify_die(DIE_OOPS, str, regs, 0, regs_to_trapnr(regs), SIGSEGV);
++
+ 	console_verbose();
+ 	spin_lock_irq(&die_lock);
+ 	bust_spinlocks(1);
+--- a/arch/mips/include/asm/ptrace.h
++++ b/arch/mips/include/asm/ptrace.h
+@@ -142,9 +142,9 @@ extern int ptrace_set_watch_regs(struct 
+ 
+ extern asmlinkage void do_syscall_trace(struct pt_regs *regs, int entryexit);
+ 
+-extern NORET_TYPE void die(const char *, const struct pt_regs *) ATTRIB_NORET;
++extern NORET_TYPE void die(const char *, struct pt_regs *) ATTRIB_NORET;
+ 
+-static inline void die_if_kernel(const char *str, const struct pt_regs *regs)
++static inline void die_if_kernel(const char *str, struct pt_regs *regs)
+ {
+ 	if (unlikely(!user_mode(regs)))
+ 		die(str, regs);

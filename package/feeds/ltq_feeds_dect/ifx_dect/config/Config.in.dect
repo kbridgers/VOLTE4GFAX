@@ -1,0 +1,44 @@
+config IFX_DECT_SS_FEATURE_USIF_SPI
+		bool "DECT uses USIF SPI support"
+		select PACKAGE_kmod-dect_usif_spi
+		depends (TARGET_ltqcpe_platform_vr9 && !PACKAGE_teridian-voice-daa-ter1x66) || TARGET_ltqcpe_platform_ar10
+		depends @TARGET_ltqcpe_platform_vr9||TARGET_ltqcpe_platform_ar10
+		default n
+		help
+			Option to select USIF_SPI for DECT SS.
+						 NOTE-ifx_voip->FXO feature will be disabled; and please disable teridian driver.
+config LTQ_DT_FEATURES
+  bool "Dect DT Features"
+  #depends on CONFIG_TARGET_ifxcpe_platform_ar9
+  default n
+  help
+   Option to enable DECT DT Features.
+config LTQ_DECT_CLI
+ 	bool "Dect CLI"
+	#select CONFIG_PACKAGE_ifx-voice-cpe-tapidemo
+	select PACKAGE_ifx-voice-cpe-tapidemo
+  default n
+  help
+   Enables DECT CLI feature using which user can configure COSIC modem through command line.
+	Since it needs tapidemo support it will enabled by default when user selects DECT CLI option. 
+	Both CLI and tapidemo are built but not copied to rootfs due to size constraints. 
+	User has to explicitly copy if required.
+config LTQ_RAW_DPSU_SUPPORT
+  bool "Support for RAW DPSU"
+  #depends on CONFIG_TARGET_ifxcpe_platform_ar9
+  default n
+  help
+   Option to support RAW DPSU. DGMEP support is disabled.
+config IFX_FDX_SSC_SUPPORT
+  bool "SSC FDX Support"
+  #depends on IFX_DECT_SUPPORT || IFX_CVOIP_SUPPORT
+  default y
+  help
+   Option to enable Full Duplex support for Cosic Driver.
+config LTQ_DECT_PART
+  bool "Enable DECT Flash Partition"
+  #depends on CONFIG_TARGET_ifxcpe_platform_ar9
+  default y
+  help
+   Option to enable DECT Flash partition.
+

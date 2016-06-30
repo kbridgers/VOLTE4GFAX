@@ -1,0 +1,117 @@
+#!/bin/sh
+
+#if resolvpath is not defualt then use this
+
+
+if [ ! "$ENVLOADED" ]; then 
+        if [ -r /etc/rc.conf ]; then 
+                 . /etc/rc.conf 2> /dev/null 
+                ENVLOADED="1" 
+        fi 
+fi 
+ 
+if [ ! "$CONFIGLOADED" ]; then 
+        if [ -r /etc/rc.d/config.sh ]; then 
+                . /etc/rc.d/config.sh 2>/dev/null 
+                CONFIGLOADED="1" 
+        fi 
+fi
+
+DNSMASQ_ID=`ps | grep -v grep | grep dnsmasq`
+
+WAN_IDX=""
+v_ppp=`echo "$1" | grep ^ppp`
+
+if [ ! -f /var/resolv6.conf -o -z "$DNSMASQ_ID" ]; then
+	if [ ! -z "$v_ppp" ]; then
+		. /etc/rc.d/bringup_dnsmasq restart 0 "ppp"
+	else
+		. /etc/rc.d/bringup_dnsmasq restart 0 "ip"
+	fi
+fi
+
+> /var/resolv6.conf
+for namesrv in $new_domain_name_servers; do
+	echo "nameserver $namesrv" >> /var/resolv6.conf
+done
+
+get_ppp_index()
+{
+        ifname=$1
+        i=0
+        while [ $i -lt $wan_ppp_Count ]; do
+                . /etc/rc.d/get_wan_if  $i "ppp"
+                 if [ "${WAN_IFNAME}z" = "${ifname}z" ]; then
+                        echo $i
+                        break
+                fi
+        i=`expr $i + 1`
+        done
+}
+
+get_ip_index()
+{
+        ifname=$1
+        wanip_idx=0
+        while [ $wanip_idx -lt $wan_ip_Count ]; do
+                . /etc/rc.d/get_wan_if  $wanip_idx "ip"
+                if [ "${WAN_IFNAME}z" = "${ifname}z" ]; then
+                        echo $wanip_idx
+                        break
+                fi
+        wanip_idx=`expr $wanip_idx + 1`
+        done
+
+}
+
+WAN_IDX=""
+v_ppp=`echo "$1" | grep ^ppp`
+
+k=1; for namesrv in `grep : /var/resolv6.conf | cut -d' ' -f2`; do
+eval DNSV6UPDATE_${k}=$namesrv; k=`expr $k + 1`;
+[ $k -eq 3 ] && break
+done
+
+if [ ! -z "$DNSV6UPDATE_1" -o ! -z "$DNSV6UPDATE_2" ]; then
+	if [ ! -z "$v_ppp" ]; then
+		WAN_IDX=$(get_ppp_index $1)
+    		/usr/sbin/status_oper SET "WanPPP${WAN_IDX}_IF_IPv6_Dns" DNSv61 $DNSV6UPDATE_1 DNSv62 $DNSV6UPDATE_2
+	else
+		 WAN_IDX=$(get_ip_index $1)
+    		/usr/sbin/status_oper SET "WanIP${WAN_IDX}_IF_IPv6_Dns" DNSv61 $DNSV6UPDATE_1 DNSv62 $DNSV6UPDATE_2
+	fi
+fi
+
+
+ 
+# Copy the /etc/resolv.conf to /var/resolv6.conf before HUP 
+
+. /etc/rc.d/bringup_dnsmasq reconf
+
+#Dra= Ds-lite remote address,AFTR=Address Family Transition Router
+DYN_DSLITE_AFTRFILE="/tmp/dyn_dslite_info"
+if [ "$wan_dslite_mode" == "1" ]; then #dynamic dslite
+	for dslite_remote in $new_aftr_name; do 
+		if [ "z$dslite_remote" != "z" ]; then
+			if [ ! -z "$v_ppp" ]; then
+				WAN_IDX=$(get_ppp_index $1)
+				/usr/sbin/status_oper SET "WanPPP${WAN_IDX}_IF_IPv6_Info" AFTR_addr  ${dslite_remote}
+			else
+				WAN_IDX=$(get_ip_index $1)
+				/usr/sbin/status_oper SET "WanIP${WAN_IDX}_IF_IPv6_Info" AFTR_addr  ${dslite_remote}
+			fi
+			old_aftr=$(cat ${DYN_DSLITE_AFTRFILE} 2>/dev/null)
+			if [ "${dslite_remote}" != "${old_aftr}" ]; then
+				echo "$dslite_remote" > ${DYN_DSLITE_AFTRFILE}
+				/etc/rc.d/ds-lite.sh update_slaac $1 dynamic &
+			fi
+			break
+		fi
+	done
+fi
+
+#else
+# read each line from the file and put in the sys_status with number DNS1,3,...
+# call the dnsmasq start later as it will be overwritten by udhcpc.scr
+
+#/usr/sbin/status_oper SET "WAN_IPv6_DNS_SERVER" DNS $new_domain_name_servers

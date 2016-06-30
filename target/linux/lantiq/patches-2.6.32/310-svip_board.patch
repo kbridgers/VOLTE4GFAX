@@ -1,0 +1,1236 @@
+--- a/arch/mips/lantiq/Kconfig
++++ b/arch/mips/lantiq/Kconfig
+@@ -19,9 +19,13 @@ config SOC_XWAY
+ 
+ config SOC_FALCON
+ 	bool "FALCON"
++
++config SOC_SVIP
++	bool "SVIP"
+ endchoice
+ 
+ source "arch/mips/lantiq/xway/Kconfig"
+ source "arch/mips/lantiq/falcon/Kconfig"
++source "arch/mips/lantiq/svip/Kconfig"
+ 
+ endif
+--- /dev/null
++++ b/arch/mips/lantiq/svip/Kconfig
+@@ -0,0 +1,16 @@
++if SOC_SVIP
++
++menu "Mips Machine"
++
++config LANTIQ_MACH_EASY33016
++	bool "Easy33016"
++	default y
++
++config LANTIQ_MACH_EASY336
++	select SYS_SUPPORTS_LITTLE_ENDIAN
++	bool "Easy336"
++	default y
++
++endmenu
++
++endif
+--- a/arch/mips/lantiq/Makefile
++++ b/arch/mips/lantiq/Makefile
+@@ -10,3 +10,4 @@ obj-$(CONFIG_EARLY_PRINTK) += early_prin
+ 
+ obj-$(CONFIG_SOC_TYPE_XWAY) += xway/
+ obj-$(CONFIG_SOC_FALCON) += falcon/
++obj-$(CONFIG_SOC_SVIP) += svip/
+--- /dev/null
++++ b/arch/mips/lantiq/svip/Makefile
+@@ -0,0 +1,3 @@
++obj-y := prom.o reset.o switchip_setup.o
++obj-$(CONFIG_LANTIQ_MACH_EASY33016) += mach-easy33016.o
++obj-$(CONFIG_LANTIQ_MACH_EASY336) += mach-easy336.o
+--- /dev/null
++++ b/arch/mips/lantiq/svip/prom.c
+@@ -0,0 +1,67 @@
++/*
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * Copyright (C) 2010 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/module.h>
++#include <linux/clk.h>
++#include <linux/time.h>
++#include <asm/bootinfo.h>
++
++#include <lantiq_soc.h>
++
++#include "../prom.h"
++#include "../machtypes.h"
++
++#include <base_reg.h>
++#include <ebu_reg.h>
++
++#define SOC_SVIP		"SVIP"
++
++#define PART_SHIFT	12
++#define PART_MASK	0x0FFFF000
++#define REV_SHIFT	28
++#define REV_MASK	0xF0000000
++
++static struct svip_reg_ebu *const ebu = (struct svip_reg_ebu *)LTQ_EBU_BASE;
++
++void __init
++ltq_soc_setup(void)
++{
++	if (mips_machtype == LANTIQ_MACH_EASY33016 ||
++		mips_machtype == LANTIQ_MACH_EASY336 ||
++		mips_machtype == LANTIQ_MACH_EASY336SF ||
++		mips_machtype == LANTIQ_MACH_EASY336NAND) {
++		ebu_w32(0x120000f1, addr_sel_2);
++		ebu_w32(LTQ_EBU_CON_0_ADSWP |
++			LTQ_EBU_CON_0_SETUP |
++			LTQ_EBU_CON_0_BCGEN_VAL(0x02) |
++			LTQ_EBU_CON_0_WAITWRC_VAL(7) |
++			LTQ_EBU_CON_0_WAITRDC_VAL(3) |
++			LTQ_EBU_CON_0_HOLDC_VAL(3) |
++			LTQ_EBU_CON_0_RECOVC_VAL(3) |
++			LTQ_EBU_CON_0_CMULT_VAL(3), con_2);
++	}
++}
++
++void __init
++ltq_soc_detect(struct ltq_soc_info *i)
++{
++	i->partnum = (ltq_r32(LTQ_STATUS_CHIPID) & PART_MASK) >> PART_SHIFT;
++	i->rev = (ltq_r32(LTQ_STATUS_CHIPID) & REV_MASK) >> REV_SHIFT;
++	switch (i->partnum) {
++	case SOC_ID_SVIP:
++		i->name = SOC_SVIP;
++		i->type = SOC_TYPE_SVIP;
++		break;
++
++	default:
++		printk(KERN_ERR "unknown partnum : 0x%08X\n", i->partnum);
++		while (1);
++		break;
++	}
++}
+--- /dev/null
++++ b/arch/mips/lantiq/svip/reset.c
+@@ -0,0 +1,99 @@
++/*
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ *
++ *  Copyright (C) 2010 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/ioport.h>
++#include <linux/pm.h>
++#include <linux/module.h>
++#include <asm/reboot.h>
++
++#include <lantiq_soc.h>
++#include "../machtypes.h"
++#include <base_reg.h>
++#include <sys1_reg.h>
++#include <boot_reg.h>
++#include <ebu_reg.h>
++
++static struct svip_reg_sys1 *const sys1 = (struct svip_reg_sys1 *)LTQ_SYS1_BASE;
++static struct svip_reg_ebu *const ebu = (struct svip_reg_ebu *)LTQ_EBU_BASE;
++
++#define CPLD_CMDREG3  ((volatile unsigned char*)(KSEG1 + 0x120000f3))
++extern void switchip_reset(void);
++
++static void ltq_machine_restart(char *command)
++{
++	printk(KERN_NOTICE "System restart\n");
++	local_irq_disable();
++
++	if (mips_machtype == LANTIQ_MACH_EASY33016 ||
++		mips_machtype == LANTIQ_MACH_EASY336 ||
++		mips_machtype == LANTIQ_MACH_EASY336SF ||
++		mips_machtype == LANTIQ_MACH_EASY336NAND) {
++		/* We just use the CPLD function to reset the entire system as a
++		workaround for the switch reset problem */
++		local_irq_disable();
++		ebu_w32(0x120000f1, addr_sel_2);
++		ebu_w32(0x404027ff, con_2);
++
++		if (mips_machtype == LANTIQ_MACH_EASY336 ||
++		mips_machtype == LANTIQ_MACH_EASY336SF ||
++		mips_machtype == LANTIQ_MACH_EASY336NAND)
++			/* set bit 0 to reset SVIP */
++			*CPLD_CMDREG3 = (1<<0);
++		else
++			/* set bit 7 to reset SVIP, set bit 3 to reset xT */
++			*CPLD_CMDREG3 = (1<<7) | (1<<3);
++	} else {
++		*LTQ_BOOT_RVEC(0) = 0;
++		/* reset all except PER, SUBSYS and CPU0 */
++		sys1_w32(0x00043F3E, rreqr);
++		/* release WDT0 reset */
++		sys1_w32(0x00000100, rrlsr);
++		/* restore reset value for clock enables */
++		sys1_w32(~0x0c000040, clkclr);
++		/* reset SUBSYS (incl. DDR2) and CPU0 */
++		sys1_w32(0x00030001, rbtr);
++	}
++
++	for (;;)
++		;
++}
++
++static void ltq_machine_halt(void)
++{
++	printk(KERN_NOTICE "System halted.\n");
++	local_irq_disable();
++	for (;;)
++		;
++}
++
++static void ltq_machine_power_off(void)
++{
++	printk(KERN_NOTICE "Please turn off the power now.\n");
++	local_irq_disable();
++	for (;;)
++		;
++}
++
++/* This function is used by the watchdog driver */
++int ltq_reset_cause(void)
++{
++	return 0;
++}
++EXPORT_SYMBOL_GPL(ltq_reset_cause);
++
++static int __init mips_reboot_setup(void)
++{
++	_machine_restart = ltq_machine_restart;
++	_machine_halt = ltq_machine_halt;
++	pm_power_off = ltq_machine_power_off;
++	return 0;
++}
++
++arch_initcall(mips_reboot_setup);
+--- a/arch/mips/lantiq/machtypes.h
++++ b/arch/mips/lantiq/machtypes.h
+@@ -16,6 +16,12 @@ enum lantiq_mach_type {
+ 	LTQ_MACH_EASY50712,	/* Danube evaluation board */
+ 	LTQ_MACH_EASY50601,	/* Amazon SE evaluation board */
+ 
++	/* SVIP */
++	LANTIQ_MACH_EASY33016,		/* SVIP Easy33016 */
++	LANTIQ_MACH_EASY336,		/* SVIP Easy336, NOR Flash */
++	LANTIQ_MACH_EASY336SF,		/* SVIP Easy336, Serial Flash */
++	LANTIQ_MACH_EASY336NAND,	/* SVIP Easy336, NAND Flash */
++
+ 	/* FALCON */
+ 	LANTIQ_MACH_EASY98000,		/* Falcon Eval Board, NOR Flash */
+ 	LANTIQ_MACH_EASY98000SF,	/* Falcon Eval Board, Serial Flash */
+--- /dev/null
++++ b/arch/mips/lantiq/svip/mach-easy33016.c
+@@ -0,0 +1,71 @@
++#include <linux/init.h>
++#include <linux/platform_device.h>
++#include <linux/leds.h>
++#include <linux/gpio.h>
++#include <linux/gpio_buttons.h>
++#include <linux/mtd/mtd.h>
++#include <linux/mtd/partitions.h>
++#include <linux/input.h>
++#include <linux/interrupt.h>
++#include <linux/spi/spi.h>
++#include <linux/spi/flash.h>
++#include "../machtypes.h"
++
++#include <sys1_reg.h>
++#include <sys2_reg.h>
++#include <svip_pms.h>
++
++#include "devices.h"
++
++static const struct ltq_mux_pin mux_p0[LTQ_MUX_P0_PINS] = {
++	LTQ_MUX_P0_0_SSC0_MTSR,
++	LTQ_MUX_P0_1_SSC0_MRST,
++	LTQ_MUX_P0_2_SSC0_SCLK,
++	LTQ_MUX_P0_3_SSC1_MTSR,
++	LTQ_MUX_P0_4_SSC1_MRST,
++	LTQ_MUX_P0_5_SSC1_SCLK,
++	LTQ_MUX_P0_6_SSC0_CS0,
++	LTQ_MUX_P0_7_SSC0_CS1,
++	LTQ_MUX_P0_8_SSC0_CS2,
++	LTQ_MUX_P0_9_HIGH,
++	LTQ_MUX_P0_10_HIGH,
++	LTQ_MUX_P0_11_EXINT4,
++	LTQ_MUX_P0_12,
++	LTQ_MUX_P0_13,
++	LTQ_MUX_P0_14_ASC0_TXD,
++	LTQ_MUX_P0_15_ASC0_RXD,
++	LTQ_MUX_P0_16_EXINT9,
++	LTQ_MUX_P0_17_EXINT10,
++	LTQ_MUX_P0_18_EJ_BRKIN,
++	LTQ_MUX_P0_19_EXINT16
++};
++
++static void __init easy33016_init(void)
++{
++	svip_sys1_clk_enable(SYS1_CLKENR_L2C |
++			     SYS1_CLKENR_DDR2 |
++			     SYS1_CLKENR_SMI2 |
++			     SYS1_CLKENR_SMI1 |
++			     SYS1_CLKENR_SMI0 |
++			     SYS1_CLKENR_FMI0 |
++			     SYS1_CLKENR_DMA |
++			     SYS1_CLKENR_EBU);
++
++	svip_sys2_clk_enable(SYS2_CLKENR_HWSYNC |
++			     SYS2_CLKENR_MBS |
++			     SYS2_CLKENR_SWINT);
++
++	svip_register_mux(mux_p0, NULL, NULL, NULL, NULL);
++	svip_register_asc(0);
++	svip_register_eth();
++	svip_register_virtual_eth();
++	ltq_register_wdt();
++	svip_register_gpio();
++	svip_register_spi();
++	svip_register_nand();
++}
++
++MIPS_MACHINE(LANTIQ_MACH_EASY33016,
++	     "EASY33016",
++	     "EASY33016",
++	     easy33016_init);
+--- /dev/null
++++ b/arch/mips/lantiq/svip/mach-easy336.c
+@@ -0,0 +1,216 @@
++#include <linux/init.h>
++#include <linux/platform_device.h>
++#include <linux/leds.h>
++#include <linux/gpio.h>
++#include <linux/gpio_buttons.h>
++#include <linux/mtd/mtd.h>
++#include <linux/mtd/partitions.h>
++#include <linux/input.h>
++#include <linux/interrupt.h>
++#include <linux/spi/spi.h>
++#include <linux/spi/flash.h>
++#include "../machtypes.h"
++
++#include <sys1_reg.h>
++#include <sys2_reg.h>
++#include <svip_pms.h>
++
++#include "devices.h"
++
++static struct mtd_partition easy336_sflash_partitions[] = {
++	{
++		.name		= "SPI flash",
++		.size		= MTDPART_SIZ_FULL,
++		.offset		= 0,
++	},
++};
++
++static struct flash_platform_data easy336_sflash_data = {
++	.name = "m25p32",
++	.parts = (void *)&easy336_sflash_partitions,
++	.nr_parts = ARRAY_SIZE(easy336_sflash_partitions),
++	.type = "m25p32",
++};
++
++static struct spi_board_info bdinfo[] __initdata = {
++	{
++		.modalias = "m25p80",
++		.platform_data = &easy336_sflash_data,
++		.mode = SPI_MODE_0,
++		.irq = -1,
++		.max_speed_hz = 25000000,
++		.bus_num = 0,
++		.chip_select = 0,
++	}
++};
++
++static struct mtd_partition easy336_partitions[] = {
++	{
++		.name	= "uboot",
++		.offset	= 0x0,
++		.size	= 0x40000,
++	},
++	{
++		.name	= "uboot_env",
++		.offset	= 0x40000,
++		.size	= 0x20000,
++	},
++	{
++		.name	= "linux",
++		.offset	= 0x60000,
++		.size	= 0x1a0000,
++	},
++	{
++		.name	= "rootfs",
++		.offset	= 0x200000,
++		.size	= 0x500000,
++	},
++};
++
++static const struct ltq_mux_pin mux_p0[LTQ_MUX_P0_PINS] = {
++	LTQ_MUX_P0_0_SSC0_MTSR,
++	LTQ_MUX_P0_1_SSC0_MRST,
++	LTQ_MUX_P0_2_SSC0_SCLK,
++	LTQ_MUX_P0_3_SSC1_MTSR,
++	LTQ_MUX_P0_4_SSC1_MRST,
++	LTQ_MUX_P0_5_SSC1_SCLK,
++	LTQ_MUX_P0_6_SSC0_CS0,
++	LTQ_MUX_P0_7_SSC0_CS1,
++	LTQ_MUX_P0_8_SSC0_CS2,
++	LTQ_MUX_P0_9_SSC0_CS3,
++	LTQ_MUX_P0_10_SSC0_CS4,
++	LTQ_MUX_P0_11_SSC0_CS5,
++	LTQ_MUX_P0_12_HIGH,
++	LTQ_MUX_P0_13_HIGH,
++	LTQ_MUX_P0_14_ASC0_TXD,
++	LTQ_MUX_P0_15_ASC0_RXD,
++	LTQ_MUX_P0_16_EXINT9,
++	LTQ_MUX_P0_17_EXINT10,
++	LTQ_MUX_P0_18_EJ_BRKIN,
++	LTQ_MUX_P0_19_EXINT16
++};
++
++static const struct ltq_mux_pin mux_p2[LTQ_MUX_P2_PINS] = {
++	LTQ_MUX_P2_0_EBU_A0,
++	LTQ_MUX_P2_1_EBU_A1,
++	LTQ_MUX_P2_2_EBU_A2,
++	LTQ_MUX_P2_3_EBU_A3,
++	LTQ_MUX_P2_4_EBU_A4,
++	LTQ_MUX_P2_5_EBU_A5,
++	LTQ_MUX_P2_6_EBU_A6,
++	LTQ_MUX_P2_7_EBU_A7,
++	LTQ_MUX_P2_8_EBU_A8,
++	LTQ_MUX_P2_9_EBU_A9,
++	LTQ_MUX_P2_10_EBU_A10,
++	LTQ_MUX_P2_11_EBU_A11,
++	LTQ_MUX_P2_12_EBU_RD,
++	LTQ_MUX_P2_13_EBU_WR,
++	LTQ_MUX_P2_14_EBU_ALE,
++	LTQ_MUX_P2_15_EBU_WAIT,
++	LTQ_MUX_P2_16_EBU_RDBY,
++	LTQ_MUX_P2_17_EBU_BC0,
++	LTQ_MUX_P2_18_EBU_BC1
++};
++
++static const struct ltq_mux_pin mux_p3[LTQ_MUX_P3_PINS] = {
++	LTQ_MUX_P3_0_EBU_AD0,
++	LTQ_MUX_P3_1_EBU_AD1,
++	LTQ_MUX_P3_2_EBU_AD2,
++	LTQ_MUX_P3_3_EBU_AD3,
++	LTQ_MUX_P3_4_EBU_AD4,
++	LTQ_MUX_P3_5_EBU_AD5,
++	LTQ_MUX_P3_6_EBU_AD6,
++	LTQ_MUX_P3_7_EBU_AD7,
++	LTQ_MUX_P3_8_EBU_AD8,
++	LTQ_MUX_P3_9_EBU_AD9,
++	LTQ_MUX_P3_10_EBU_AD10,
++	LTQ_MUX_P3_11_EBU_AD11,
++	LTQ_MUX_P3_12_EBU_AD12,
++	LTQ_MUX_P3_13_EBU_AD13,
++	LTQ_MUX_P3_14_EBU_AD14,
++	LTQ_MUX_P3_15_EBU_AD15,
++	LTQ_MUX_P3_16_EBU_CS0,
++	LTQ_MUX_P3_17_EBU_CS1,
++	LTQ_MUX_P3_18_EBU_CS2,
++	LTQ_MUX_P3_19_EBU_CS3
++};
++
++static void __init easy336_init_common(void)
++{
++	svip_sys1_clk_enable(SYS1_CLKENR_L2C |
++			     SYS1_CLKENR_DDR2 |
++			     SYS1_CLKENR_SMI2 |
++			     SYS1_CLKENR_SMI1 |
++			     SYS1_CLKENR_SMI0 |
++			     SYS1_CLKENR_FMI0 |
++			     SYS1_CLKENR_DMA |
++			     SYS1_CLKENR_GPTC |
++			     SYS1_CLKENR_EBU);
++
++	svip_sys2_clk_enable(SYS2_CLKENR_HWSYNC |
++			     SYS2_CLKENR_MBS |
++			     SYS2_CLKENR_SWINT |
++			     SYS2_CLKENR_HWACC3 |
++			     SYS2_CLKENR_HWACC2 |
++			     SYS2_CLKENR_HWACC1 |
++			     SYS2_CLKENR_HWACC0 |
++			     SYS2_CLKENR_SIF7 |
++			     SYS2_CLKENR_SIF6 |
++			     SYS2_CLKENR_SIF5 |
++			     SYS2_CLKENR_SIF4 |
++			     SYS2_CLKENR_SIF3 |
++			     SYS2_CLKENR_SIF2 |
++			     SYS2_CLKENR_SIF1 |
++			     SYS2_CLKENR_SIF0 |
++			     SYS2_CLKENR_DFEV7 |
++			     SYS2_CLKENR_DFEV6 |
++			     SYS2_CLKENR_DFEV5 |
++			     SYS2_CLKENR_DFEV4 |
++			     SYS2_CLKENR_DFEV3 |
++			     SYS2_CLKENR_DFEV2 |
++			     SYS2_CLKENR_DFEV1 |
++			     SYS2_CLKENR_DFEV0);
++
++	svip_register_mux(mux_p0, NULL, mux_p2, mux_p3, NULL);
++	svip_register_asc(0);
++	svip_register_eth();
++	svip_register_virtual_eth();
++	/* ltq_register_wdt(); - conflicts with lq_switch */
++	svip_register_gpio();
++	svip_register_spi();
++	ltq_register_tapi();
++}
++
++static void __init easy336_init(void)
++{
++	easy336_init_common();
++	ltq_register_nor(&easy336_partitions);
++}
++
++static void __init easy336sf_init(void)
++{
++	easy336_init_common();
++	svip_register_spi_flash(bdinfo);
++}
++
++static void __init easy336nand_init(void)
++{
++	easy336_init_common();
++	svip_register_nand();
++}
++
++MIPS_MACHINE(LANTIQ_MACH_EASY336,
++	     "EASY336",
++	     "EASY336",
++	     easy336_init);
++
++MIPS_MACHINE(LANTIQ_MACH_EASY336SF,
++	     "EASY336SF",
++	     "EASY336 (Serial Flash)",
++	     easy336sf_init);
++
++MIPS_MACHINE(LANTIQ_MACH_EASY336NAND,
++	     "EASY336NAND",
++	     "EASY336 (NAND Flash)",
++	     easy336nand_init);
++
+--- a/arch/mips/kernel/cevt-r4k.c
++++ b/arch/mips/kernel/cevt-r4k.c
+@@ -171,8 +171,10 @@ int __cpuinit r4k_clockevent_init(void)
+ 	if (!cpu_has_counter || !mips_hpt_frequency)
+ 		return -ENXIO;
+ 
++#ifndef CONFIG_SOC_SVIP
+ 	if (!c0_compare_int_usable())
+ 		return -ENXIO;
++#endif
+ 
+ 	/*
+ 	 * With vectored interrupts things are getting platform specific.
+--- a/arch/mips/lantiq/early_printk.c
++++ b/arch/mips/lantiq/early_printk.c
+@@ -13,7 +13,7 @@
+ #include <lantiq_soc.h>
+ 
+ /* no ioremap possible at this early stage, lets use KSEG1 instead  */
+-#ifdef CONFIG_SOC_FALCON
++#if defined(CONFIG_SOC_FALCON) || defined(CONFIG_SOC_SVIP)
+ #define LTQ_ASC_BASE  KSEG1ADDR(LTQ_ASC0_BASE_ADDR)
+ #else
+ #define LTQ_ASC_BASE	KSEG1ADDR(LTQ_ASC1_BASE_ADDR)
+--- a/arch/mips/mm/c-r4k.c
++++ b/arch/mips/mm/c-r4k.c
+@@ -1214,6 +1214,9 @@ static void __cpuinit setup_scache(void)
+ 				       way_string[c->scache.ways], c->scache.linesz);
+ 			}
+ #else
++#ifdef CONFIG_SOC_SVIP
++			return;
++#endif
+ 			if (!(c->scache.flags & MIPS_CACHE_NOT_PRESENT))
+ 				panic("Dunno how to handle MIPS32 / MIPS64 second level cache");
+ #endif
+--- /dev/null
++++ b/arch/mips/lantiq/svip/switchip_setup.c
+@@ -0,0 +1,669 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++*******************************************************************************
++   Module      : switchip_setup.c
++   Date        : 2007-11-09
++   Description : Basic setup of embedded ethernet switch "SwitchIP"
++   Remarks     : andreas.schmidt@infineon.com
++ *****************************************************************************/
++
++/* TODO: get rid of #ifdef CONFIG_LANTIQ_MACH_EASY336 */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/version.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <linux/workqueue.h>
++#include <linux/time.h>
++
++#include <base_reg.h>
++#include <es_reg.h>
++#include <sys1_reg.h>
++#include <dma_reg.h>
++#include <lantiq_soc.h>
++
++static struct svip_reg_sys1 *const sys1 = (struct svip_reg_sys1 *)LTQ_SYS1_BASE;
++static struct svip_reg_es *const es = (struct svip_reg_es *)LTQ_ES_BASE;
++
++/* PHY Organizationally Unique Identifier (OUI) */
++#define PHY_OUI_PMC           0x00E004
++#define PHY_OUI_VITESSE       0x008083
++#define PHY_OUI_DEFAULT       0xFFFFFF
++
++unsigned short switchip_phy_read(unsigned int phyaddr, unsigned int regaddr);
++void switchip_phy_write(unsigned int phyaddr, unsigned int regaddr,
++			unsigned short data);
++
++static int phy_address[2] = {0, 1};
++static u32 phy_oui;
++static void switchip_mdio_poll_init(void);
++static void _switchip_mdio_poll(struct work_struct *work);
++
++/* struct workqueue_struct mdio_poll_task; */
++static struct workqueue_struct *mdio_poll_workqueue;
++DECLARE_DELAYED_WORK(mdio_poll_work, _switchip_mdio_poll);
++static int old_link_status[2] = {-1, -1};
++
++/**
++ * Autonegotiation check.
++ * This funtion checks for link changes. If a link change has occured it will
++ * update certain switch registers.
++ */
++static void _switchip_check_phy_status(int port)
++{
++	int new_link_status;
++	unsigned short reg1;
++
++	reg1 = switchip_phy_read(phy_address[port], 1);
++	if ((reg1 == 0xFFFF) || (reg1 == 0x0000))
++		return; /* no PHY connected */
++
++	new_link_status = reg1 & 4;
++	if (old_link_status[port] ^ new_link_status) {
++		/* link status change */
++		if (!new_link_status) {
++			if (port == 0)
++				es_w32_mask(LTQ_ES_P0_CTL_REG_FLP, 0, p0_ctl);
++			else
++				es_w32_mask(LTQ_ES_P0_CTL_REG_FLP, 0, p1_ctl);
++
++			/* read again; link bit is latched low! */
++			reg1 = switchip_phy_read(phy_address[port], 1);
++			new_link_status = reg1 & 4;
++		}
++
++		if (new_link_status) {
++			unsigned short reg0, reg4, reg5, reg9, reg10;
++			int phy_pause, phy_speed, phy_duplex;
++			int aneg_enable, aneg_cmpt;
++
++			reg0 = switchip_phy_read(phy_address[port], 0);
++			reg4 = switchip_phy_read(phy_address[port], 4);
++			aneg_enable = reg0 & 0x1000;
++			aneg_cmpt = reg1 & 0x20;
++
++			if (aneg_enable && aneg_cmpt) {
++				reg5 = switchip_phy_read(phy_address[port], 5);
++				switch (phy_oui) {
++#ifdef CONFIG_LANTIQ_MACH_EASY336
++				case PHY_OUI_PMC:
++					/* PMC Sierra supports 1Gigabit FD,
++					 * only. On successful
++					 * auto-negotiation, we are sure this
++					 * is what the LP can. */
++					phy_pause = ((reg4 & reg5) & 0x0080) >> 7;
++					phy_speed = 2;
++					phy_duplex = 1;
++					break;
++#endif
++				case PHY_OUI_VITESSE:
++				case PHY_OUI_DEFAULT:
++					reg9 = switchip_phy_read(phy_address[port], 9);
++					reg10 = switchip_phy_read(phy_address[port], 10);
++
++					/* Check if advertise and partner
++					 * agree on pause */
++					phy_pause = ((reg4 & reg5) & 0x0400) >> 10;
++
++					/* Find the best mode both partners
++					 * support
++					 * Priority: 1GB-FD, 1GB-HD, 100MB-FD,
++					 * 100MB-HD, 10MB-FD, 10MB-HD */
++					phy_speed = ((((reg9<<2) & reg10)
++								& 0x0c00) >> 6) |
++						(((reg4 & reg5) & 0x01e0) >> 5);
++
++					if (phy_speed >= 0x0020) {
++						phy_speed = 2;
++						phy_duplex = 1;
++					} else if (phy_speed >= 0x0010) {
++						phy_speed = 2;
++						phy_duplex = 0;
++					} else if (phy_speed >= 0x0008) {
++						phy_speed = 1;
++						phy_duplex = 1;
++					} else if (phy_speed >= 0x0004) {
++						phy_speed = 1;
++						phy_duplex = 0;
++					} else if (phy_speed >= 0x0002) {
++						phy_speed = 0;
++						phy_duplex = 1;
++					} else {
++						phy_speed = 0;
++						phy_duplex = 0;
++					}
++					break;
++				default:
++					phy_pause = (reg4 & 0x0400) >> 10;
++					phy_speed = (reg0 & 0x40 ? 2 : (reg0 >> 13)&1);
++					phy_duplex = (reg0 >> 8)&1;
++					break;
++				}
++			} else {
++				/* parallel detection or fixed speed */
++				phy_pause = (reg4 & 0x0400) >> 10;
++				phy_speed = (reg0 & 0x40 ? 2 : (reg0 >> 13)&1);
++				phy_duplex = (reg0 >> 8)&1;
++			}
++
++			if (port == 0) {
++				es_w32_mask(LTQ_ES_RGMII_CTL_REG_P0SPD,
++						 LTQ_ES_RGMII_CTL_REG_P0SPD_VAL(phy_speed),
++						 rgmii_ctl);
++				es_w32_mask(LTQ_ES_RGMII_CTL_REG_P0DUP,
++						 LTQ_ES_RGMII_CTL_REG_P0DUP_VAL(phy_duplex),
++						 rgmii_ctl);
++				es_w32_mask(LTQ_ES_RGMII_CTL_REG_P0FCE,
++						 LTQ_ES_RGMII_CTL_REG_P0FCE_VAL(phy_pause),
++						 rgmii_ctl);
++
++				es_w32_mask(0, LTQ_ES_P0_CTL_REG_FLP, p0_ctl);
++			} else {
++				es_w32_mask(LTQ_ES_RGMII_CTL_REG_P1SPD,
++						 LTQ_ES_RGMII_CTL_REG_P1SPD_VAL(phy_speed),
++						 rgmii_ctl);
++				es_w32_mask(LTQ_ES_RGMII_CTL_REG_P1DUP,
++						 LTQ_ES_RGMII_CTL_REG_P1DUP_VAL(phy_duplex),
++						 rgmii_ctl);
++				es_w32_mask(LTQ_ES_RGMII_CTL_REG_P1FCE,
++						 LTQ_ES_RGMII_CTL_REG_P0FCE_VAL(phy_pause),
++						 rgmii_ctl);
++
++				es_w32_mask(1, LTQ_ES_P0_CTL_REG_FLP, p1_ctl);
++			}
++		}
++	}
++	old_link_status[port] = new_link_status;
++}
++
++static void _switchip_mdio_poll(struct work_struct *work)
++{
++	if (es_r32(sw_gctl0) & LTQ_ES_SW_GCTL0_REG_SE) {
++		_switchip_check_phy_status(0);
++		_switchip_check_phy_status(1);
++	}
++
++	queue_delayed_work(mdio_poll_workqueue, &mdio_poll_work, HZ/2);
++}
++
++static void switchip_mdio_poll_init(void)
++{
++	mdio_poll_workqueue = create_workqueue("SVIP MDIP poll");
++	INIT_DELAYED_WORK(&mdio_poll_work, _switchip_mdio_poll);
++
++	queue_delayed_work(mdio_poll_workqueue, &mdio_poll_work, HZ/2);
++
++}
++
++unsigned short switchip_phy_read(unsigned int phyaddr, unsigned int regaddr)
++{
++	/* TODO: protect MDIO access with semaphore */
++	es_w32(LTQ_ES_MDIO_CTL_REG_MBUSY
++			 | LTQ_ES_MDIO_CTL_REG_OP_VAL(2) /* read operation */
++			 | LTQ_ES_MDIO_CTL_REG_PHYAD_VAL(phyaddr)
++			 | LTQ_ES_MDIO_CTL_REG_REGAD_VAL(regaddr), mdio_ctl);
++	while (es_r32(mdio_ctl) & LTQ_ES_MDIO_CTL_REG_MBUSY);
++
++	return es_r32(mdio_data) & 0xFFFF;
++}
++EXPORT_SYMBOL(switchip_phy_read);
++
++void switchip_phy_write(unsigned int phyaddr, unsigned int regaddr,
++			unsigned short data)
++{
++	/* TODO: protect MDIO access with semaphore */
++	es_w32(LTQ_ES_MDIO_CTL_REG_WD_VAL(data)
++			 | LTQ_ES_MDIO_CTL_REG_MBUSY
++			 | LTQ_ES_MDIO_CTL_REG_OP_VAL(1) /* write operation */
++			 | LTQ_ES_MDIO_CTL_REG_PHYAD_VAL(phyaddr)
++			 | LTQ_ES_MDIO_CTL_REG_REGAD_VAL(regaddr), mdio_ctl);
++	while (es_r32(mdio_ctl) & LTQ_ES_MDIO_CTL_REG_MBUSY);
++
++	return;
++}
++EXPORT_SYMBOL(switchip_phy_write);
++
++const static u32 switch_reset_offset_000[] = {
++	/*b8000000:*/ 0xffffffff, 0x00000001, 0x00000001, 0x00000003,
++	/*b8000010:*/ 0x04070001, 0x04070001, 0x04070001, 0xffffffff,
++	/*b8000020:*/ 0x00001be8, 0x00001be8, 0x00001be8, 0xffffffff,
++	/*b8000030:*/ 0x00000000, 0x00000000, 0x00080004, 0x00020001,
++	/*b8000040:*/ 0x00000000, 0x00000000, 0x00080004, 0x00020001,
++	/*b8000050:*/ 0x00000000, 0x00000000, 0x00080004, 0x00020001,
++	/*b8000060:*/ 0x00000000, 0x00000000, 0x00081000, 0x001f7777,
++	/*b8000070:*/ 0x00000000, 0x00000000, 0x0c00ac2b, 0x0000fa50,
++	/*b8000080:*/ 0x00001000, 0x00001800, 0x00000000, 0x00000000,
++	/*b8000090:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b80000a0:*/ 0x00000000, 0x00000050, 0x00000010, 0x00000000,
++	/*b80000b0:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b80000c0:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b80000d0:*/ 0xffffffff, 0x00000000, 0x00000000
++};
++const static u32 switch_reset_offset_100[] = {
++	/*b8000100:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000110:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000120:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000130:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000140:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000150:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000160:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000170:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000180:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b8000190:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b80001a0:*/ 0x00000000, 0x00000000, 0x00000000, 0x00000000,
++	/*b80001b0:*/ 0x00000000, 0x00000000
++};
++
++/*
++ * Switch Reset.
++ */
++void switchip_reset(void)
++{
++	volatile unsigned int *reg;
++	volatile unsigned int rdreg;
++	int i;
++
++	sys1_w32(SYS1_CLKENR_ETHSW, clkenr);
++	asm("sync");
++
++	/* disable P0 */
++	es_w32_mask(0, LTQ_ES_P0_CTL_REG_SPS_VAL(1), p0_ctl);
++	/* disable P1 */
++	es_w32_mask(0, LTQ_ES_P0_CTL_REG_SPS_VAL(1), p1_ctl);
++	/* disable P2 */
++	es_w32_mask(0, LTQ_ES_P0_CTL_REG_SPS_VAL(1), p2_ctl);
++
++	/**************************************
++	 * BEGIN: Procedure to clear MAC table
++	 **************************************/
++	for (i = 0; i < 3; i++) {
++		int result;
++
++		/* check if access engine is available */
++		while (es_r32(adr_tb_st2) & LTQ_ES_ADR_TB_ST2_REG_BUSY);
++
++		/* initialise to first address */
++		es_w32(LTQ_ES_ADR_TB_CTL2_REG_CMD_VAL(3)
++				 | LTQ_ES_ADR_TB_CTL2_REG_AC_VAL(0), adr_tb_ctl2);
++
++		/* wait while busy */
++		while (es_r32(adr_tb_st2) & LTQ_ES_ADR_TB_ST2_REG_BUSY);
++
++		/* setup the portmap */
++		es_w32_mask(0, LTQ_ES_ADR_TB_CTL1_REG_PMAP_VAL(1 << i),
++				 adr_tb_ctl1);
++
++		do {
++			/* search for addresses by port */
++			es_w32(LTQ_ES_ADR_TB_CTL2_REG_CMD_VAL(2)
++					 | LTQ_ES_ADR_TB_CTL2_REG_AC_VAL(9), adr_tb_ctl2);
++
++			/* wait while busy */
++			while (es_r32(adr_tb_st2) & LTQ_ES_ADR_TB_ST2_REG_BUSY);
++
++			result = LTQ_ES_ADR_TB_ST2_REG_RSLT_GET(es_r32(adr_tb_st2));
++			if (result == 0x101) {
++				printk(KERN_ERR "%s, cmd error\n", __func__);
++				return;
++			}
++			/* if Command OK, address found... */
++			if (result == 0) {
++				unsigned char mac[6];
++
++				mac[5] = (es_r32(adr_tb_st0) >> 0) & 0xff;
++				mac[4] = (es_r32(adr_tb_st0) >> 8) & 0xff;
++				mac[3] = (es_r32(adr_tb_st0) >> 16) & 0xff;
++				mac[2] = (es_r32(adr_tb_st0) >> 24) & 0xff;
++				mac[1] = (es_r32(adr_tb_st1) >> 0) & 0xff;
++				mac[0] = (es_r32(adr_tb_st1) >> 8) & 0xff;
++
++				/* setup address */
++				es_w32((mac[5] << 0) |
++						 (mac[4] << 8) |
++						 (mac[3] << 16) |
++						 (mac[2] << 24), adr_tb_ctl0);
++				es_w32(LTQ_ES_ADR_TB_CTL1_REG_PMAP_VAL(1<<i) |
++						 LTQ_ES_ADR_TB_CTL1_REG_FID_VAL(0) |
++						 (mac[0] << 8) |
++						 (mac[1] << 0), adr_tb_ctl1);
++				/* erase address */
++
++				es_w32(LTQ_ES_ADR_TB_CTL2_REG_CMD_VAL(1) |
++						 LTQ_ES_ADR_TB_CTL2_REG_AC_VAL(15),
++						 adr_tb_ctl2);
++
++				/* wait, while busy */
++				while (es_r32(adr_tb_st2) &
++						 LTQ_ES_ADR_TB_ST2_REG_BUSY);
++			}
++		} while (result == 0);
++	}
++	/**************************************
++	 * END: Procedure to clear MAC table
++	 **************************************/
++
++	/* reset RMON counters */
++	es_w32(LTQ_ES_RMON_CTL_REG_BAS | LTQ_ES_RMON_CTL_REG_CAC_VAL(3),
++			 rmon_ctl);
++
++	/* bring all registers to reset state */
++	reg = LTQ_ES_PS_REG;
++	for (i = 0; i < ARRAY_SIZE(switch_reset_offset_000); i++) {
++		if ((reg == LTQ_ES_PS_REG) ||
++			 (reg >= LTQ_ES_ADR_TB_CTL0_REG &&
++			  reg <= LTQ_ES_ADR_TB_ST2_REG))
++			continue;
++
++		if (switch_reset_offset_000[i] != 0xFFFFFFFF) {
++			/* write reset value to register */
++			*reg = switch_reset_offset_000[i];
++			/* read register value back */
++			rdreg = *reg;
++			if (reg == LTQ_ES_SW_GCTL1_REG)
++				rdreg &= ~LTQ_ES_SW_GCTL1_REG_BISTDN;
++			/* compare read value with written one */
++			if (rdreg != switch_reset_offset_000[i]) {
++				printk(KERN_ERR "%s,%d: reg %08x mismatch "
++						 "[has:%08x, expect:%08x]\n",
++						 __func__, __LINE__,
++						 (unsigned int)reg, rdreg,
++						 switch_reset_offset_000[i]);
++			}
++		}
++		reg++;
++	}
++
++	reg = LTQ_ES_VLAN_FLT0_REG;
++	for (i = 0; i < ARRAY_SIZE(switch_reset_offset_100); i++) {
++		*reg = switch_reset_offset_100[i];
++		rdreg = *reg;
++		if (rdreg != switch_reset_offset_100[i]) {
++			printk(KERN_ERR "%s,%d: reg %08x mismatch "
++					 "[has:%08x, expect:%08x]\n", __func__, __LINE__,
++					 (unsigned int)reg, rdreg,
++					 switch_reset_offset_100[i]);
++		}
++		reg++;
++	}
++}
++EXPORT_SYMBOL(switchip_reset);
++
++static u32 get_phy_oui(unsigned char phy_addr)
++{
++	u32 oui;
++	int i, bit, byte, shift, w;
++	u16 reg_id[2];
++
++	/* read PHY identifier registers 1 and 2 */
++	reg_id[0] = switchip_phy_read(phy_addr, 2);
++	reg_id[1] = switchip_phy_read(phy_addr, 3);
++
++	oui = 0;
++	w = 1;
++	shift = 7;
++	byte = 1;
++	for (i = 0, bit = 10; i <= 21; i++, bit++) {
++		oui |= ((reg_id[w] & (1<<bit)) ? 1 : 0) << shift;
++		if (!(shift % 8)) {
++			byte++;
++			if (byte == 2)
++				shift = 15;
++			else
++				shift = 21;
++		} else {
++			shift--;
++		}
++		if (w == 1 && bit == 15) {
++			bit = -1;
++			w = 0;
++		}
++	}
++	return oui;
++}
++
++/*
++ * Switch Initialization.
++ */
++int switchip_init(void)
++{
++	int eth_port, phy_present = 0;
++	u16 reg, mode;
++
++	sys1_w32(SYS1_CLKENR_ETHSW, clkenr);
++	asm("sync");
++
++	/* Enable Switch, if not already done so */
++	if ((es_r32(sw_gctl0) & LTQ_ES_SW_GCTL0_REG_SE) == 0)
++		es_w32_mask(0, LTQ_ES_SW_GCTL0_REG_SE, sw_gctl0);
++	/* Wait for completion of MBIST */
++	while (LTQ_ES_SW_GCTL1_REG_BISTDN_GET(es_r32(sw_gctl1)) == 0);
++
++	switchip_reset();
++
++	mode = LTQ_ES_RGMII_CTL_REG_IS_GET(es_r32(rgmii_ctl));
++	eth_port = (mode == 2 ? 1 : 0);
++
++	/* Set the primary port(port toward backplane) as sniffer port,
++		changing from P2 which is the reset setting */
++	es_w32_mask(LTQ_ES_SW_GCTL0_REG_SNIFFPN,
++			 LTQ_ES_SW_GCTL0_REG_SNIFFPN_VAL(eth_port),
++			 sw_gctl0);
++
++	/* Point MDIO state machine to invalid PHY addresses 8 and 9 */
++	es_w32_mask(0, LTQ_ES_SW_GCTL0_REG_PHYBA, sw_gctl0);
++
++	/* Add CRC for packets from DMA to PMAC.
++		Remove CRC for packets from PMAC to DMA. */
++	es_w32(LTQ_ES_PMAC_HD_CTL_RC | LTQ_ES_PMAC_HD_CTL_AC, pmac_hd_ctl);
++
++	phy_oui = get_phy_oui(0);
++	switch (phy_oui) {
++#ifdef CONFIG_LANTIQ_MACH_EASY336
++	case PHY_OUI_PMC:
++		phy_address[0] = (mode == 2 ? -1 : 2);
++		phy_address[1] = (mode == 2 ? 2 : -1);
++		break;
++#endif
++	case PHY_OUI_VITESSE:
++	default:
++		phy_oui = PHY_OUI_DEFAULT;
++		phy_address[0] = (mode == 2 ? 1 : 0);
++		phy_address[1] = (mode == 2 ? 0 : 1);
++		break;
++	}
++
++	/****** PORT 0 *****/
++	reg = switchip_phy_read(phy_address[0], 1);
++	if ((reg != 0x0000) && (reg != 0xffff)) {
++		/* PHY connected? */
++		phy_present |= 1;
++		/* Set Rx- and TxDelay in case of RGMII */
++		switch (mode) {
++		case 0: /* *RGMII,RGMII */
++		case 2: /* RGMII,*GMII */
++			/* program clock delay in PHY, not in SVIP */
++
++			es_w32_mask(LTQ_ES_RGMII_CTL_REG_P0RDLY, 0, rgmii_ctl);
++			es_w32_mask(LTQ_ES_RGMII_CTL_REG_P0TDLY, 0, rgmii_ctl);
++			if (phy_oui == PHY_OUI_VITESSE ||
++				 phy_oui == PHY_OUI_DEFAULT) {
++				switchip_phy_write(phy_address[0], 31, 0x0001);
++				switchip_phy_write(phy_address[0], 28, 0xA000);
++				switchip_phy_write(phy_address[0], 31, 0x0000);
++			}
++		default:
++			break;
++		}
++		if (phy_oui == PHY_OUI_VITESSE ||
++			 phy_oui == PHY_OUI_DEFAULT) {
++			/* Program PHY advertisements and
++			 * restart auto-negotiation */
++			switchip_phy_write(phy_address[0], 4, 0x05E1);
++			switchip_phy_write(phy_address[0], 9, 0x0300);
++			switchip_phy_write(phy_address[0], 0, 0x3300);
++		} else {
++			reg = switchip_phy_read(phy_address[1], 0);
++			reg |= 0x1000; /* auto-negotiation enable */
++			switchip_phy_write(phy_address[1], 0, reg);
++			reg |= 0x0200; /* auto-negotiation restart */
++			switchip_phy_write(phy_address[1], 0, reg);
++		}
++	} else {
++		/* Force SWITCH link with highest capability:
++		 * 100M FD for MII
++		 * 1G FD for GMII/RGMII
++		 */
++		switch (mode) {
++		case 1: /* *MII,MII */
++		case 3: /* *MII,RGMII */
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P0SPD_VAL(1),
++					 rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P0DUP_VAL(1),
++					 rgmii_ctl);
++			break;
++		case 0: /* *RGMII,RGMII */
++		case 2: /* RGMII,*GMII */
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P0SPD_VAL(2),
++					 rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P0DUP_VAL(1),
++					 rgmii_ctl);
++
++			es_w32_mask(LTQ_ES_RGMII_CTL_REG_P0RDLY, 0, rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P0TDLY_VAL(2),
++					 rgmii_ctl);
++			break;
++		}
++
++		es_w32_mask(0, LTQ_ES_P0_CTL_REG_FLP, p0_ctl);
++	}
++
++	/****** PORT 1 *****/
++	reg = switchip_phy_read(phy_address[1], 1);
++	if ((reg != 0x0000) && (reg != 0xffff)) {
++		/* PHY connected? */
++		phy_present |= 2;
++		/* Set Rx- and TxDelay in case of RGMII */
++		switch (mode) {
++		case 0: /* *RGMII,RGMII */
++		case 3: /* *MII,RGMII */
++			/* program clock delay in PHY, not in SVIP */
++
++			es_w32_mask(LTQ_ES_RGMII_CTL_REG_P1RDLY, 0, rgmii_ctl);
++			es_w32_mask(LTQ_ES_RGMII_CTL_REG_P1TDLY, 0, rgmii_ctl);
++			if (phy_oui == PHY_OUI_VITESSE ||
++				 phy_oui == PHY_OUI_DEFAULT) {
++				switchip_phy_write(phy_address[1], 31, 0x0001);
++				switchip_phy_write(phy_address[1], 28, 0xA000);
++				switchip_phy_write(phy_address[1], 31, 0x0000);
++			}
++			break;
++		case 2: /* RGMII,*GMII */
++
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1SPD_VAL(2),
++					 rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1DUP, rgmii_ctl);
++#ifdef CONFIG_LANTIQ_MACH_EASY336
++			if (phy_oui == PHY_OUI_PMC) {
++				switchip_phy_write(phy_address[1], 24, 0x0510);
++				switchip_phy_write(phy_address[1], 17, 0xA38C);
++				switchip_phy_write(phy_address[1], 17, 0xA384);
++			}
++#endif
++			break;
++		default:
++			break;
++		}
++		/* Program PHY advertisements and restart auto-negotiation */
++		if (phy_oui == PHY_OUI_VITESSE ||
++			 phy_oui == PHY_OUI_DEFAULT) {
++			switchip_phy_write(phy_address[1], 4, 0x05E1);
++			switchip_phy_write(phy_address[1], 9, 0x0300);
++			switchip_phy_write(phy_address[1], 0, 0x3300);
++		} else {
++			reg = switchip_phy_read(phy_address[1], 0);
++			reg |= 0x1000; /* auto-negotiation enable */
++			switchip_phy_write(phy_address[1], 0, reg);
++			reg |= 0x0200; /* auto-negotiation restart */
++			switchip_phy_write(phy_address[1], 0, reg);
++		}
++	} else {
++		/* Force SWITCH link with highest capability:
++		 * 100M FD for MII
++		 * 1G FD for GMII/RGMII
++		 */
++		switch (mode) {
++		case 1: /* *MII,MII */
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1SPD_VAL(1),
++					 rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1DUP, rgmii_ctl);
++			break;
++		case 0: /* *RGMII,RGMII */
++		case 3: /* *MII,RGMII */
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1SPD_VAL(2),
++					 rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1DUP, rgmii_ctl);
++			es_w32_mask(LTQ_ES_RGMII_CTL_REG_P1RDLY, 0, rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1TDLY_VAL(2),
++					 rgmii_ctl);
++			break;
++		case 2: /* RGMII,*GMII */
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1SPD_VAL(2),
++					 rgmii_ctl);
++			es_w32_mask(0, LTQ_ES_RGMII_CTL_REG_P1DUP, rgmii_ctl);
++			break;
++		}
++		es_w32_mask(0, LTQ_ES_P0_CTL_REG_FLP, p0_ctl);
++	}
++
++	/*
++	 * Allow unknown unicast/multicast and broadcasts
++	 * on all ports.
++	 */
++
++	es_w32_mask(0, LTQ_ES_SW_GCTL1_REG_UP_VAL(7), sw_gctl1);
++	es_w32_mask(0, LTQ_ES_SW_GCTL1_REG_BP_VAL(7), sw_gctl1);
++	es_w32_mask(0, LTQ_ES_SW_GCTL1_REG_MP_VAL(7), sw_gctl1);
++	es_w32_mask(0, LTQ_ES_SW_GCTL1_REG_RP_VAL(7), sw_gctl1);
++
++	/* user port priority as QoS */
++	/* set priority of port towards external network to lowest */
++	/* set priority of port towards private network to highest */
++	if (eth_port == 0)
++	{
++		es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PP_VAL(0), p0_vlan);
++		es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PP_VAL(2), p1_vlan);
++	}
++	else
++	{
++		es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PP_VAL(2), p0_vlan);
++		es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PP_VAL(0), p1_vlan);
++	}
++	es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PPE, p0_vlan);
++	es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PPE, p1_vlan);
++	/* set port 2 priority to medium high */
++	es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PP_VAL(1), p2_vlan);
++	es_w32_mask(0, LTQ_ES_P0_VLAN_REG_PPE, p2_vlan);
++
++	/* Enable LAN port(s) */
++	if (eth_port == 0)
++		es_w32_mask(LTQ_ES_P0_CTL_REG_SPS, 0, p0_ctl);
++	else
++		es_w32_mask(LTQ_ES_P0_CTL_REG_SPS, 0, p1_ctl);
++	/* Enable CPU Port (Forwarding State) */
++	es_w32_mask(LTQ_ES_P0_CTL_REG_SPS, 0, p2_ctl);
++
++	if (phy_present)
++		switchip_mdio_poll_init();
++
++	return 0;
++}
++EXPORT_SYMBOL(switchip_init);
++
++device_initcall(switchip_init);

@@ -1,0 +1,13 @@
+--- a/arch/mips/lantiq/falcon/devices.c
++++ b/arch/mips/lantiq/falcon/devices.c
+@@ -34,6 +34,10 @@
+ unsigned char ltq_ethaddr[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+ EXPORT_SYMBOL(ltq_ethaddr);
+ 
++/* create dummy ebu spinlock for drivers shared with XWAY targets */
++DEFINE_SPINLOCK(ebu_lock);
++EXPORT_SYMBOL_GPL(ebu_lock);
++
+ static int __init
+ falcon_set_ethaddr(char *str)
+ {

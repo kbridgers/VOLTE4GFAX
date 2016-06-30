@@ -1,0 +1,5 @@
+#!/bin/sh
+wan_interface=$1
+ipsec_index=$2
+line=`/sbin/ifconfig $wan_interface 2>/dev/null| grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}'` 
+[ ! -z $line ] && echo "$line;" > /var/ipsec_wan_interface_"$ipsec_index"_$wan_interface

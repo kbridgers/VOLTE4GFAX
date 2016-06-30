@@ -1,0 +1,891 @@
+diff -Naur ntpclient-2007/andyw.patch open_ntpclient/andyw.patch
+--- ntpclient-2007/andyw.patch	1970-01-01 05:30:00.000000000 +0530
++++ open_ntpclient/andyw.patch	2009-11-03 10:52:00.258977000 +0530
+@@ -0,0 +1,365 @@
++Supplied by Andy Warner.  He needed a version for a shell-less
++embedded system that
++  1. combined -s and -l behavior
++  2. provided initial frequency set
++  3. didn't spew much on stdout or stderr
++  4. sent important information to syslog
++  5. had as small a binary as possible
++This patch is the result.
++
++diff -ur ntpclient_2003/ntpclient.c ntpclient-andy/ntpclient.c
++--- ntpclient_2003/ntpclient.c	Sat Jul  5 12:30:17 2003
+++++ ntpclient-andy/ntpclient.c	Wed Jun 25 07:41:44 2003
++@@ -2,7 +2,7 @@
++  * ntpclient.c - NTP client
++  *
++  * Copyright 1997, 1999, 2000, 2003  Larry Doolittle  <larry@doolittle.boa.org>
++- * Last hack: July 5, 2003
+++ * Last hack: May 16, 2003
++  *
++  *  This program is free software; you can redistribute it and/or modify
++  *  it under the terms of the GNU General Public License (Version 2,
++@@ -34,33 +34,52 @@
++  *  labelled "XXXX fixme - non-automatic build configuration".
++  */
++ 
+++/*
+++ * $Id: ntpclient.c,v 1.4 2003/06/25 14:41:44 andyw Exp $
+++ */
+++
++ #include <stdio.h>
++ #include <stdlib.h>
++ #include <string.h>
++ #include <sys/types.h>
++ #include <sys/socket.h>
++ #include <netinet/in.h>
++-#include <netdb.h>     /* gethostbyname */
+++#include <netdb.h>
++ #include <arpa/inet.h>
+++#include <sys/utsname.h>
++ #include <time.h>
+++#include <sys/time.h>
++ #include <unistd.h>
++ #include <errno.h>
++ #ifdef _PRECISION_SIOCGSTAMP
++ #include <sys/ioctl.h>
++ #endif
++ 
++-#define ENABLE_DEBUG
+++#ifdef	ENABLE_SYSLOG
+++#include <syslog.h>
+++#define	SYSLOG_IDENT	"ntpclient"
+++#define	SYSLOG_OPTIONS	(LOG_NOWAIT | LOG_PID)
+++#define	SYSLOG_FACILITY	LOG_CRON
+++#define	LOG_OPTION	"L"
+++int	logging = 0 ;
+++#else
+++#define	LOG_OPTION
+++#define	logging	0
+++#endif
+++
+++#ifdef	ENABLE_REPLAY
+++#define	REPLAY_OPTION	"r"
+++#else
+++#define	REPLAY_OPTION
+++#endif
++ 
++ extern char *optarg;
++ 
++ /* XXXX fixme - non-automatic build configuration */
++ #ifdef linux
++-#include <sys/utsname.h>
++-#include <sys/time.h>
++ typedef u_int32_t __u32;
++ #include <sys/timex.h>
++ #else
++-extern struct hostent *gethostbyname(const char *name);
++ extern int h_errno;
++ #define herror(hostname) \
++ 	fprintf(stderr,"Error %d looking up hostname %s\n", h_errno,hostname)
++@@ -120,6 +139,7 @@
++ #define debug 0
++ #define DEBUG_OPTION
++ #endif
+++int verbose = 0 ;	/* verbose flag, produce useful output on stdout */
++ 
++ int get_current_freq(void)
++ {
++@@ -170,7 +190,7 @@
++ 		fprintf(stderr,"size error\n");
++ 		return;
++ 	}
++-	bzero((char *) data,sizeof(data));
+++	bzero(data,sizeof(data));
++ 	data[0] = htonl (
++ 		( LI << 30 ) | ( VN << 27 ) | ( MODE << 24 ) |
++ 		( STRATUM << 16) | ( POLL << 8 ) | ( PREC & 0xff ) );
++@@ -276,6 +296,17 @@
++ 		if (debug) {
++ 			printf("set time to %lu.%.6lu\n", tv_set.tv_sec, tv_set.tv_usec);
++ 		}
+++#ifdef	ENABLE_SYSLOG
+++		if (logging) {
+++			syslog(LOG_NOTICE, "Time set from remote server") ;
+++		}
+++#endif
+++		/*
+++		 * Only set the clock once, if we are subsequently locking.
+++		 */
+++		if (live) {
+++			set_clock = 0 ;
+++		}
++ 	}
++ 
++ 	if (debug) {
++@@ -316,11 +347,19 @@
++ 			el_time+sec2u(disp), freq);
++ 		if (!debug && new_freq != freq) set_freq(new_freq);
++ 	}
++-	printf("%d %.5d.%.3d  %8.1f %8.1f  %8.1f %8.1f %9d\n",
++-		arrival->coarse/86400, arrival->coarse%86400,
++-		arrival->fine/4294967, el_time, st_time,
++-		(skew1-skew2)/2, sec2u(disp), freq);
++-	fflush(stdout);
+++	if (verbose) {
+++		printf("%d %.5d.%.3d  %8.1f %8.1f  %8.1f %8.1f %9d\n",
+++			arrival->coarse/86400, arrival->coarse%86400,
+++			arrival->fine/4294967, el_time, st_time,
+++			(skew1-skew2)/2, sec2u(disp), freq);
+++		fflush(stdout);
+++	}
+++#ifdef	ENABLE_SYSLOG
+++	if (logging) {
+++		syslog(LOG_NOTICE, "Skew %.1fmS, freq adjust %d",
+++					(skew1-skew2)/2000, freq) ;
+++	}
+++#endif
++ 	return(el_time-st_time);
++ }
++ 
++@@ -415,6 +454,7 @@
++ 	}
++ }
++ 
+++#ifdef ENABLE_REPLAY
++ void do_replay(void)
++ {
++ 	char line[100];
++@@ -447,12 +487,23 @@
++ 		}
++ 	}
++ }
+++#endif
++ 
++ void usage(char *argv0)
++ {
++ 	fprintf(stderr,
++ 	"Usage: %s [-c count] [-d] -h hostname [-i interval] [-l]\n"
++-	"\t[-p port] [-r] [-s] \n",
+++	"\t[-p port] [-s] [-v] [-a <initial freq>]"
+++#ifdef	ENABLE_SYSLOG
+++	" [-L]"
+++#endif
+++#ifdef	ENABLE_DEBUG
+++	" [-d]"
+++#endif
+++#ifdef	ENABLE_REPLAY
+++	" [-r]"
+++#endif
+++	"\n",
++ 	argv0);
++ }
++ 
++@@ -467,12 +518,21 @@
++ 	/* int debug=0; is a global above */
++ 	int goodness=0;
++ 	char *hostname=NULL;          /* must be set */
+++#ifdef	ENABLE_REPLAY
++ 	int replay=0;                 /* replay mode overrides everything */
+++#endif
+++	int initial_freq = 0 ;		/* Initial freq value to use */
++ 
+++#ifdef	ENABLE_SYSLOG
+++	openlog(SYSLOG_IDENT, SYSLOG_OPTIONS, SYSLOG_FACILITY) ;
+++#endif
++ 	for (;;) {
++-		c = getopt( argc, argv, "c:" DEBUG_OPTION "g:h:i:lp:rs");
+++		c = getopt( argc, argv, "a:c:" DEBUG_OPTION LOG_OPTION REPLAY_OPTION "g:h:i:lp:sv");
++ 		if (c == EOF) break;
++ 		switch (c) {
+++			case 'a':
+++				initial_freq = atoi(optarg) ;
+++				break ;
++ 			case 'c':
++ 				probe_count = atoi(optarg);
++ 				break;
++@@ -481,6 +541,16 @@
++ 				++debug;
++ 				break;
++ #endif
+++#ifdef	ENABLE_SYSLOG
+++			case 'L':
+++				logging++ ;
+++				break ;
+++#endif
+++#ifdef ENABLE_REPLAY
+++			case 'r':
+++				replay++;
+++				break;
+++#endif
++ 			case 'g':
++ 				goodness = atoi(optarg);
++ 				break;
++@@ -496,26 +566,33 @@
++ 			case 'p':
++ 				udp_local_port = atoi(optarg);
++ 				break;
++-			case 'r':
++-				replay++;
++-				break;
++ 			case 's':
++ 				set_clock++;
++-				probe_count = 1;
++ 				break;
+++			case 'v':
+++				verbose++ ;
+++				break ;
++ 			default:
++ 				usage(argv[0]);
++ 				exit(1);
++ 		}
++ 	}
+++#ifdef ENABLE_REPLAY
++ 	if (replay) {
++ 		do_replay();
++ 		exit(0);
++ 	}
+++#endif
++ 	if (hostname == NULL) {
++ 		usage(argv[0]);
++ 		exit(1);
++ 	}
+++
+++
+++	if (set_clock && !live) {
+++		probe_count = 1;
+++	}
+++
++ 	if (debug) {
++ 		printf("Configuration:\n"
++ 		"  -c probe_count %d\n"
++@@ -525,9 +602,10 @@
++ 		"  -i interval    %d\n"
++ 		"  -l live        %d\n"
++ 		"  -p local_port  %d\n"
++-		"  -s set_clock   %d\n",
+++		"  -s set_clock   %d\n"
+++		"  -v (verbose)   %d\n",
++ 		probe_count, debug, goodness, hostname, cycle_time,
++-		live, udp_local_port, set_clock );
+++		live, udp_local_port, set_clock, verbose );
++ 	}
++ 
++ 	/* Startup sequence */
++@@ -538,6 +616,20 @@
++ 
++ 	setup_transmit(usd, hostname, NTP_PORT);
++ 
+++	if (initial_freq) {
+++		set_freq(initial_freq) ;
+++#ifdef	ENABLE_SYSLOG
+++		if (logging) {
+++			syslog(LOG_NOTICE, "Initial freq adjust %d", initial_freq) ;
+++		}
+++#endif
+++	}
+++
+++#ifdef	ENABLE_SYSLOG
+++	if (logging) {
+++		syslog(LOG_NOTICE, "Using server: %s", hostname) ;
+++	}
+++#endif
++ 	primary_loop(usd, probe_count, cycle_time, goodness);
++ 
++ 	close(usd);
++diff -ur ntpclient_2003/phaselock.c ntpclient-andy/phaselock.c
++--- ntpclient_2003/phaselock.c	Wed Jun  4 17:58:17 2003
+++++ ntpclient-andy/phaselock.c	Wed Jun 25 07:41:44 2003
++@@ -23,13 +23,15 @@
++  *      - Write documentation  :-(
++  */
++ 
++-#include <stdio.h>
+++/*
+++ * $Id: phaselock.c,v 1.3 2003/06/25 14:41:44 andyw Exp $
+++ */
++ 
++-#define ENABLE_DEBUG
+++#include <stdio.h>
++ 
++ #define RING_SIZE 16
++-#define MAX_CORRECT 250   /* ppm change to system clock */
++-#define MAX_C ((MAX_CORRECT)*65536)
+++#define	MAX_CORRECT	(400)		/* ppm to change system clock */
+++#define	MAX_C		(MAX_CORRECT * 65536) 
++ struct datum {
++ 	unsigned int absolute;
++ 	double skew;
++@@ -61,6 +63,12 @@
++ #define debug 0
++ #define DEBUG_OPTION
++ #endif
+++extern int verbose ;
+++
+++#ifdef ENABLE_SYSLOG
+++extern int logging ;
+++#include <syslog.h>
+++#endif
++ 
++ /* draw a line from a to c, what the offset is of that line
++  * where that line matches b's slope coordinate.
++@@ -234,7 +242,7 @@
++ 		 * line segments in s.max vs. absolute space, which are
++ 		 * points in freq vs. dt space.  Find points in order of increasing
++ 		 * slope == freq */
++-		dinit=1; last_slope=-2*MAX_CORRECT;
+++		dinit=1; last_slope=-2 * MAX_CORRECT;
++ 		for (c=1, j=next_up(rp); ; j=nextj) {
++ 			nextj = search(rp, j, 1, 1, 0, &maxseg[c]);
++ 			        search(rp, j, 0, 1, 1, &check);
++@@ -254,7 +262,7 @@
++ 		 * line segments in s.min vs. absolute space, which are
++ 		 * points in freq vs. dt space.  These points are found in
++ 		 * order of decreasing slope. */
++-		dinit=1; last_slope=+2*MAX_CORRECT;
+++		dinit=1; last_slope=+2 * MAX_CORRECT ;
++ 		for (c=1, j=next_up(rp); ; j=nextj) {
++ 			nextj = search(rp, j, 0, 0, 1, &minseg[c]);
++ 			        search(rp, j, 1, 0, 0, &check);
++@@ -316,7 +324,10 @@
++ 		/*
++ 		 * Pass 5: decide on a new freq */
++ 		if (inconsistent) {
++-			printf("# inconsistent\n");
+++			if (verbose) printf("# inconsistent\n");
+++#ifdef	ENABLE_SYSLOG
+++			if (logging) syslog(LOG_WARNING, "Inconsistent sample") ;
+++#endif
++ 		} else {
++ 			delta_f = find_df(&both_sides_now);
++ 			if (debug) printf("find_df() = %e\n", delta_f);
++@@ -324,9 +335,11 @@
++ 			delta_freq = delta_f*65536+.5;
++ 			if (debug) printf("delta_f %f  delta_freq %d  bsn %d\n", delta_f, delta_freq, both_sides_now);
++ 			computed_freq -= delta_freq;
++-			printf ("# box [( %.3f , %.1f ) ",  save_min.slope, save_min.offset);
++-			printf (      " ( %.3f , %.1f )] ", save_max.slope, save_max.offset);
++-			printf (" delta_f %.3f  computed_freq %d\n", delta_f, computed_freq);
+++			if (verbose) {
+++				printf ("# box [( %.3f , %.1f ) ",  save_min.slope, save_min.offset);
+++				printf (      " ( %.3f , %.1f )] ", save_max.slope, save_max.offset);
+++				printf (" delta_f %.3f  computed_freq %d\n", delta_f, computed_freq);
+++			}
++ 
++ 			if (computed_freq < -MAX_C) computed_freq=-MAX_C;
++ 			if (computed_freq >  MAX_C) computed_freq= MAX_C;
+diff -Naur ntpclient-2007/build.sh open_ntpclient/build.sh
+--- ntpclient-2007/build.sh	1970-01-01 05:30:00.000000000 +0530
++++ open_ntpclient/build.sh	2009-11-03 10:52:00.260976000 +0530
+@@ -0,0 +1,39 @@
++#!/bin/sh
++
++APPS_NAME="ntpclient-2007"
++
++#if [ -e sysconfig.sh ]; then
++#	. sysconfig.sh
++#	. config.sh
++#	. model_config.sh
++#else
++#        echo "Application "$APPS_NAME" not configured"
++#        exit 0
++#fi                                                                                                                                       
++
++#display_info "----------------------------------------------------------------------"
++#display_info "----------------------- build $APPS_NAME ------------------------"
++#display_info "----------------------------------------------------------------------"
++
++#parse_args $@
++
++#if [ $BUILD_CLEAN -eq 1 ]; then
++#    make clean
++#	[ ! $BUILD_CONFIGURE -eq 1 ] && exit 0
++#fi
++
++#if [ "$1" = "config_only" -a ! -f .config_ok -o $BUILD_CONFIGURE -eq 1 ]; then
++#    cp busybox_config .config.old
++#    make oldconfig
++#	ifx_error_check $? 
++#	echo -n > .config_ok
++#fi
++
++#if [ "$1" = "config_only" ] ;then
++#	exit 0
++#fi
++
++
++make
++#ifx_error_check $? 
++
+diff -Naur ntpclient-2007/ifx_make.mk open_ntpclient/ifx_make.mk
+--- ntpclient-2007/ifx_make.mk	1970-01-01 05:30:00.000000000 +0530
++++ open_ntpclient/ifx_make.mk	2009-11-03 10:52:00.315971000 +0530
+@@ -0,0 +1,50 @@
++include .app_configured
++
++ifeq ($(MAKE_USED),1)
++include $(INCLUDE_DIR)/Rules.mk
++include $(INCLUDE_DIR)/Makefile.common
++
++APP_NAME=ntpclient
++APP_TYPE=OPEN
++APP_VER=2007-365
++CONFIG_FULL_PACKAGE=y
++
++all: configure compile install
++
++define menuconfig
++
++config FEATURE_NTPCLIENT
++	bool 'NTP Client'
++	help
++	  NTP Client
++
++endef
++
++define configure
++endef
++
++define compile
++	$(MAKE) $(BUILD_FLAGS) IFX_CFLAGS="$(IFX_CFLAGS)" IFX_LDFLAGS="$(IFX_LDFLAGS)"
++	$(IFX_STRIP) ntpclient
++endef
++
++define install
++	install -d $(BUILD_ROOTFS_DIR)/usr/sbin/
++	cp -f ntpclient $(BUILD_ROOTFS_DIR)/usr/sbin/
++endef
++
++define clean
++	$(MAKE) clean
++endef
++
++define distclean
++	$(MAKE) clean
++endef
++
++$(eval $(call define_eval_application))
++else
++export MAKE_USED=1
++all %:
++	@$(MAKE) -s -C $(BUILD_TOOLS_DIR) make_installed
++	@$(BUILD_TOOLS_DIR)/tmp/bin/make -f ifx_make.mk $@
++endif
+diff -Naur ntpclient-2007/linksys.patch open_ntpclient/linksys.patch
+--- ntpclient-2007/linksys.patch	1970-01-01 05:30:00.000000000 +0530
++++ open_ntpclient/linksys.patch	2009-11-03 10:52:00.263972000 +0530
+@@ -0,0 +1,74 @@
++Adapted from the version of ntpclient posted by Linksys
++at http://www.linksys.com/support/gpl.asp .  They claim to
++use their slightly hacked ntpclient_2000_339 in some of
++their MIPS/Linux-based wireless routers.  It adds static
++linking of resolv.o, changes the default measurement interval
++from 10 minutes to 60 minutes, and includes a feeble attempt
++to port ntpclient to vxWorks.
++
++--- Makefile	Sun May 18 11:41:25 2003
+++++ Makefile-linksys	Sat Jul  5 12:35:50 2003
++@@ -1,10 +1,11 @@
++-# Under Solaris, you need to 
+++# Under Solaris, you need to
++ #    CFLAGS += -xO2 -Xc
++ #    LDLIBS += -lnsl -lsocket
++ # Some versions of Linux may need
++ #    CFLAGS += -D_GNU_SOURCE
++ # To cross-compile
++ #    CC = arm-linux-gcc
+++CC=/opt/brcm/hndtools-mipsel-linux/bin/mipsel-linux-gcc
++ # To check for lint
++ # -Wundef not recognized by gcc-2.7.2.3
++ CFLAGS += -Wall -Wpointer-arith -Wcast-align -Wcast-qual -Wshadow \
++@@ -18,7 +19,8 @@
++ test: ntpclient
++ 	./ntpclient -d -r <test.dat
++ 
++-ntpclient: ntpclient.o phaselock.o
+++ntpclient: ntpclient.o phaselock.o resolv.o
+++	$(CC) $(CFLAGS) $^ -o $@
++ 
++ adjtimex: adjtimex.o
++ 
++--- ntpclient.c	Sat Jul  5 12:30:17 2003
+++++ ntpclient-linksys.c	Sat Jul  5 12:33:00 2003
++@@ -60,6 +60,7 @@
++ typedef u_int32_t __u32;
++ #include <sys/timex.h>
++ #else
+++#define main ntpclient
++ extern struct hostent *gethostbyname(const char *name);
++ extern int h_errno;
++ #define herror(hostname) \
++@@ -386,7 +387,7 @@
++ 		if ((i!=1)||(!FD_ISSET(usd,&fds))) {
++ 			if (i==EINTR) continue;
++ 			if (i<0) perror("select");
++-			if (to.tv_sec == 0) {
+++			if ((to.tv_sec == 0)|| (to.tv_sec == interval)) {
++ 				if (probes_sent >= num_probes &&
++ 					num_probes != 0) break;
++ 				send_packet(usd);
++@@ -462,7 +463,7 @@
++ 	/* These parameters are settable from the command line
++ 	   the initializations here provide default behavior */
++ 	short int udp_local_port=0;   /* default of 0 means kernel chooses */
++-	int cycle_time=600;           /* seconds */
+++	int cycle_time=3600;          /* seconds */
++ 	int probe_count=0;            /* default of 0 means loop forever */
++ 	/* int debug=0; is a global above */
++ 	int goodness=0;
++@@ -508,6 +509,12 @@
++ 				exit(1);
++ 		}
++ 	}
+++
+++#ifdef vxworks
+++	hostname = argv[0];
+++	set_clock++;
+++#endif
+++
++ 	if (replay) {
++ 		do_replay();
++ 		exit(0);
+diff -Naur ntpclient-2007/ntpclient.1 open_ntpclient/ntpclient.1
+--- ntpclient-2007/ntpclient.1	2007-12-31 22:41:56.000000000 +0530
++++ open_ntpclient/ntpclient.1	1970-01-01 05:30:00.000000000 +0530
+@@ -1,100 +0,0 @@
+-.\" man page for Larry Doolittle's ntpclient
+-.\" distributed under GPL
+-.\" originally written by Walter Harms
+-.TH ntpclient 3 "2005-28-07-05" "" "ntpclient"
+-.SH NAME
+-ntpclient \- client to get time from NTP server
+-.SH SYNOPSIS
+-.B ntpclient -h hostname [-c count] [-d] [-f frequency] [-g goodness]
+-.in 14
+-.B             [-i interval] [-l] [-p port] [-r] [-s]
+-.SH DESCRIPTION
+-.B ntpclient
+-is an NTP (RFC-1305) client for unix-alike computers.
+-Its functionality is a small subset of xntpd, but has the potential
+-to function better within
+-that limited scope.  Since it is much smaller than xntpd, it is
+-also more relevant for embedded computers.
+-.PP
+-Without any argument (except -h) the program produces output
+-similar to this:
+-.sp
+-.nf
+- day   second     elapsed    stall     skew  dispersion  freq
+-36765 00180.386    1398.0     40.3  953773.9    793.5  -1240000
+-36765 00780.382    1358.0     41.3  954329.0    915.5  -1240000
+-36765 01380.381    1439.0     56.0  954871.3    915.5  -1240000
+-.fi
+-.sp
+-The columns have the following meaning:
+-.nf
+-day, second: time of measurement, UTC, relative to NTP epoch (Jan 1, 1900)
+-elapsed:     total time from query to response (microseconds)
+-stall:       time the server reports that it sat on the request (microseconds)
+-skew:        difference between local time and server time (microseconds)
+-dispersion:  reported by server, see RFC-1305 (microseconds)
+-freq:        local clock frequency adjustment (Linux only, ppm*65536)
+-.fi
+-.SS "Options"
+-.TP
+-.BI  -h " hostname"
+-(mandatory) NTP server, against which to measure system time
+-.TP
+-.BI -c " count"
+-top after count time measurements (default 0 means go forever)
+-.TP
+-.B  -d
+-.br
+-print diagnostics (feature can be disabled at compile time)
+-.TP
+-.BI  -g " goodness"
+-causes ntpclient to stop after getting a result more accurate
+-than goodness (microseconds, default 0 means go forever)
+-.TP
+-.BI  -i " interval"
+-check time every interval seconds (default 600)
+-.TP
+-.BI -p " port"
+-local NTP client UDP port (default 0 means "any available")
+-.TP
+-.BI  -q " min_delay"
+-minimum packet delay for transaction (default 800 microseconds)
+-.TP
+-.B  -r
+-.br
+-replay analysis code based on stdin (feature can be disabled at compile time)
+-.TP
+-.BI -f " frequency"
+-.br
+-initialize the frequency offset (Linux only, requires root access)
+-.TP
+-.B -s
+-.br
+-simple clock set (implies -c 1)
+-(requires root access)
+-.TP
+-.B  -l
+-.br
+-attempt to lock local clock to server using
+-.BR adjtimex (2)
+-(requires root access)
+-.TP
+-.B -t
+-.br
+-trust network and server, no RFC-4330 recommended cross-checks
+-
+-.SH AUTHOR
+- Larry Doolittle
+- ntpclient home page: http://doolittle.icarus.com/ntpclient/
+-.SH COPYRIGHT
+-ntpclient is Copyright 1997, 1999, 2000, 2003, 2006, 2007 Larry Doolittle, and
+-may be freely copied and modified according to the terms of the GNU
+-General Public License, version 2.  If you want to distribute ntpclient
+-under other terms, contact me.  I might agree to some other arrangement,
+-if you talk to me
+-.I before
+-you start violating GPL terms.
+-
+-.SH "SEE ALSO"
+-.BR adjtimex (2),
+-.BR www.ntp.org
+diff -Naur ntpclient-2007/ntpclient.txt open_ntpclient/ntpclient.txt
+--- ntpclient-2007/ntpclient.txt	1970-01-01 05:30:00.000000000 +0530
++++ open_ntpclient/ntpclient.txt	2009-11-03 10:52:00.269971000 +0530
+@@ -0,0 +1,14 @@
++[Build & Install]
++1. tar xvfz ntpclient_2003_194.tar.gz
++2. cd ntpclient
++3. patch -p0 < linksys.patch
++4. Edit Makefile to remove resolv.o dependency
++5. make CC=mipsel-uclibc-gcc
++6. mipsel-uclibc-strip ntpclient
++7. cp ntpclient /export/ramdisk/mnt/usr/sbin
++
++[Execution]
++ntpclient -s -h 192.43.222.18
++
++*NOTE*
++Add a cron job to invoke ntpclient
+diff -Naur ntpclient-2007/rate2.awk open_ntpclient/rate2.awk
+--- ntpclient-2007/rate2.awk	2007-12-31 22:51:08.000000000 +0530
++++ open_ntpclient/rate2.awk	1970-01-01 05:30:00.000000000 +0530
+@@ -1,193 +0,0 @@
+-#!/usr/bin/awk -f
+-
+-# There are more comments below the following BEGIN block.
+-
+-BEGIN {
+-	# This value is in seconds.
+-	# It must match the -i interval used with ntpclient if not
+-	# the default of 10 minutes.
+-	td = 10 * 60;
+-
+-	# How many milliseconds may a sample be off by (system time) and
+-	# still be counted?
+-	# This check (with the above td) is here to tell you if you have
+-	# several ntpclient processes logging to the same file.
+-	tderr = 100;
+-
+-	# How many ppm may one sample's computed frequency differ from the
+-	# previous one and still be counted?
+-	# This check filters out records resulting from an NTP server glitch.
+-	freq_diff = 5;
+-
+-	# How many milliseconds may it take to get an answer from the
+-	# ntp server?
+-	# Long replies often produce glitchy results.
+-	ntp_delay = 100;
+-}
+-
+-# This script is to determine what your /etc/ntp.adj should be
+-# It is invoked thusly:
+-# 	awk -f rate2.awk < /var/lib/ntp.log
+-# Unlike the original rate.awk script supplied with ntpclient,
+-# this one can be run against the log of a running ntpclient which
+-# is adjusting the adjtimex frequency.  The alternative is a drag
+-# because it means you cannot be keeping time while you are determining
+-# a suitable adjtimex frequency.  You, of course, can do that with
+-# this program too; you just don't have to.  Given a file that works
+-# with the original rate.awk, this script should produce similar
+-# results.  You may have to increase the above thresholds to keep
+-# records from being ignored so you get the same answers.
+-
+-# It is assumed that nothing besides ntpclient is adjusting that
+-# value for the duration of the creation of the log file.
+-
+-# It is recommended that you collect lots of log entries.
+-# It is further recommended that you collect logs for roughly an
+-# integer number of days to even out daily cycles (temperature, etc.)
+-
+-
+-# No tweaking necessary below here, I hope.
+-
+-function pretty_time(ss,	dd, hh, mm, ret, f) {
+-	ss += 0;
+-	if(ss < 0) {
+-		ret = "-";
+-		ss = -ss;
+-	} else {
+-		ret = "";
+-	}
+-	mm = int(ss / 60); ss -= (mm * 60);
+-	hh = int(mm / 60); mm -= (hh * 60);
+-	dd = int(hh / 24); hh -= (dd * 24);
+-
+-	if(dd != 0) {
+-		ret = sprintf("%s%d+", ret, dd);
+-	}
+-	if(ret != "" || hh != 0) {
+-		ret = sprintf("%s%02d:", ret, hh);
+-	}
+-	if(ret != "" || mm != 0) {
+-		ret = sprintf("%s%02d:", ret, mm);
+-	}
+-	ss = sprintf("%06.3f", ss); sub(/0+$/, "", ss); sub(/\.$/, "", ss);
+-	if(ret != "" || (ss + 0) != 0) {
+-		ret = sprintf("%s%s", ret, ss);
+-	} else {
+-		ret = "0";
+-	}
+-	return ret;
+-}
+-
+-function abs(a) {
+-	a += 0;
+-	if(a < 0) {
+-		return -a;
+-	}
+-	else {
+-		return a;
+-	}
+-}
+-
+-function round(a, p) {
+-	p += 0;
+-	if(p == 0) {
+-		return int(a + 0.5);
+-	} else {
+-		return int((a / p) + 0.5) * p;
+-	}
+-}
+-
+-BEGIN {
+-	f1 = "";
+-	tderr = tderr / 1000;
+-	tdmin = td - tderr;
+-	tdmax = td + tderr;
+-	freq_diff = freq_diff * 65536;
+-	ntp_delay = ntp_delay * 1000;
+-	c = 0;
+-	ignored = 0;
+-	delta_o = 0;
+-	delta_t = 0;
+-	sum_f2 = 0;
+-	min_f2 = "init";
+-	max_f2 = "init";
+-	prev_f2 = "init";
+-}
+-
+-/^[0-9]/ {
+-	if(f1 == "") {
+-		t1 = $1 * 86400 + $2;
+-		o1 = $5;
+-		f1 = $7;
+-
+-		t2 = ts = t1;
+-		o2 = o1;
+-		fs = f1;
+-
+-		c++;
+-	} else {
+-		t2 = $1 * 86400 + $2;
+-		o2 = $5;
+-
+-		td = t2 - t1;
+-		od = o2 - o1;
+-		if($3 > ntp_delay) {
+-			print "Ignoring: ntp delay (" $3 / 1000 " ms) out of spec in line " FNR ".";
+-			ignored++;
+-		} else {
+-			if(td < tdmin || td > tdmax) {
+-				print "Ignoring: time difference (" pretty_time(td) ") out of spec in line " FNR ".";
+-				ignored++;
+-			} else {
+-				f2 = f1 + (65536 * od / td);
+-				if(prev_f2 == "init") {prev_f2 = f2;}
+-				if(abs(f2 - prev_f2) > freq_diff) {
+-					print "Ignoring: target frequency adjustment (" (f2 - prev_f2) / 65536 " ppm) out of spec in line " FNR ".";
+-					ignored++;
+-				} else {
+-					# weigted average
+-					sum_f2 += f2 * td;
+-					delta_o += od;
+-					delta_t += td;
+-
+-					# minimum / maximum
+-					if(min_f2 == "init") { min_f2 = f2; }
+-					else { if(f2 < min_f2) { min_f2 = f2; }}
+-					if(max_f2 == "init") { max_f2 = f2; }
+-					else { if(f2 > max_f2) { max_f2 = f2; }}
+-
+-					c++;
+-				}
+-				prev_f2 = f2;
+-			}
+-		}
+-
+-		t1 = t2;
+-		o1 = o2;
+-		f1 = $7;
+-	}
+-}
+-
+-END {
+-	if(ignored > 0) {
+-		print "";
+-	}
+-	print "total time:",pretty_time(round(delta_t));
+-	print "number of samples:",c;
+-	if(ignored > 0) {
+-		print "ignored samples:", ignored, "(" round(100 * ignored / (ignored + c)) "%)";
+-	}
+-	if(delta_t >= tdmin) {
+-		print "";
+-		slope = delta_o / delta_t;
+-		f2 = sum_f2 / delta_t;
+-		print "delta-t", delta_t, "seconds"
+-		print "delta-o", delta_o, "useconds"
+-		print "slope:", slope, "ppm";
+-		print "old frequency:", fs, "(" fs / 65536,"ppm)";
+-#		print "min frequency:", int(min_f2 + .5), "(" min_f2 / 65536,"ppm)";
+-#		print "max frequency:", int(max_f2 + .5), "(" max_f2 / 65536,"ppm)";
+-		print "new frequency:", int(f2 + .5), "(" f2 / 65536,"ppm)";
+-	}
+-}
+-
+diff -Naur ntpclient-2007/todo open_ntpclient/todo
+--- ntpclient-2007/todo	2007-12-31 22:40:50.000000000 +0530
++++ open_ntpclient/todo	1970-01-01 05:30:00.000000000 +0530
+@@ -1,18 +0,0 @@
+-Ask on newsgroup about making sanity checks mandatory, default, or optional
+-   Rob Landley says disable checks with CONFIG to save space
+-   good to know why something fails
+-   Denis Vlasenko recommends not checking UDP source, since that can
+-     break on multihomed server, confirmed for ntpd
+-   Denis also says "Give a message. You may make it configurable:
+-     ntpclient: dropped malformed packet[: <optionally what's wrong>]
+-Ask for pre-release comments from Walter Harms and others
+-Exit without warning if -f is the only option
+-
+-Leap second, crib from openntpd?  worthless!  Look at wikipedia "unix time" article
+-IPv6?
+-Multiple (interleaved) servers
+-   compile-time option for unlimited (malloc) or limited (no-malloc,
+-   for hard-embedded use) number of servers
+-Test handle laptop suspend?
+-Drift file - read on startup, save on SIGxxxx
+-
+diff -Naur ntpclient-2007/version.h open_ntpclient/version.h
+--- ntpclient-2007/version.h	1970-01-01 05:30:00.000000000 +0530
++++ open_ntpclient/version.h	2009-11-03 10:52:00.313970000 +0530
+@@ -0,0 +1,2 @@
++#define APP_NAME 	"NTP Client"
++#define APP_VER		"2003_194-IFX"

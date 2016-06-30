@@ -1,0 +1,5 @@
+config FLTE_deviceinfo_module
+	tristate "FLTE device information Module"
+	help
+	  Module for giving the FLTE device information.
+

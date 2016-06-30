@@ -1,0 +1,2579 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                . /etc/rc.conf 2> /dev/null
+		if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		fi
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+                CONFIGLOADED="1"
+fi
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+
+        TC="tc"
+        IPTABLES="iptables"
+        IP6TABLES="ip6tables"
+        EBTABLES="ebtables"
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+        QOS_INTF_LAN_SPECIFIC=14
+	QOS_INTF_LAN_ETH=1
+
+# LQ Define NF_MARK MASK 
+	SP_WFQ_PRIO_MASK=0x3C0
+	SP_WFQ_CPEID_MASK=0x3F
+	SP_WFQ_NFMARK_MASK=0xFFFFFC00
+#	STREAM_RATE_LIMIT_MASK=0x3FF
+
+# Check required command line parameters are available
+
+QQ_INST=$1
+QOS_MODE=$3
+
+UPSTREAM_QOS=1
+DOWNSTREAM_QOS=2
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				MAX_QUEUES=8
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				MAX_QUEUES=8
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+# D5 FW MII0 QoS
+#		MAX_QUEUES=4
+		MAX_QUEUES=8
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		MAX_QUEUES=8
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		MAX_QUEUES=8
+		;;
+esac
+#########################################################################
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+            			#if [ "$target" == "ARX3" ]; then
+			        mode=1; 
+	            		;;
+			1)
+				#wan mode is PTM
+            			mode=1; 
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+       		mode=1; 
+		;;
+	2)
+		#wan mode is MII1
+     		case "$target" in
+         		"ARX3")
+                  		mode=0;
+		  		;;
+         		"GRX2")
+                  		mode=0;
+		  		;;
+         		"GRX3")
+                  		mode=0;
+		  		;;
+         		"RT2")
+                  		mode=0;
+		  		;;
+         		"VRX2")
+                  		mode=1;
+                  		;;
+
+         		"ARX1")
+                  		mode=1;
+                  		;;
+          	esac
+          	;;
+	3)
+		#wan mode is PTM
+		mode=1;
+		;;
+esac
+###################################################################################################
+
+if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then
+   MAX_QUEUES=4
+fi
+
+eval qIfType='$'qq_${QQ_INST}_qIfType
+#if [ $qIfType -eq $qIfTypeActive ]; then
+
+# read the rc.conf and add tc rules
+
+	# read each parameters
+        eval QUEUE_WFQ_PRIO='$'queue_wfq_prio
+	eval QQ_CPEID='$'qq_${QQ_INST}_cpeId
+	eval QQ_PCPEID='$'qq_${QQ_INST}_pcpeId
+	eval QQ_ENABLE='$'qq_${QQ_INST}_enable
+	eval QQ_WTENABLE='$'qq_${QQ_INST}_wtEnable
+	eval QQ_SHAPERENABLE='$'qq_${QQ_INST}_shaperEnable
+	eval QQ_IFTYPE='$'qq_${QQ_INST}_qIfType
+	eval QQ_QIF='$'qq_${QQ_INST}_qIf
+	eval QQ_QLEN='$'qq_${QQ_INST}_qLen
+	
+	# Retrieve queue weight from tmp_sysstatus
+	eval QQ_QWT='$'qq_${QQ_CPEID}_qWt
+
+	eval QQ_QPRIO='$'qq_${QQ_INST}_qPrio
+	eval QQ_REDTH='$'qq_${QQ_INST}_redTh
+	eval QQ_REDPCT='$'qq_${QQ_INST}_redPct
+	eval QQ_DROPTYPE='$'qq_${QQ_INST}_dropType
+	eval QQ_SCHEDTYPE='$'qq_${QQ_INST}_schedType
+	eval QQ_SHAPERATE='$'qq_${QQ_INST}_shapeRate
+	eval QQ_SBS='$'qq_${QQ_INST}_sbs
+
+	# If shaper enabled then read peak rate from rc.conf else from tmp_system status
+	eval QQ_SHAPERENB='$'qq_${QQ_INST}_shaperEnable
+
+	#if [ $QQ_SHAPERENB -eq 1 ]; then
+	#	eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+	#elif [ $qm_portRateLimEnab -eq 1 ]; then
+	#	eval QQ_PEAKRATE='$'qm_upPortRateLim
+	#elif [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+	#	eval QQ_PEAKRATE='$'down_link_rate
+	#else
+	#	eval QQ_PEAKRATE='$'up_link_rate
+	#fi
+	
+	if [ $QOS_MODE -eq $UPSTREAM_QOS ]; then
+		if [ $QQ_SHAPERENB -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+		elif [ $qm_portRateLimEnab -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qm_upPortRateLim
+		else
+			eval QQ_PEAKRATE='$'up_link_rate
+			eval QQ_PEAKRATE='$'qm_upPortRateLim
+		fi
+	fi
+	
+	if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then
+		if [ $QQ_SHAPERENB -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+		else
+			eval QQ_PEAKRATE='$'down_link_rate
+			eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+		fi
+	fi
+
+	# Read Commited rate from tmp_system status
+	eval QQ_COMMITRATE='$'qq_${QQ_CPEID}_commitRate
+
+	eval QQ_EGRESSPVC='$'qq_${QQ_INST}_egressPVC
+	eval QQ_MINTH='$'qq_${QQ_INST}_uiRedTh
+	eval QQ_PROB='$'qq_${QQ_INST}_flRedProb
+
+        # Prepare IPQOS_QUEUE chain name
+        eval IPQOS_QUEUE_CHAIN_NAME="IPQOS_QUEUE_$QQ_CPEID"
+
+if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ] || [ "$target" == "GRX3" ]; then
+   chain_selection=0
+else
+   chain_selection=1
+fi
+
+eval QOS_ACCEL_DISABLE='$'qm_AccelMngr
+
+#if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 ]; then
+if [ $mode -eq 1 -o $QOS_ACCEL_DISABLE -eq 1 ]; then
+if [ $2 -eq 1 ]; then
+	
+        #create the IPQOS_QUEUE chain with name 'IPQOS_QUEUE_CHAIN_NAME' for storing priority of the queue
+        IPTABLES_RULE="$IPTABLES -t mangle -N $IPQOS_QUEUE_CHAIN_NAME"
+        $IPTABLES_RULE
+	EBTABLES_RULE="$EBTABLES -t filter -N $IPQOS_QUEUE_CHAIN_NAME"
+        $EBTABLES_RULE
+	EBTABLES_RULE="$EBTABLES -t filter -P $IPQOS_QUEUE_CHAIN_NAME RETURN"
+	$EBTABLES_RULE
+
+       	# Insert a rule in the IPQOS_QUEUE_MAP chain at the location of order and jump to LAN_CHAIN_NAME chain
+	IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_QUEUE_MAP -j $IPQOS_QUEUE_CHAIN_NAME"
+        $IPTABLES_RULE
+	EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_QUEUE_MAP -j $IPQOS_QUEUE_CHAIN_NAME"
+        $EBTABLES_RULE
+
+# IPV6 START
+
+	if [ "$target" != "ARX1" ]; then
+        	IP6TABLES_RULE="$IP6TABLES -t mangle -N $IPQOS_QUEUE_CHAIN_NAME"
+        	$IP6TABLES_RULE
+		IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_QUEUE_MAP -j $IPQOS_QUEUE_CHAIN_NAME"
+        	$IP6TABLES_RULE
+	fi
+
+# IPV6 END
+
+	# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+	NF_MARK=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+	ACCEL_MARK=$(($QQ_CPEID|1<<13))
+	MOD_MARK=$(($NF_MARK<<6))
+      
+	if [ $qm_AccelMngr -eq 1 ]; then
+		
+		ACCEL_DIS_MARK=$(($MOD_MARK|1<<13))
+        	# add a rule to check if NFMARK bit 13 is set (to disable acceleration) for traffic matching this mark, add a rule to check this mark
+		#if this mark is set, it will hit the accel disable rule second rule will not be hit
+		IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $ACCEL_MARK/$SP_WFQ_CPEID_MASK -j MARK --or-mark $ACCEL_DIS_MARK"
+		$IPTABLES_RULE
+# IPV6 START
+		if [ "$target" != "ARX1" ]; then
+			IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $ACCEL_MARK/$SP_WFQ_CPEID_MASK -j MARK --or-mark $ACCEL_DIS_MARK"
+			$IP6TABLES_RULE
+			#echo $IP6TABLES_RULE
+		fi
+# IPV6 END
+	fi
+        IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $QQ_CPEID/$SP_WFQ_CPEID_MASK -j MARK --or-mark $MOD_MARK"
+	$IPTABLES_RULE
+	
+	#MOD_MARK=$(($NF_MARK|$SP_WFQ_NFMARK_MASK))
+	# LQ Changes..... 
+	EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_QUEUE_CHAIN_NAME --mark $QQ_CPEID/$SP_WFQ_CPEID_MASK -j mark --mark-or $MOD_MARK --mark-target ACCEPT"
+	$EBTABLES_RULE
+
+	# Comment Default target is accept so no need to accept
+	# Packet hits all the rules in this chain. So add a rule to accept the packet.
+	# This will block the packet to travel through other chains
+	if [ $qm_AccelMngr -eq 1 ]; then
+
+		IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $ACCEL_DIS_MARK/$ACCEL_DIS_MARK -j ACCEPT"
+		$IPTABLES_RULE
+		#echo $IPTABLES_RULE
+	fi
+	
+	IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $MOD_MARK/$MOD_MARK -j ACCEPT"
+	$IPTABLES_RULE
+
+# IPV6 START
+        
+	if [ "$target" != "ARX1" ]; then
+		IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $QQ_CPEID/$SP_WFQ_CPEID_MASK -j MARK --or-mark $MOD_MARK"
+		$IP6TABLES_RULE
+		IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_QUEUE_CHAIN_NAME -m mark --mark $MOD_MARK/$MOD_MARK -j ACCEPT"
+		$IP6TABLES_RULE
+	fi
+
+# IPV6 END
+fi
+
+if [ $2 -eq 0 ]; then
+
+	# remove from IPQOS_QUEUE_MAP
+	iptables -t mangle -nvL | grep  ${IPQOS_QUEUE_CHAIN_NAME} > /dev/null
+	if [ $? -eq 0 ]; then
+
+		IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_QUEUE_MAP -j $IPQOS_QUEUE_CHAIN_NAME"
+		$IPTABLES_RULE
+
+		# flush the chain that has to be deleted and then delete the chain
+		IPTABLES_RULE="$IPTABLES -t mangle -F $IPQOS_QUEUE_CHAIN_NAME"
+		$IPTABLES_RULE
+
+		# Delete the chains from the system
+		IPTABLES_RULE="$IPTABLES -t mangle -X $IPQOS_QUEUE_CHAIN_NAME"
+		$IPTABLES_RULE
+	fi
+
+# IPV6 START
+	if [ "$target" != "ARX1" ]; then
+		ip6tables -t mangle -nvL | grep  ${IPQOS_QUEUE_CHAIN_NAME} > /dev/null
+		if [ $? -eq 0 ]; then
+
+			IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_QUEUE_MAP -j $IPQOS_QUEUE_CHAIN_NAME"
+			$IP6TABLES_RULE
+
+			# flush the chain that has to be deleted and then delete the chain
+			IP6TABLES_RULE="$IP6TABLES -t mangle -F $IPQOS_QUEUE_CHAIN_NAME"
+			$IP6TABLES_RULE
+
+			# Delete the chains from the system
+			IP6TABLES_RULE="$IP6TABLES -t mangle -X $IPQOS_QUEUE_CHAIN_NAME"
+			$IP6TABLES_RULE
+		fi
+	fi
+# IPV6 END
+	
+	ebtables -t filter -L --Lc | grep  ${IPQOS_QUEUE_CHAIN_NAME} > /dev/null
+	if [ $? -eq 0 ]; then
+	
+    		EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_QUEUE_MAP -j $IPQOS_QUEUE_CHAIN_NAME"
+    		$EBTABLES_RULE
+    		
+		EBTABLES_RULE="$EBTABLES -t filter -F $IPQOS_QUEUE_CHAIN_NAME"
+    		$EBTABLES_RULE
+	
+		EBTABLES_RULE="$EBTABLES -t filter -X $IPQOS_QUEUE_CHAIN_NAME"
+		$EBTABLES_RULE
+	fi
+fi
+fi
+
+
+QUEUE_METHOD=`/usr/sbin/status_oper GET qos_bk queue_method`
+
+if [ $QUEUE_METHOD -eq 1 ]; then
+
+	#Upstream Q Dev varies based on VLAN-Enabled or VLAN-Disabled
+	#TBD: Select imq0 or individual device based on VLAN Enable field.
+	UPSTREAM_Q_DEV=imq0
+
+	if [ $QOS_MODE -eq $UPSTREAM_QOS ]; then
+		Q_DEV=imq0
+		parent=1
+   		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+	      		C_CLASS="4$QQ_QPRIO"
+		else
+	      		C_CLASS="$QQ_QPRIO"
+	  	fi
+		
+		C_PRIO=`expr $QQ_QPRIO - 1`
+
+		if [ $QQ_SHAPERENB -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+		elif [ $qm_portRateLimEnab -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qm_upPortRateLim
+		else
+			eval QQ_PEAKRATE='$'up_link_rate
+			eval QQ_PEAKRATE='$'qm_upPortRateLim
+		fi
+
+	fi
+	
+	if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then
+		Q_DEV=imq1
+		parent=1
+		if [ $QQ_SHAPERENB -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+		elif [ $qm_DSportRateLimEnab -eq 1 ]; then
+			eval QQ_PEAKRATE='$'qm_downPortRateLim
+		else
+			eval QQ_PEAKRATE='$'down_link_rate
+			eval QQ_PEAKRATE='$'qm_downPortRateLim
+		fi
+   		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+		      C_CLASS="1$QQ_QPRIO"
+		else
+		      C_CLASS="$QQ_QPRIO"
+		fi
+	fi
+        
+	if [ $2 -eq 1 ]; then
+                act="add"
+        fi
+        if [ $2 -eq 0 ]; then
+                act="delete"
+        fi
+        if [ $2 -eq 2 ]; then
+                act="change"
+        fi
+
+	C_PRIO=`expr $QQ_QPRIO - 1`
+
+	C_CEIL=${QQ_PEAKRATE}kbit
+
+	if [ $QQ_SCHEDTYPE -eq 0 ]; then
+	        C_CMD="tc class $act dev $Q_DEV parent 1:1 classid 1:$C_CLASS htb rate 1kbit ceil $C_CEIL prio $C_PRIO"
+	else
+		if [ $QQ_COMMITRATE -eq 0 ]; then
+	        	C_CMD="tc class $act dev $Q_DEV parent 1:1 classid 1:$C_CLASS htb rate 1kbit ceil 1kbit"
+		else
+      #			C_CMD="tc class $act dev $Q_DEV parent 99:0 classid 99:$C_CLASS htb rate ${QQ_COMMITRATE}kbit ceil $C_CEIL"
+			   
+         		C_CMD="tc class $act dev $Q_DEV parent 99:99 classid 99:$C_CLASS htb rate ${QQ_COMMITRATE}kbit ceil $C_CEIL"
+
+		fi
+	fi
+
+        # execute the class command
+        $C_CMD
+
+	if [ $2 -eq 1 -o $2 -eq 0 ]; then
+		if [ $QOS_MODE -eq $UPSTREAM_QOS ]; then
+        		Q_CMD="tc qdisc $act  dev"
+
+
+        		# Form the rule
+        		# add device
+        		Q_CMD="$Q_CMD $Q_DEV"
+	
+        		# add parent
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			Q_PARENT="4$QQ_QPRIO"
+			else
+            			Q_PARENT="$QQ_QPRIO"
+        		fi
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			Q_CMD="$Q_CMD parent 1:$Q_PARENT"
+        		else
+            			Q_CMD="$Q_CMD parent 99:$Q_PARENT"
+        		fi
+
+        		# add handle
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			Q_CMD="$Q_CMD handle $Q_PARENT:"
+        		else
+            			Q_CMD="$Q_CMD handle 99$Q_PARENT:"
+        		fi
+
+        		# add queue type
+        		if [ $QQ_DROPTYPE -eq 1 ]; then
+                		Q_CMD="$Q_CMD red"
+                		# add limit
+                		if [ ! -z $QQ_QLEN ]; then
+                        		Q_CMD="$Q_CMD limit $QQ_QLEN"
+                		fi
+
+                		#QQ_MINTH=$2
+                		QQ_MAXTH=`expr $QQ_MINTH \* 3`
+                		Q_CMD="$Q_CMD min $QQ_MINTH max $QQ_MAXTH"
+
+                		# find and add avpkt
+                		QQ_AVPKT=500
+                		Q_CMD="$Q_CMD avpkt $QQ_AVPKT"
+
+                		# find and add burst
+                		QQ_BURST=`expr $QQ_MINTH \* 2`
+                		QQ_BURST=`expr $QQ_BURST + $QQ_MAXTH`
+                		MUL=`expr $QQ_AVPKT \* 3`
+                		QQ_BURST=`expr $QQ_BURST / $MUL`
+
+                		# add burst
+                		Q_CMD="$Q_CMD burst $QQ_BURST"
+
+                		# add probability
+                		#QQ_PROB=$3
+                		Q_CMD="$Q_CMD probability $QQ_PROB"
+        		fi
+        		if [ $QQ_DROPTYPE -eq 0 ]; then
+                		Q_CMD="$Q_CMD bfifo"
+                		# add limit
+                		if [ ! -z $QQ_QLEN ]; then
+                        		Q_CMD="$Q_CMD limit $QQ_QLEN"
+                        		#Q_CMD="$Q_CMD limit 100k"
+                		fi
+        		fi
+
+        		# execute the qdisc command
+                	$Q_CMD
+
+
+        		# create/delete filter rule
+			# tc filter add dev $Q_DEV protocol all parent 1:0 prio 1 u32 match mark 11 0xffff flowid 1:11
+        		#F_CMD="tc filter $act  dev $Q_DEV protocol ip parent 1:0 prio 1"
+			# handle any packets rather than ip
+        		#F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 1"
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 2 u32 match"
+        		else
+        	   		F_CMD_A="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 2 u32 match"
+            			F_CMD="tc filter $act  dev $Q_DEV protocol all parent 99:0 prio 2 u32 match"
+        		fi
+
+        		# add handle
+			F_CMD_HANDLE=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+        		#F_CMD="$F_CMD handle $QQ_CPEID"
+        		#F_CMD="$F_CMD handle $F_CMD_HANDLE"
+			ACCEL_HANDLE=$(($QQ_CPEID|1<<13))
+			F_CMD_HANDLE=$((F_CMD_HANDLE<<6))
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			F_CMD_ACCEL="$F_CMD mark $ACCEL_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+            			F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+			else
+	        		F_CMD_A_ACCEL="$F_CMD_A mark $ACCEL_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+		        	F_CMD_ACCEL="$F_CMD mark $ACCEL_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+	
+				F_CMD_A="$F_CMD_A mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+	        		F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+			fi
+	
+        		# add filter type
+        		#F_CMD="$F_CMD fw"
+
+        		#F_CMD="$F_CMD classid 1:$C_CLASS"
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        			F_CMD_ACCEL="$F_CMD_ACCEL flowid 1:$C_CLASS"
+				#$F_CMD_ACCEL
+            			F_CMD="$F_CMD flowid 1:$C_CLASS"
+        		else
+				F_CMD_A_ACCEL="$F_CMD_A_ACCEL flowid 1:99"
+		            	F_CMD_ACCEL="$F_CMD_ACCEL flowid 99:$C_CLASS"
+	        		F_CMD_A="$F_CMD_A flowid 1:99"
+            			F_CMD="$F_CMD flowid 99:$C_CLASS"
+
+        		fi
+	
+		     	if [ $QQ_SCHEDTYPE -eq 0 ]; then
+				$F_CMD_ACCEL
+        	    		$F_CMD
+		     	else
+       				$F_CMD_A_ACCEL
+		       		$F_CMD_ACCEL
+       				$F_CMD_A
+       				$F_CMD
+			fi
+
+        		if [ $QQ_SCHEDTYPE -eq 2 ]; then
+	      			F_CMD_HANDLE=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+	      			ACCEL_HANDLE=$(($QQ_CPEID|1<<13))
+         			F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 2 u32 match"
+	      			F_CMD_HANDLE=$((F_CMD_HANDLE<<6))
+              			F_CMD="$F_CMD mark $ACCEL_HANDLE $SP_WFQ_PRIO_MASK flowid 1:99"
+		         	$F_CMD
+         			F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK flowid 1:99"
+         			$F_CMD
+        		fi
+		fi # End of UPSTREAM QOS LOOP
+		if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then
+        		Q_CMD="tc qdisc $act  dev"
+
+
+	        	# Form the rule
+	        	# add device
+	        	Q_CMD="$Q_CMD $Q_DEV"
+	
+		        # add parent
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+	        		Q_PARENT="1$QQ_QPRIO"
+			else
+				Q_PARENT="$QQ_QPRIO"
+        		fi
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+   	        		Q_CMD="$Q_CMD parent 1:$Q_PARENT"
+		        else
+		        	Q_CMD="$Q_CMD parent 99:$Q_PARENT"
+ 	        	fi
+
+	        	# add handle
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+	           		Q_CMD="$Q_CMD handle $Q_PARENT:"
+	        	else
+	
+	            		Q_CMD="$Q_CMD handle 99$Q_PARENT:"
+	        	fi
+
+	        	# add queue type
+       		 	if [ $QQ_DROPTYPE -eq 1 ]; then
+                		Q_CMD="$Q_CMD red"
+	                	# add limit
+	                	if [ ! -z $QQ_QLEN ]; then
+	                        	Q_CMD="$Q_CMD limit $QQ_QLEN"
+	                	fi
+
+	                	#QQ_MINTH=$2
+	                	QQ_MAXTH=`expr $QQ_MINTH \* 3`
+	                	Q_CMD="$Q_CMD min $QQ_MINTH max $QQ_MAXTH"
+	
+	                	# find and add avpkt
+	                	QQ_AVPKT=500
+	                	Q_CMD="$Q_CMD avpkt $QQ_AVPKT"
+	
+	                	# find and add burst
+	                	QQ_BURST=`expr $QQ_MINTH \* 2`
+	                	QQ_BURST=`expr $QQ_BURST + $QQ_MAXTH`
+	                	MUL=`expr $QQ_AVPKT \* 3`
+	                	QQ_BURST=`expr $QQ_BURST / $MUL`
+
+	                	# add burst
+	                	Q_CMD="$Q_CMD burst $QQ_BURST"
+	
+                		# add probability
+        	        	#QQ_PROB=$3
+	                	Q_CMD="$Q_CMD probability $QQ_PROB"
+	        	fi
+        		if [ $QQ_DROPTYPE -eq 0 ]; then
+	                	Q_CMD="$Q_CMD bfifo"
+	                	# add limit
+	                	if [ ! -z $QQ_QLEN ]; then
+        	                	Q_CMD="$Q_CMD limit $QQ_QLEN"
+	                        	#Q_CMD="$Q_CMD limit 100k"
+	                	fi
+	        	fi
+
+        		# execute the qdisc command
+                	$Q_CMD
+
+
+        		# create/delete filter rule
+			# tc filter add dev $Q_DEV protocol all parent 1:0 prio 1 u32 match mark 11 0xffff flowid 1:11
+	        	#F_CMD="tc filter $act  dev $Q_DEV protocol ip parent 1:0 prio 1"
+			# handle any packets rather than ip
+	        	#F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 1"
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        	        	F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 1 u32 match"
+        		else
+        	        	F_CMD_A="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 1 u32 match"
+	                	F_CMD="tc filter $act  dev $Q_DEV protocol all parent 99:0 prio 1 u32 match"
+        		fi
+
+        		# add handle
+			F_CMD_HANDLE=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+        		#F_CMD="$F_CMD handle $QQ_CPEID"
+        		#F_CMD="$F_CMD handle $F_CMD_HANDLE"
+			F_CMD_HANDLE=$((F_CMD_HANDLE<<6))
+
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        			F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+	   		else
+	        		F_CMD_A="$F_CMD_A mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+	        		F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+			fi
+
+        		# add filter type
+        		#F_CMD="$F_CMD fw"
+
+        		#F_CMD="$F_CMD classid 1:$C_CLASS"
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			F_CMD="$F_CMD flowid 1:$C_CLASS"
+        		else
+	        		F_CMD_A="$F_CMD_A flowid 1:99"
+            			F_CMD="$F_CMD flowid 99:$C_CLASS"
+
+        		fi
+
+	     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            			$F_CMD
+        		else
+       				$F_CMD_A
+       				$F_CMD
+		  	fi
+
+	     
+        		if [ $QQ_SCHEDTYPE -eq 2 ]; then
+	      			F_CMD_HANDLE=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+	              		F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 1 u32 match"
+	      			F_CMD_HANDLE=$((F_CMD_HANDLE<<6))
+         			F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK flowid 1:99"
+         			$F_CMD
+        		fi
+
+			#end  DS Queues add
+		fi # End of DOWNSTREAM QOS 
+	fi # End of ADD DEL LOOP
+fi # End of QUEUE METHOD 1 LOOP
+
+if [ $QUEUE_METHOD -eq 2 ]; then
+
+	if [ $QOS_MODE -eq $UPSTREAM_QOS ]; then
+		QUEUE_NO=`expr $QQ_QPRIO - 1`
+
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			PORT=7
+		fi
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 ]; then
+			PORT=1
+		fi
+		# D5 FW MII0 QoS
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 ]; then
+			PORT=0
+		fi
+
+		#PTM mode: firmware queues are used
+	
+		#if [ $qIfType -ne $QOS_INTF_LAN_ETH ]; then
+
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+				#SP scheduling
+				if [ $2 -eq 1 ]; then
+					# QUEUE_WFQ_PRIO=`/usr/sbin/status_oper GET qos_bk queue_wfq_prio`
+                			if [ $QUEUE_WFQ_PRIO -eq 99 ] ;then
+						C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w 100"
+                        		else
+                				if [ $QUEUE_WFQ_PRIO -lt $QQ_QPRIO ] ;then
+							C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w 0"
+                				else
+							C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w 100"
+                                		fi
+					fi
+                		fi
+				#if [ $2 -eq 0 ]; then
+				#	#classifier rules are deleted, nothing to be done in queues
+				#	echo "nothing to be done"	
+				#	#disable SP
+				#	#Reset the SP config
+				#fi
+			fi
+			
+			if [ $QQ_SCHEDTYPE -eq 2 ]; then
+				#WFQ scheduling
+				if [ $2 -eq 1 ]; then
+					#Set queue weight as percentage of Max queue Weight
+					MAX_WEIGHT=100
+					sum_wt=`/usr/sbin/status_oper GET qos_bk sum_wt`
+
+					#queue_weight =(100/sum(weights))*queue_weight
+                			#Q_WEIGHT=`expr $MAX_WEIGHT \* $QQ_QWT`
+					#Q_WEIGHT=`expr $Q_WEIGHT / $sum_wt`
+					Q_WEIGHT=$(echo "$MAX_WEIGHT $QQ_QWT" | awk '{print $1*$2}')
+					Q_WEIGHT=$(echo "$Q_WEIGHT $sum_wt" | awk '{print $1/$2}')
+
+					C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w $Q_WEIGHT"
+					
+				fi
+				#if [ $2 -eq 0 ]; then
+				#	#classifier rules are deleted, nothing to be done in queues
+				#	echo "nothing to be done"	
+				#fi
+					
+			fi
+
+    			# execute the class command
+              		$C_CMD
+	
+			
+			#if [ $QQ_SHAPERENABLE -eq 1 ]; then
+				
+				if [ $2 -eq 1 ]; then
+					#rates in PPE firmware are interms of kbps
+					PEAK_RATE=$QQ_PEAKRATE
+			
+					#set rate to queue
+					C_CMD="ppacmd setrate -p $PORT -r $PEAK_RATE -q $QUEUE_NO"
+					$C_CMD
+				fi
+				#if [ $2 -eq 0 ]; then
+					#disable rateshaping
+					#ppacmd setctrlrate -p 1 -c disable
+					#echo "nothing to be done"	
+
+				#fi
+						
+			#fi 	
+		#fi End of LAN ETH LOOP
+	fi # End of UPSTREAM QOS LOOP
+
+
+	if [ "$target" = "VRX2" -o "$target" = "VRX3" ]; then
+		###############Downstream classifier for Mii1 and PTM modes on VRX288 #########################
+
+		if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then
+			#downstream QoS: configure LAN queues for Mii1 and PTM modes
+			QUEUE_NO=`expr $QQ_QPRIO - 1`
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+				
+				#SCHEDULER Type is SP
+				SCHEDTYPE=0
+				LQ_WEIGHT=65535
+				RATE=$QQ_PEAKRATE
+			fi	
+			if [ $QQ_SCHEDTYPE -eq 2 ]; then
+
+				#Scheduler type Is WFQ
+				SCHEDTYPE=1
+
+				#Set queue weight as percentage of Max queue Weight
+				MAX_WEIGHT=65535
+				sum_wt=`/usr/sbin/status_oper GET qos_bk sum_wt`
+				lanq_sum_wt=`/usr/sbin/status_oper GET qos_bk lanq_sum_wt`
+
+				#queue_weight =(0xffff/sum(weights))*queue_weight
+                		Q_WEIGHT=`expr $MAX_WEIGHT \* $QQ_QWT`
+				#Q_WEIGHT=`expr $Q_WEIGHT / $sum_wt`
+				LQ_WEIGHT=`expr $Q_WEIGHT / $lanq_sum_wt`
+				#Q_WEIGHT=$(echo "$MAX_WEIGHT $QQ_QWT" | awk '{print $1*$2}')
+				#LQ_WEIGHT=$(echo "$Q_WEIGHT $lanq_sum_wt" | awk '{print $1/$2}')
+				#RATE=$QQ_COMMITRATE
+				RATE=$QQ_PEAKRATE
+			fi
+			Lqueue=`/usr/sbin/status_oper GET qos_bk LAN_numQueue`
+			
+			Q0=0
+			Q1=1
+			Q2=2
+			Q3=3
+			Q4=4
+			Q5=5
+			Q6=6
+			Q7=7
+			Q8=8
+			Q9=9
+			Q10=10
+			Q11=11
+			Q16=16
+			Q17=17
+			Q18=18
+			Q19=19
+			
+			if [ $2 -eq 1 ]; then
+				
+				QUEUE_NO=`expr $QQ_QPRIO - 1`
+				#set scheduler to queue
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+					#add queues for port 0,1,2,4
+					#for QUEUE in 0 1 2 3 4 5 6 7 8 9 10 11 16 17 18 19; do
+					#	C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$QUEUE eType=$SCHEDTYPE nWeight=$Q_WEIGHT"
+						#echo "$QUEUE $C_CMD"
+					#	$C_CMD
+					#done
+					#echo "Scheduler Cfg for LAN queue_no $QUEUE_NO"
+					case "$QUEUE_NO" in
+						3)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q0 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q4 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q8 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q16 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						2)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q1 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q5 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q9 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q17 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						1)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q2 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q6 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q10 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q18 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						0)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q3 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q7 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q11 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q19 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+					esac
+
+				#fi	
+			fi # End of ADD Queue LOOP
+			
+			if [ $2 -eq 0 ]; then
+				QUEUE_NO=`expr $QQ_QPRIO - 1`
+				
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+				
+					##echo "Scheduler delete for LAN queue_no $QUEUE_NO"
+					SCHEDTYPE=0
+					Q_WEIGHT=0x1800
+					case "$QUEUE_NO" in
+						3)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q0 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q4 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q8 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q16 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						2)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q1 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q5 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q9 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q17 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						1)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q2 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q6 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q10 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q18 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						0)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q3 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q7 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q11 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q19 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+					esac
+				#fi	
+			fi # End of DEL QUEUE LOOP
+			#rate shaping is always enabled, will configure commited rate.
+			#if [ $QQ_SHAPERENABLE -eq 1 ]; then
+
+				if [ $2 -eq 1 ]; then
+					QUEUE_NO=`expr $QQ_QPRIO - 1`
+					SHAPER_INST=`expr $QUEUE_NO + 10`
+					QQ_SBS=1000
+				
+					#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+						#set shaper instance based on QQ_INST
+						C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_CFG_SET nRateShaperId=$SHAPER_INST bEnable=$QQ_SHAPERENABLE nCbs=$QQ_SBS nRate=$RATE"
+						#echo $C_CMD
+						$C_CMD
+						#Configure LAN Rate Shapers
+						#echo "Shaper Assign for LAN queue_no $QUEUE_NO=$SHAPER_INST"
+						# S0 - Q0,Q4,Q8,Q16; S1 - Q1,Q5,Q9,Q17 ; S2 - Q2,Q6,Q10,Q18; S3 - Q3,Q7,Q11,Q19
+						case "$SHAPER_INST" in
+							13)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q0";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q4";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q8";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q16";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+							12)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q1";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q5";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q9";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q17";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+							11)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q2";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q6";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q10";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q18";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+							10)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q3";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q7";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q11";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q19";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+						esac
+					#fi
+				fi # End of ADD QUEUE LOOP
+			#fi # End of Shaper enable loop
+			if [ $2 -eq 0 ]; then
+				QUEUE_NO=`expr $QQ_QPRIO - 1`
+				SHAPER_INST=`expr $QUEUE_NO + 10`
+					
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+					#Configure LAN Rate Shapers
+					#echo "Shaper Deassign for LAN queue_no $QUEUE_NO=$SHAPER_INST"
+					
+					# S0 - Q0,Q4,Q8,Q16; S1 - Q1,Q5,Q9,Q17 ; S2 - Q2,Q6,Q10,Q18; S3 - Q3,Q7,Q11,Q19
+					case "$SHAPER_INST" in
+						13)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q4";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q8";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q16";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						12)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q1";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q5";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q9";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q17";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						11)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q2";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q6";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q10";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q18";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						10)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q3";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q7";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q11";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q19";
+							echo $C_CMD;
+							$C_CMD;
+							;;
+					esac
+					
+				#fi	
+			fi # End of DEL QUEUE LOOP
+			# CONFIGURE RED if enabled
+			if [ $QQ_DROPTYPE -eq 1 ]; then
+				
+				DROP_PROB=$QQ_REDPCT
+				RED_MINTH=$QQ_REDTH
+				RED_MAXTH=`expr $RED_MINTH \* 3`
+				#TBD: need to check with in 100 % and mech to converst % to bytes
+				#Droptype is RED
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+					case "$QUEUE" in
+						
+						3)
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q0 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q4 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q8 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q16 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						2)
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q1 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q5 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q9 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q17 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						1)	
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q2 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q6 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q10 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q18 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						0)
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q3 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q7 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q11 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q19 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+					esac
+				#fi	
+			
+			fi # End of DROP TYPE LOOP	
+			
+		fi # End of DOWNSTREAM CLASS ADD LOOP
+
+       fi # End of VRX LOOP
+fi # End of QUEUE METHOD = 2
+
+
+if [ $QUEUE_METHOD -eq 3 ]; then
+
+	#eth wan mode, VR9 switch queues
+	QUEUE_NO=`expr $QQ_QPRIO - 1`
+	#echo "QUEUE=$QUEUE_NO"	
+	if [ $QQ_SCHEDTYPE -eq 0 ]; then
+		#SCHEDULER Type is SP
+		SCHEDTYPE=0
+		WQ_WEIGHT=0xffff
+		LQ_WEIGHT=0xffff
+		RATE=$QQ_PEAKRATE
+		#echo "weight=$Q_WEIGHT; rate=$RATE"
+	fi	
+	if [ $QQ_SCHEDTYPE -eq 2 ]; then
+
+		#Scheduler type Is WFQ
+		SCHEDTYPE=1
+
+		#Set queue weight as percentage of Max queue Weight
+		MAX_WEIGHT=65535
+		sum_wt=`/usr/sbin/status_oper GET qos_bk sum_wt`
+		lanq_sum_wt=`/usr/sbin/status_oper GET qos_bk lanq_sum_wt`
+		#queue_weight=(0xffff/sum(weights))*queue_weight
+               	Q_WEIGHT=`expr $MAX_WEIGHT \* $QQ_QWT`
+		WQ_WEIGHT=`expr $Q_WEIGHT / $sum_wt`
+		LQ_WEIGHT=`expr $Q_WEIGHT / $lanq_sum_wt`
+		#Q_WEIGHT=$(echo "$MAX_WEIGHT $QQ_QWT" | awk '{print $1*$2}')
+		#echo "weight=$Q_WEIGHT"
+		#WQ_WEIGHT=$(echo "$Q_WEIGHT $sum_wt" | awk '{print $1/$2}')
+		#echo "WQ_WEIGHT = $WQ_WEIGHT"
+		#echo "LQ_WEIGHT = $LQ_WEIGHT"
+		#LQ_WEIGHT=$(echo "$Q_WEIGHT $lanq_sum_wt" | awk '{print $1/$2}')
+		#RATE=$QQ_COMMITRATE
+		RATE=$QQ_PEAKRATE
+		#echo "WAN_Q_weight=$WQ_WEIGHT: rate=$RATE"
+		#echo "LAN_Q_weight=$LQ_WEIGHT: rate=$RATE"
+	fi
+	#echo "qIfType = $qIfType"
+	#echo "qIfTypeActive = $qIfTypeActive"
+	Lqueue=`/usr/sbin/status_oper GET qos_bk LAN_numQueue`
+	#echo "Number of Lan queues = $Lqueue"
+	Q0=$LP1_Q1
+	Q1=$LP1_Q2
+	Q2=$LP1_Q3
+	Q3=$LP1_Q4
+	Q4=$LP2_Q1
+	Q5=$LP2_Q2
+	Q6=$LP2_Q3
+	Q7=$LP2_Q4
+	Q8=$LP3_Q1
+	Q9=$LP3_Q2
+	Q10=$LP3_Q3
+	Q11=$LP3_Q4
+	Q16=$LP4_Q1
+	Q17=$LP4_Q2
+	Q18=$LP4_Q3
+	Q19=$LP4_Q4
+	if [ $2 -eq 1 ]; then
+		QUEUE_NO=`expr $QQ_QPRIO - 1`
+		#set scheduler to queue
+		if [ $QUEUE_NO -lt 4 ]; then
+			if [ $qIfType -eq $qIfTypeActive ]; then
+				QUEUE=`expr 31 - $QUEUE_NO`
+				C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$QUEUE eType=$SCHEDTYPE nWeight=$WQ_WEIGHT"
+				#echo $C_CMD
+				$C_CMD
+			fi
+			#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+			if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then # This is instead for checking for LAN_ETH
+				#add queues for port 0,1,2,4
+				#echo "Scheduler Cfg for LAN queue_no $QUEUE_NO"
+				case "$QUEUE_NO" in
+					3)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q0 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q4 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q8 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q16 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+					2)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q1 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q5 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q9 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q17 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+					1)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q2 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q6 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q10 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q18 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+					0)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q3 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q7 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q11 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q19 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+				esac
+
+			fi # End of DOWNSTREAM QOS LOOP	
+		fi # End of QUEUE NO Loop
+		if [ $QUEUE_NO -gt 3 ]; then
+			if [ $qIfType -eq $qIfTypeActive ]; then
+				QUEUE=`expr 27 - $QUEUE_NO `
+				C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$QUEUE eType=$SCHEDTYPE nWeight=$WQ_WEIGHT"
+				#echo $C_CMD
+				$C_CMD
+			fi
+			#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+			#	echo "SchedulerCfg -Nothig to be done for these queue numbers"
+			#fi
+		fi # End of QUEUE NO Loop
+	fi # End of QUEUE ADD LOOP
+	if [ $2 -eq 0 ]; then
+		QUEUE_NO=`expr $QQ_QPRIO - 1`
+		#Set scheduler to queue
+		if [ $QUEUE_NO -lt 4 ]; then
+			if [ $qIfType -eq $qIfTypeActive ]; then
+				QUEUE=`expr 31 - $QUEUE_NO`
+				C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$QUEUE eType=0 nWeight=0x1800"
+				#echo $C_CMD
+				$C_CMD
+			fi
+			#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+			if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then # instead of LAN ETH
+			
+				#echo "Scheduler delete for LAN queue_no $QUEUE_NO"
+				#if [ $Lqueue -gt 0 ]; then
+				SCHEDTYPE=0
+				Q_WEIGHT=0x1800
+				case "$QUEUE_NO" in
+					3)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q0 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q4 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q8 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q16 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+					2)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q1 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q5 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q9 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q17 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+					1)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q2 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q6 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q10 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q18 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+					0)
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q3 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q7 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q11 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q19 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+						#echo "$QUEUE_NO $C_CMD";
+						$C_CMD;
+						;;
+				esac
+			fi # End of DOWNSTREAM QOS	
+		fi # End of QUEUE NO Loop
+		if [ $QUEUE_NO -gt 3 ]; then
+			if [ $qIfType -eq $qIfTypeActive ]; then
+				QUEUE=`expr 27 - $QUEUE_NO`
+				C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$QUEUE eType=0 nWeight=0x1800"
+				#echo $C_CMD
+				$C_CMD
+			fi
+			#if [ $qIfType -eq $qIfTypeActive ]; then
+				#if [ $Lqueue -gt 0 ]; then
+				#	echo" SchedulerCfgSet -Disable queues: Nothing to be done for these Queues"
+				#fi
+			#fi	
+		fi # End of QUEUE NO Loop
+	fi # End of DEL QUEUE LOOP
+	#rate shaping is always enabled, will configure commited rate.
+	if [ $QQ_SHAPERENABLE -eq 1 ]; then
+		if [ $2 -eq 1 ]; then
+			QUEUE_NO=`expr $QQ_QPRIO - 1`
+			SHAPER_INST=$QUEUE_NO
+			QQ_SBS=1000
+		
+			#set shaper instance based on QQ_INST
+			if [ $QOS_MODE -eq $UPSTREAM_QOS ]; then # Instead of LAN_ETH
+			   C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_CFG_SET nRateShaperId=$SHAPER_INST bEnable=$QQ_SHAPERENABLE nCbs=$QQ_SBS nRate=$RATE"
+			   #echo $C_CMD
+			   $C_CMD
+         fi
+			#Assign shaper to queue
+			if [ $QUEUE_NO -lt 4 ]; then
+			
+				if [ $qIfType -eq $qIfTypeActive ]; then
+					QUEUE=`expr 31 - $QUEUE_NO`
+					C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$QUEUE"
+					#echo $C_CMD
+					$C_CMD
+				fi
+			fi
+
+			#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+			if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then # Instead of LAN_ETH
+				#Configure LAN Rate Shapers
+				#if [ $Lqueue -gt 0 ]; then
+					SHAPER_INST=`expr $QUEUE_NO + 10`
+					C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_CFG_SET nRateShaperId=$SHAPER_INST bEnable=$QQ_SHAPERENABLE nCbs=$QQ_SBS nRate=$RATE"
+					#echo $C_CMD
+					$C_CMD
+
+					#echo "Shaper Assign for LAN queue_no $QUEUE_NO=$SHAPER_INST"
+					# S0 - Q0,Q4,Q8,Q16; S1 - Q1,Q5,Q9,Q17 ; S2 - Q2,Q6,Q10,Q18; S3 - Q3,Q7,Q11,Q19
+					case "$SHAPER_INST" in
+						13)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q4";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q8";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q16";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						12)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q1";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q5";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q9";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q17";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						11)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q2";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q6";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q10";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q18";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						10)	
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q3";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q7";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q11";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q19";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+					esac
+					
+				#fi	
+			fi # End of DOWNSTREAM QOS LOOP	
+
+			if [ $QUEUE_NO -gt 3 ]; then
+				if [ $qIfType -eq $qIfTypeActive ]; then
+					QUEUE=`expr 27 - $QUEUE_NO`
+					C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$QUEUE"
+					#echo $C_CMD
+					$C_CMD
+				fi
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+				#	"echo Rateshaper:nothing to be done for these q instances!! "
+				#fi	
+			fi # End of QUEUE NO LOOP
+		fi # End of ADD QUEUE LOOP
+      fi #End of Shaper enable loop
+		if [ $2 -eq 0 ]; then
+			QUEUE_NO=`expr $QQ_QPRIO - 1`
+			SHAPER_INST=$QUEUE_NO
+			
+			#DeAssign shaper to queue
+			if [ $QUEUE_NO -lt 4 ]; then
+				if [ $qIfType -eq $qIfTypeActive ]; then
+					QUEUE=`expr 31 - $QUEUE_NO`
+					C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$QUEUE"
+					#echo $C_CMD
+					$C_CMD
+				fi
+
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+				if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then # Instead of LAN_ETH
+					#Configure LAN Rate Shapers
+					#echo "Shaper Deassign for LAN queue_no $QUEUE_NO=$SHAPER_INST"
+					SHAPER_INST=`expr $QUEUE_NO + 10`
+			
+					# S0 - Q0,Q4,Q8,Q16; S1 - Q1,Q5,Q9,Q17 ; S2 - Q2,Q6,Q10,Q18; S3 - Q3,Q7,Q11,Q19
+					case "$SHAPER_INST" in
+						13)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q4";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q8";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q16";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						12)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q1";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q5";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q9";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q17";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						11)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q2";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q6";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q10";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q18";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						10)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q3";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q7";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q11";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q19";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+					esac
+				
+				fi # End of DOWNSTREAM QOS LOOP	
+			fi # End of QUEUE NO LOOP
+			if [ $QUEUE_NO -gt 3 ]; then
+				if [ $qIfType -eq $qIfTypeActive ]; then
+					QUEUE=`expr 27 - $QUEUE_NO`
+					C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$QUEUE"
+					#echo $C_CMD
+					$C_CMD
+				fi
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+				#	"echo nothing to be done here!! "
+				#fi	
+			fi
+		fi # End of DEL QUEUE LOOP
+	#fi
+	# CONFIGURE RED if enabled
+	if [ $QQ_DROPTYPE -eq 1 ]; then
+				
+		DROP_PROB=$QQ_REDPCT
+		RED_MINTH=$QQ_REDTH
+		RED_MAXTH=`expr $RED_MINTH \* 3`
+		#TBD: need to check with in 100 % and mech to converst % to bytes
+		#Droptype is RED
+		if [ $QUEUE_NO -lt 4 ]; then
+			#QUEUE=`expr 15 - $QUEUE_NO`
+			QUEUE=`expr 31 - $QUEUE_NO`
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$QUEUE nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0"
+			#echo $C_CMD
+			$C_CMD
+		fi
+		#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+		if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then # Instead of LAN_ETH
+			case "$QUEUE" in
+			
+				3)
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q0 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q4 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q8 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q16 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					;;
+				2)
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q1 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q5 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q9 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q17 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					;;
+				1)	
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q2 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q6 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q10 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q18 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					;;
+				0)
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q3 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q7 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q11 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q19 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+					#echo $C_CMD;
+					$C_CMD;
+					;;
+			esac	
+		fi # End of DOWNSTREAM QOS LOOP	
+	
+		if [ $QUEUE_NO -gt 3 ]; then
+			#QUEUE_NO=`expr 15 - $QUEUE_NO`
+			#QUEUE=`expr $QUEUE_NO - 8`
+			QUEUE=`expr 27 - $QUEUE_NO`
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$QUEUE nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0"
+			$C_CMD
+		fi
+	fi # End of DROPTYPE LOOP
+fi # End of QUEUE METHOD  3
+
+
+
+if [ $QUEUE_METHOD -eq 4 ]; then
+	#WAN mode is eth0( Mii0) on Tantos
+
+	QUEUE_NO=`expr $MAX_QUEUES - $QQ_QPRIO`
+	SWITCH_PORT=4
+	
+	if [ $qm_portRateLimEnab -eq 1 ]; then
+		PORT_RATE=$qm_upPortRateLim
+	else
+		PORT_RATE=$up_link_rate
+		PORT_RATE=$qm_upPortRateLim
+	fi
+	
+	
+	if [ $QQ_SCHEDTYPE -eq 0 ]; then
+		#SP scheduling
+		for i in 0 1 2 3;do
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_WFQ_SET nPort=$SWITCH_PORT nTrafficClass=$i nRate=0"
+			$C_CMD	
+		done
+		if [ $QQ_SHAPERENABLE -eq 1 ]; then
+			#Set PortShaper to rate  mode
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_CFG_SET nPort=$SWITCH_PORT eWFQ_Type=1"
+			#echo $C_CMD
+			$C_CMD
+			#convert kbps to mbps
+			PEAK_RATE=$(echo "$QQ_PEAKRATE 1000" | awk '{print $1/$2}')
+			i=`expr $PEAK_RATE \< 1`
+			if [ $i -eq 1 ]; then
+				PEAK_RATE=1
+			fi
+		else
+			#Set PortShaper to ratio mode
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_CFG_SET nPort=$SWITCH_PORT eWFQ_Type=0"
+			PEAK_RATE=$(echo "$PORT_RATE 1000" | awk '{print $1/$2}')
+			#Issue UGW_SW_715:hack to fix improper rate config in switch utility
+			#PEAK_RATE=`expr $PEAK_RATE + 2`
+			$C_CMD
+		fi
+
+		if [ $2 -eq 1 ]; then
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=$SWITCH_PORT nTrafficClass=$QUEUE_NO nRate=$PEAK_RATE"
+			$C_CMD
+		fi
+		#if [ $2 -eq 0 ]; then
+		#	#classifier rules are deleted, nothing to be done in queues
+		#	echo "Delete SP queue"	
+		#fi
+       		
+		
+	fi
+	if [ $QQ_SCHEDTYPE -eq 2 ]; then
+		#WFQ scheduling
+		
+		if [ $QQ_SHAPERENABLE -eq 1 ]; then
+			#Set PortShaper to rate  mode
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_CFG_SET nPort=$SWITCH_PORT eWFQ_Type=1"
+			$C_CMD	
+			#echo $C_CMD
+		
+			
+			#for WFQ rate shaping enable SP Rate shaper as CR
+			#WFQ rateshaper is PR-CR
+			#convert kbps to mbps
+			
+			SP_RATE=$QQ_COMMITRATE
+			SP_RATE=$(echo "$SP_RATE 1000" | awk '{print $1/$2}')
+			
+			#echo "SP_RATE=$SP_RATE"
+			
+			WFQ_RATE=`expr $QQ_PEAKRATE - $QQ_COMMITRATE`	
+			WFQ_RATE=$(echo "$WFQ_RATE 1000" | awk '{print $1/$2}')
+			
+			#echo "WFQ_RATE=$WFQ_RATE"
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=$SWITCH_PORT nTrafficClass=$QUEUE_NO nRate=$SP_RATE"
+			$C_CMD	
+			
+			#echo $C_CMD
+		else
+			#Set PortShaper to ratio  mode
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_CFG_SET nPort=$SWITCH_PORT eWFQ_Type=0"
+			$C_CMD	
+			#echo $C_CMD
+			
+			#Set queue weight as percentage of Max queue Weight(0x80)
+			MAX_WEIGHT=128
+			sum_wt=`/usr/sbin/status_oper GET qos_bk sum_wt`
+
+			#queue_weight =(0xffff/sum(weights))*queue_weight
+                	#Q_WEIGHT=`expr $MAX_WEIGHT \* $QQ_QWT`
+			#Q_WEIGHT=`expr $Q_WEIGHT / $sum_wt`
+			
+			Q_WEIGHT=$(echo "$MAX_WEIGHT $QQ_QWT" | awk '{print $1*$2}')
+			#echo "weight=$Q_WEIGHT"
+			Q_WEIGHT=$(echo "$Q_WEIGHT $sum_wt" | awk '{print $1/$2}')
+			
+			#echo "weight=$Q_WEIGHT"
+			
+			WFQ_RATE=$Q_WEIGHT
+			
+			#IMP! make SP queues 0 in WFQ ratio mode
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=$SWITCH_PORT nTrafficClass=$QUEUE_NO nRate=0"
+			$C_CMD
+			#echo $C_CMD
+		fi # End of Shaper Enable loop
+		if [ $2 -eq 1 ]; then
+			
+			
+			C_CMD="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_WFQ_SET nPort=$SWITCH_PORT nTrafficClass=$QUEUE_NO nRate=$WFQ_RATE"
+			$C_CMD	
+			#echo $C_CMD
+					
+		fi
+		if [ $2 -eq 0 ]; then
+			#classifier rules are deleted, nothing to be done in queues
+			echo "Delete WFQ queue"	
+		fi
+					
+	fi # End of SCEDULERTYPE = 2 LOOP
+
+    	# execute the class command
+        #echo $C_CMD
+	#$C_CMD
+fi # End of Queue Method = 4 LOOP
+
+if [ $QUEUE_METHOD -eq 5 ]; then
+# Wan mode is ADSL. Scheduling using PPE firmware queues. Only if scheduling mode is SP
+	
+	if [ $QOS_MODE -eq $UPSTREAM_QOS ]; then	
+	
+		if [ "$target" = "VRX2" ] && [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			QUEUE_NO=`expr $QQ_QPRIO - 1`
+
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+				PORT=7
+			fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 ]; then
+				PORT=1
+			fi
+			# D5 FW MII0 QoS
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 ]; then
+				PORT=0
+			fi
+
+			#PTM mode: firmware queues are used
+		
+			#if [ $qIfType -ne $QOS_INTF_LAN_ETH ]; then
+
+				if [ $QQ_SCHEDTYPE -eq 0 ]; then
+					#SP scheduling
+					if [ $2 -eq 1 ]; then
+						# QUEUE_WFQ_PRIO=`/usr/sbin/status_oper GET qos_bk queue_wfq_prio`
+                				if [ $QUEUE_WFQ_PRIO -eq 99 ] ;then
+							C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w 100"
+                        			else
+                					if [ $QUEUE_WFQ_PRIO -lt $QQ_QPRIO ] ;then
+								C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w 0"
+                					else
+								C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w 100"
+                        	        		fi
+						fi
+                			fi
+					#if [ $2 -eq 0 ]; then
+					#	#classifier rules are deleted, nothing to be done in queues
+					#	echo "nothing to be done"	
+					#	#disable SP
+					#	#Reset the SP config
+					#fi
+				fi	
+			
+				if [ $QQ_SCHEDTYPE -eq 2 ]; then
+					#WFQ scheduling
+					if [ $2 -eq 1 ]; then
+						#Set queue weight as percentage of Max queue Weight
+						MAX_WEIGHT=100
+						sum_wt=`/usr/sbin/status_oper GET qos_bk sum_wt`
+	
+						#queue_weight =(100/sum(weights))*queue_weight
+		               			#Q_WEIGHT=`expr $MAX_WEIGHT \* $QQ_QWT`
+						#Q_WEIGHT=`expr $Q_WEIGHT / $sum_wt`
+						Q_WEIGHT=$(echo "$MAX_WEIGHT $QQ_QWT" | awk '{print $1*$2}')
+						Q_WEIGHT=$(echo "$Q_WEIGHT $sum_wt" | awk '{print $1/$2}')
+	
+						C_CMD="ppacmd setwfq -p $PORT -q $QUEUE_NO -w $Q_WEIGHT"
+						
+					fi
+					#if [ $2 -eq 0 ]; then
+					#	#classifier rules are deleted, nothing to be done in queues
+					#	echo "nothing to be done"	
+					#fi
+					
+				fi
+
+    				# execute the class command
+              			$C_CMD
+	
+			
+				#if [ $QQ_SHAPERENABLE -eq 1 ]; then
+					
+					if [ $2 -eq 1 ]; then
+						#rates in PPE firmware are interms of kbps
+						PEAK_RATE=$QQ_PEAKRATE
+				
+						#set rate to queue
+						C_CMD="ppacmd setrate -p $PORT -r $PEAK_RATE -q $QUEUE_NO"
+						$C_CMD
+					fi
+					#if [ $2 -eq 0 ]; then
+						#disable rateshaping
+						#ppacmd setctrlrate -p 1 -c disable
+						#echo "nothing to be done"	
+	
+					#fi
+							
+				#fi 	
+			#fi End of LAN ETH LOOP
+		fi # End of PTM loop
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM ] || [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			
+			#Upstream Q Dev varies based on VLAN-Enabled or VLAN-Disabled
+			#TBD: Select imq0 or individual device based on VLAN Enable field.
+			UPSTREAM_Q_DEV=imq0
+
+			Q_DEV=imq0
+			parent=1
+   			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+	      			C_CLASS="4$QQ_QPRIO"
+			else
+	      			C_CLASS="$QQ_QPRIO"
+	  		fi
+		
+			C_PRIO=`expr $QQ_QPRIO - 1`
+	
+			if [ $QQ_SHAPERENB -eq 1 ]; then
+				eval QQ_PEAKRATE='$'qq_${QQ_INST}_peakRate
+			elif [ $qm_portRateLimEnab -eq 1 ]; then
+				eval QQ_PEAKRATE='$'qm_upPortRateLim
+			else
+				eval QQ_PEAKRATE='$'up_link_rate
+				eval QQ_PEAKRATE='$'qm_upPortRateLim
+			fi
+
+	
+			if [ $2 -eq 1 ]; then
+        		        act="add"
+        		fi
+        		if [ $2 -eq 0 ]; then
+                		act="delete"
+        		fi
+        		if [ $2 -eq 2 ]; then
+        		        act="change"
+        		fi
+
+			C_PRIO=`expr $QQ_QPRIO - 1`
+		
+			C_CEIL=${QQ_PEAKRATE}kbit
+		
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+			        C_CMD="tc class $act dev $Q_DEV parent 1:1 classid 1:$C_CLASS htb rate 1kbit ceil $C_CEIL prio $C_PRIO"
+			else
+				if [ $QQ_COMMITRATE -eq 0 ]; then
+			        	C_CMD="tc class $act dev $Q_DEV parent 1:1 classid 1:$C_CLASS htb rate 1kbit ceil 1kbit"
+				else
+      #					C_CMD="tc class $act dev $Q_DEV parent 99:0 classid 99:$C_CLASS htb rate ${QQ_COMMITRATE}kbit ceil $C_CEIL"
+					   
+         				C_CMD="tc class $act dev $Q_DEV parent 99:99 classid 99:$C_CLASS htb rate ${QQ_COMMITRATE}kbit ceil $C_CEIL"
+		
+				fi
+			fi
+
+        		# execute the class command
+        		$C_CMD
+		
+			if [ $2 -eq 1 -o $2 -eq 0 ]; then
+        			Q_CMD="tc qdisc $act  dev"
+
+
+        			# Form the rule
+        			# add device
+        			Q_CMD="$Q_CMD $Q_DEV"
+		
+        			# add parent
+		     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        	    			Q_PARENT="4$QQ_QPRIO"
+				else
+        	    			Q_PARENT="$QQ_QPRIO"
+        			fi
+
+	     			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            				Q_CMD="$Q_CMD parent 1:$Q_PARENT"
+        			else
+            				Q_CMD="$Q_CMD parent 99:$Q_PARENT"
+        			fi
+	
+        			# add handle
+		     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        	    			Q_CMD="$Q_CMD handle $Q_PARENT:"
+        			else
+        	    			Q_CMD="$Q_CMD handle 99$Q_PARENT:"
+        			fi
+
+        			# add queue type
+        			if [ $QQ_DROPTYPE -eq 1 ]; then
+        	        		Q_CMD="$Q_CMD red"
+        	        		# add limit
+        	        		if [ ! -z $QQ_QLEN ]; then
+        	                		Q_CMD="$Q_CMD limit $QQ_QLEN"
+        	        		fi
+	
+        	        		#QQ_MINTH=$2
+        	        		QQ_MAXTH=`expr $QQ_MINTH \* 3`
+        	        		Q_CMD="$Q_CMD min $QQ_MINTH max $QQ_MAXTH"
+
+        	        		# find and add avpkt
+        	        		QQ_AVPKT=500
+        	        		Q_CMD="$Q_CMD avpkt $QQ_AVPKT"
+
+        	        		# find and add burst
+        	        		QQ_BURST=`expr $QQ_MINTH \* 2`
+        	        		QQ_BURST=`expr $QQ_BURST + $QQ_MAXTH`
+        	        		MUL=`expr $QQ_AVPKT \* 3`
+        	        		QQ_BURST=`expr $QQ_BURST / $MUL`
+
+        	        		# add burst
+        	        		Q_CMD="$Q_CMD burst $QQ_BURST"
+	
+	                		# add probability
+       		         		#QQ_PROB=$3
+                			Q_CMD="$Q_CMD probability $QQ_PROB"
+        			fi
+        			if [ $QQ_DROPTYPE -eq 0 ]; then
+                			Q_CMD="$Q_CMD bfifo"
+                			# add limit
+                			if [ ! -z $QQ_QLEN ]; then
+                        			Q_CMD="$Q_CMD limit $QQ_QLEN"
+                        			#Q_CMD="$Q_CMD limit 100k"
+                			fi
+        			fi
+
+        			# execute the qdisc command
+                		$Q_CMD
+
+
+        			# create/delete filter rule
+				# tc filter add dev $Q_DEV protocol all parent 1:0 prio 1 u32 match mark 11 0xffff flowid 1:11
+        			#F_CMD="tc filter $act  dev $Q_DEV protocol ip parent 1:0 prio 1"
+				# handle any packets rather than ip
+        			#F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 1"
+	
+	     			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        	    			F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 2 u32 match"
+        			else
+        	   			F_CMD_A="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 2 u32 match"
+            				F_CMD="tc filter $act  dev $Q_DEV protocol all parent 99:0 prio 2 u32 match"
+        			fi
+
+        			# add handle
+				F_CMD_HANDLE=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+        			#F_CMD="$F_CMD handle $QQ_CPEID"
+        			#F_CMD="$F_CMD handle $F_CMD_HANDLE"
+				ACCEL_HANDLE=$(($QQ_CPEID|1<<13))
+				F_CMD_HANDLE=$((F_CMD_HANDLE<<6))
+				if [ $QQ_SCHEDTYPE -eq 0 ]; then
+            				F_CMD_ACCEL="$F_CMD mark $ACCEL_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+            				F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+				else
+	        			F_CMD_A_ACCEL="$F_CMD_A mark $ACCEL_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+			        	F_CMD_ACCEL="$F_CMD mark $ACCEL_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+		
+					F_CMD_A="$F_CMD_A mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+		        		F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK"
+				fi
+	
+        			# add filter type
+        			#F_CMD="$F_CMD fw"
+	
+        			#F_CMD="$F_CMD classid 1:$C_CLASS"
+	
+	     			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+        				F_CMD_ACCEL="$F_CMD_ACCEL flowid 1:$C_CLASS"
+					#$F_CMD_ACCEL
+            				F_CMD="$F_CMD flowid 1:$C_CLASS"
+        			else
+					F_CMD_A_ACCEL="$F_CMD_A_ACCEL flowid 1:99"
+		            		F_CMD_ACCEL="$F_CMD_ACCEL flowid 99:$C_CLASS"
+	        			F_CMD_A="$F_CMD_A flowid 1:99"
+            				F_CMD="$F_CMD flowid 99:$C_CLASS"
+
+        			fi
+	
+		     		if [ $QQ_SCHEDTYPE -eq 0 ]; then
+					$F_CMD_ACCEL
+        	    			$F_CMD
+		     		else
+       					$F_CMD_A_ACCEL
+		       			$F_CMD_ACCEL
+       					$F_CMD_A
+       					$F_CMD
+				fi
+	
+        			if [ $QQ_SCHEDTYPE -eq 2 ]; then
+	      				F_CMD_HANDLE=`expr -$QQ_QPRIO + $MAX_QUEUES + 1`
+	      				ACCEL_HANDLE=$(($QQ_CPEID|1<<13))
+         				F_CMD="tc filter $act  dev $Q_DEV protocol all parent 1:0 prio 2 u32 match"
+	      				F_CMD_HANDLE=$((F_CMD_HANDLE<<6))
+              				F_CMD="$F_CMD mark $ACCEL_HANDLE $SP_WFQ_PRIO_MASK flowid 1:99"
+				       	$F_CMD
+         				F_CMD="$F_CMD mark $F_CMD_HANDLE $SP_WFQ_PRIO_MASK flowid 1:99"
+         				$F_CMD
+        			fi
+			fi # End of ADD DEL LOOP
+		fi #End of ATM loop
+	fi # End of Upstream loop
+	if [ $QOS_MODE -eq $DOWNSTREAM_QOS ]; then
+		###############Downstream classifier for Mii1 and PTM modes on VRX288 #########################
+
+		if [ "$target" = "VRX2" -o "$target" = "ARX3" -o "$target" = "VRX3" ]; then
+			#downstream QoS: configure LAN queues for Mii1 and PTM modes
+			QUEUE_NO=`expr $QQ_QPRIO - 1`
+			if [ $QQ_SCHEDTYPE -eq 0 ]; then
+				
+				#SCHEDULER Type is SP
+				SCHEDTYPE=0
+				LQ_WEIGHT=65535
+				RATE=$QQ_PEAKRATE
+			fi	
+			if [ $QQ_SCHEDTYPE -eq 2 ]; then
+
+				#Scheduler type Is WFQ
+				SCHEDTYPE=1
+
+				#Set queue weight as percentage of Max queue Weight
+				MAX_WEIGHT=65535
+				sum_wt=`/usr/sbin/status_oper GET qos_bk sum_wt`
+				lanq_sum_wt=`/usr/sbin/status_oper GET qos_bk lanq_sum_wt`
+
+				#queue_weight =(0xffff/sum(weights))*queue_weight
+                		Q_WEIGHT=`expr $MAX_WEIGHT \* $QQ_QWT`
+				#Q_WEIGHT=`expr $Q_WEIGHT / $sum_wt`
+				LQ_WEIGHT=`expr $Q_WEIGHT / $lanq_sum_wt`
+				#Q_WEIGHT=$(echo "$MAX_WEIGHT $QQ_QWT" | awk '{print $1*$2}')
+				#LQ_WEIGHT=$(echo "$Q_WEIGHT $lanq_sum_wt" | awk '{print $1/$2}')
+				#RATE=$QQ_COMMITRATE
+				RATE=$QQ_PEAKRATE
+			fi
+			Lqueue=`/usr/sbin/status_oper GET qos_bk LAN_numQueue`
+			
+			
+	Q0=$LP1_Q1
+	Q1=$LP1_Q2
+	Q2=$LP1_Q3
+	Q3=$LP1_Q4
+	Q4=$LP2_Q1
+	Q5=$LP2_Q2
+	Q6=$LP2_Q3
+	Q7=$LP2_Q4
+	Q8=$LP3_Q1
+	Q9=$LP3_Q2
+	Q10=$LP3_Q3
+	Q11=$LP3_Q4
+	Q16=$LP4_Q1
+	Q17=$LP4_Q2
+	Q18=$LP4_Q3
+	Q19=$LP4_Q4
+			if [ $2 -eq 1 ]; then
+				
+				QUEUE_NO=`expr $QQ_QPRIO - 1`
+				#set scheduler to queue
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+					#add queues for port 0,1,2,4
+					#for QUEUE in 0 1 2 3 4 5 6 7 8 9 10 11 16 17 18 19; do
+					#	C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$QUEUE eType=$SCHEDTYPE nWeight=$Q_WEIGHT"
+						#echo "$QUEUE $C_CMD"
+					#	$C_CMD
+					#done
+					#echo "Scheduler Cfg for LAN queue_no $QUEUE_NO"
+					case "$QUEUE_NO" in
+						3)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q0 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q4 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q8 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q16 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						2)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q1 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q5 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q9 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q17 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						1)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q2 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q6 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q10 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q18 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						0)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q3 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q7 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q11 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q19 eType=$SCHEDTYPE nWeight=$LQ_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+					esac
+
+				#fi	
+			fi # End of ADD Queue LOOP
+			
+			if [ $2 -eq 0 ]; then
+				QUEUE_NO=`expr $QQ_QPRIO - 1`
+				
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+				
+					##echo "Scheduler delete for LAN queue_no $QUEUE_NO"
+					SCHEDTYPE=0
+					Q_WEIGHT=0x1800
+					case "$QUEUE_NO" in
+						3)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q0 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q4 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q8 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q16 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						2)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q1 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q5 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q9 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q17 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						1)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q2 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q6 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q10 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q18 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+						0)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q3 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q7 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q11 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$Q19 eType=$SCHEDTYPE nWeight=$Q_WEIGHT";
+							#echo "$QUEUE_NO $C_CMD";
+							$C_CMD;
+							;;
+					esac
+				#fi	
+			fi # End of DEL QUEUE LOOP
+			#rate shaping is always enabled, will configure commited rate.
+			if [ $QQ_SHAPERENABLE -eq 1 ]; then
+
+				if [ $2 -eq 1 ]; then
+					QUEUE_NO=`expr $QQ_QPRIO - 1`
+					SHAPER_INST=`expr $QUEUE_NO + 10`
+					QQ_SBS=1000
+				
+					#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+						#set shaper instance based on QQ_INST
+						C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_CFG_SET nRateShaperId=$SHAPER_INST bEnable=$QQ_SHAPERENABLE nCbs=$QQ_SBS nRate=$RATE"
+						#echo $C_CMD
+						$C_CMD
+						#Configure LAN Rate Shapers
+						#echo "Shaper Assign for LAN queue_no $QUEUE_NO=$SHAPER_INST"
+						# S0 - Q0,Q4,Q8,Q16; S1 - Q1,Q5,Q9,Q17 ; S2 - Q2,Q6,Q10,Q18; S3 - Q3,Q7,Q11,Q19
+						case "$SHAPER_INST" in
+							13)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q0";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q4";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q8";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q16";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+							12)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q1";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q5";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q9";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q17";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+							11)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q2";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q6";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q10";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q18";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+							10)
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q3";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q7";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q11";
+								#echo $C_CMD;
+								$C_CMD;
+								C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_ASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q19";
+								#echo $C_CMD;
+								$C_CMD;
+								;;
+						esac
+					#fi
+				fi # End of ADD QUEUE LOOP
+			fi # End of Shaper enable loop
+			if [ $2 -eq 0 ]; then
+				QUEUE_NO=`expr $QQ_QPRIO - 1`
+				SHAPER_INST=`expr $QUEUE_NO + 10`
+					
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+					#Configure LAN Rate Shapers
+					#echo "Shaper Deassign for LAN queue_no $QUEUE_NO=$SHAPER_INST"
+					
+					# S0 - Q0,Q4,Q8,Q16; S1 - Q1,Q5,Q9,Q17 ; S2 - Q2,Q6,Q10,Q18; S3 - Q3,Q7,Q11,Q19
+					case "$SHAPER_INST" in
+						13)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q4";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q8";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q16";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						12)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q1";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q5";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q9";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q17";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						11)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q2";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q6";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q10";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q18";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						10)
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q3";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q7";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q11";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_SHAPER_QUEUE_DEASSIGN nRateShaperId=$SHAPER_INST nQueueId=$Q19";
+							echo $C_CMD;
+							$C_CMD;
+							;;
+					esac
+					
+				#fi	
+			fi # End of DEL QUEUE LOOP
+			# CONFIGURE RED if enabled
+			if [ $QQ_DROPTYPE -eq 1 ]; then
+				
+				DROP_PROB=$QQ_REDPCT
+				RED_MINTH=$QQ_REDTH
+				RED_MAXTH=`expr $RED_MINTH \* 3`
+				#TBD: need to check with in 100 % and mech to converst % to bytes
+				#Droptype is RED
+				#if [ $qIfType -eq $QOS_INTF_LAN_ETH ]; then
+					case "$QUEUE" in
+						
+						3)
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q0 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q4 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q8 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q16 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						2)
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q1 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q5 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q9 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q17 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						1)	
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q2 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q6 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q10 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q18 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+						0)
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q3 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q7 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q11 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							C_CMD="switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=$Q19 nRed_Min=$RED_MINTH nRed_Max=$RED_MAXTH nYellow_Min=0 nYellow_Max=0 nGreen_Min=0 nGreen_Max=0";
+							#echo $C_CMD;
+							$C_CMD;
+							;;
+					esac
+				#fi	
+			
+			fi # End of DROP TYPE LOOP	
+			
+		fi # End of VRX & ARX  LOOP
+
+       fi # End of DOWNSTREAM LOOP
+fi # End of QUEUE Method = 5
+
+#fi
+#echo " IPQOS Q MGMT STOP !!!!!!!!!!!!!!!!!!!!!!!!!!! "

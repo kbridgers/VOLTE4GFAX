@@ -1,0 +1,54 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+apIndex=$1
+
+print2log DBG "running  wave_wlan_get_stats $1"
+timestamp "wave_wlan_get_stats:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+TMP_IFCONFIG="/tmp/ifconfig.log"
+TMP_PROCSTATS="/tmp/procstats.log"
+
+ifconfig $wlan > $TMP_IFCONFIG
+
+bytesTx=`grep "TX bytes" $TMP_IFCONFIG | sed -e "s/.*TX bytes://" -e "s/ .*//"`
+bytesRx=`grep "RX bytes" $TMP_IFCONFIG | sed -e "s/.*RX bytes://" -e "s/ .*//"`
+pktsTx=`grep "TX packets" $TMP_IFCONFIG | sed -e "s/.*TX packets://" -e "s/ .*//"`
+pktsRx=`grep "RX packets" $TMP_IFCONFIG | sed -e "s/.*RX packets://" -e "s/ .*//"`
+errorsTx=`grep "TX.*errors" $TMP_IFCONFIG | sed -e "s/.*errors://" -e "s/ .*//"`
+errorsRx=`grep "RX.*errors" $TMP_IFCONFIG | sed -e "s/.*errors://" -e "s/ .*//"`
+discardPktsTx=`grep "TX.*dropped" $TMP_IFCONFIG | sed -e "s/.*dropped://" -e "s/ .*//"`
+discardPktsRx=`grep "RX.*dropped" $TMP_IFCONFIG | sed -e "s/.*dropped://" -e "s/ .*//"`
+
+#TODO: Find way to read multicast/broadcast stats (mtdump API that is faster than WLANFlowStatus)
+# cat /proc/net/mtlk/$wlan/Debug/General > $TMP_PROCSTATS
+#ucPktsTx=`grep Unicast $TMP_PROCSTATS | cut -d "|" -f 3 | cut -d " " -f 2`
+#ucPktsRx=`grep Unicast $TMP_PROCSTATS | cut -d "|" -f 2 | cut -d " " -f 2`
+#mcPktsTx=`grep Multicast $TMP_PROCSTATS | cut -d "|" -f 3 | cut -d " " -f 2`
+#mcPktsRx=`grep Multicast $TMP_PROCSTATS | cut -d "|" -f 3 | cut -d " " -f 2`
+#bcPktsTx=`grep Broadcast $TMP_PROCSTATS | cut -d "|" -f 3 | cut -d " " -f 2`
+#bcPktsRx=`grep Broadcast $TMP_PROCSTATS | cut -d "|" -f 2 | cut -d " " -f 2`
+
+echo "bytesTx=\""$bytesTx"\""
+echo "bytesRx=\""$bytesRx"\""
+echo "pktsTx=\""$pktsTx"\""
+echo "pktsRx=\""$pktsRx"\""
+echo "errorsTx=\""$errorsTx"\""
+echo "errorsRx=\""$errorsRx"\""
+echo "discardPktsTx=\""$discardPktsTx"\""
+echo "discardPktsRx=\""$discardPktsRx"\""
+echo "ucPktsTx=\""$ucPktsTx"\""
+echo "ucPktsRx=\""$ucPktsRx"\""
+echo "mcPktsTx=\""$mcPktsTx"\""
+echo "mcPktsRx=\""$mcPktsRx"\""
+echo "bcPktsTx=\""$bcPktsTx"\""
+echo "bcPktsRx=\""$bcPktsRx"\""
+
+timestamp "wave_wlan_get_stats:$apIndex:done"

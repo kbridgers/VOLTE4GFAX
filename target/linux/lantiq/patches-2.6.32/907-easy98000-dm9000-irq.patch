@@ -1,0 +1,33 @@
+--- a/arch/mips/lantiq/falcon/mach-easy98000.c
++++ b/arch/mips/lantiq/falcon/mach-easy98000.c
+@@ -108,18 +108,17 @@ static struct gpio_led easy98000_leds_gp
+ #define CONFIG_DM9000_BASE		0x14000000
+ #define DM9000_IO			(CONFIG_DM9000_BASE + 3)
+ #define DM9000_DATA			(CONFIG_DM9000_BASE + 1)
++#define DM9000_GPIO			110
+ 
+ static struct dm9000_plat_data dm9000_plat_data = {
+ 	.flags = DM9000_PLATF_8BITONLY,
+-	//.dev_addr = { }, /* possibility to provide an ethernet address for the chip */
+ };
+ 
+ static struct resource dm9000_resources[] = {
+ 	MEM_RES("dm9000_io", DM9000_IO, DM9000_IO),
+ 	MEM_RES("dm9000_data", DM9000_DATA, DM9000_DATA),
+ 	[2] = {
+-		/* with irq (210 -> gpio 110) the driver is very unreliable */
+-		.start	= -1,		/* use polling */
++		.start	= -1,		/* use polling as fallback */
+ 		.end	= -1,
+ 		.flags	= IORESOURCE_IRQ | IRQF_TRIGGER_LOW,
+ 	},
+@@ -141,6 +140,9 @@ static void __init register_davicom(void
+ 	if (!easy98000_addon_has_dm9000())
+ 		return;
+ 
++	if (!gpio_request(DM9000_GPIO, "ebu_irq"))
++		dm9000_resources[2].start = gpio_to_irq(DM9000_GPIO);
++
+ 	if (!is_valid_ether_addr(ltq_ethaddr))
+ 		random_ether_addr(dm9000_plat_data.dev_addr);
+ 	else {

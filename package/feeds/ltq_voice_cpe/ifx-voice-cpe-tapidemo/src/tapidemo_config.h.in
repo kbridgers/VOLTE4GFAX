@@ -1,0 +1,225 @@
+/* tapidemo_config.h.in.  Generated from configure.in by autoheader.  */
+
+/******************************************************************************
+
+                            Copyright (c) 2009-2012
+                            Lantiq Deutschland GmbH
+
+  For licensing information, see the file 'LICENSE' in the root folder of
+  this software module.
+
+  ****************************************************************************/
+#ifndef _TAPIDEMO_CONFIG_H_
+#define _TAPIDEMO_CONFIG_H_
+
+
+/* set system to AMAZON_S */
+#undef AR9
+
+/* set system to VMMC */
+#undef DANUBE
+
+/* Build in debugging symbols and enable debugging messages */
+#undef DEBUG
+
+/* DuSLIC FXO */
+#undef DUSLIC_FXO
+
+/* Duslic-xT is used */
+#undef DXT
+
+/* Enable EASY3111 support */
+#undef EASY3111
+
+/* EASY3201 System is used */
+#undef EASY3201
+
+/* EASY3201_EVS System is used */
+#undef EASY3201_EVS
+
+/* set system to EASY3332 */
+#undef EASY3332
+
+/* EASY336 System is used */
+#undef EASY336
+
+/* set system to EASY50510 */
+#undef EASY50510
+
+/* set system to EASY50712_V3 */
+#undef EASY50712_V3
+
+/* enable log (errors) outputs in general */
+#undef ENABLE_LOG
+
+/* enable trace outputs in general */
+#undef ENABLE_TRACE
+
+/* Enable counting of events */
+#undef EVENT_COUNTER
+
+/* enable event logger debugging */
+#undef EVENT_LOGGER_DEBUG
+
+/* enable FXO support */
+#undef FXO
+
+/* using drv_daa */
+#undef HAVE_DRV_DAA_HEADERS
+
+/* using drv_duslic_xt */
+#undef HAVE_DRV_DUSLICXT_HEADERS
+
+/* using drv_duslic */
+#undef HAVE_DRV_DUSLIC_HEADERS
+
+/* using drv_easy3201 */
+#undef HAVE_DRV_EASY3201_HEADERS
+
+/* using drv_easy3332 */
+#undef HAVE_DRV_EASY3332_HEADERS
+
+/* using drv_svip */
+#undef HAVE_DRV_SVIP_HEADERS
+
+/* using TAPI driver */
+#undef HAVE_DRV_TAPI_HEADERS
+
+/* Define to 1 if you have the <drv_tapi_qos_io.h> header file. */
+#undef HAVE_DRV_TAPI_QOS_IO_H
+
+/* using drv_ter1x66 */
+#undef HAVE_DRV_TERIDIAN_HEADERS
+
+/* using vinetic driver(drv_vinetic) */
+#undef HAVE_DRV_VINETIC_HEADERS
+
+/* using drv_vmmc */
+#undef HAVE_DRV_VMMC_HEADERS
+
+/* using drv_vxt */
+#undef HAVE_DRV_VXT_HEADERS
+
+/* Define to 1 if ifxos should be enabled. */
+#undef HAVE_LIBIFXOS
+
+/* for this board Protocol Stack in Voice Processing Firmware is available */
+#undef HAVE_T38_IN_FW
+
+/* set system to INCAIP2 */
+#undef INCAIP2
+
+/* enable linux 2.6 code */
+#undef LINUX_2_6
+
+/* Define to 1 if your C compiler doesn't accept -c and -o together. */
+#undef NO_MINUS_C_MINUS_O
+
+/* enable old BSP */
+#undef OLD_BSP
+
+/* Name of package */
+#undef PACKAGE
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* enable QOS support */
+#undef QOS_SUPPORT
+
+/* SLIC 121 FXO */
+#undef SLIC121_FXO
+
+/* enable compiling for stream 1 */
+#undef STREAM_1_1
+
+/* configure options string */
+#undef TAPIDEMO_CONFIGURE_STR
+
+/* compile application as library */
+#undef TAPIDEMO_LIBRARY
+
+/* disable multiple CPTDs for one channel support */
+#undef TD_3_CPTD_SUPPORT_DISABLED
+
+/* using BBD file */
+#undef TD_BBD_FILE
+
+/* enable DECT */
+#undef TD_DECT
+
+/* using ifx_stack_toolkit version before 3.1.1.3 */
+#undef TD_DECT_BW_COMP_BEFORE_3_1_1_3
+
+/* enable transparent fax/modem transmission */
+#undef TD_FAX_MODEM
+
+/* enable fax T.38 transmissions */
+#undef TD_FAX_T38
+
+/* using firmware file */
+#undef TD_FW_FILE
+
+/* using drv_board */
+#undef TD_HAVE_DRV_BOARD_HEADERS
+
+/* enable IPv6 support */
+#undef TD_IPV6_SUPPORT
+
+/* enable FXS Phone Plug Detection */
+#undef TD_PPD
+
+/* enable additional debug for RM (resource counting) */
+#undef TD_RM_DEBUG
+
+/* enable T.38 fax test functionality - only EASY508XX boards */
+#undef TD_T38_FAX_TEST
+
+/* enable Timer */
+#undef TD_TIMER
+
+/* using tapi channel init */
+#undef TD_USE_CHANNEL_INIT
+
+/* enable external call workaround */
+#undef TD_USE_EXT_CALL_WORKAROUND_EASY508XX
+
+/* set system to XWAY(TM) XRX300 */
+#undef TD_XWAY_XRX300
+
+/* Teridian FXO */
+#undef TERIDIAN_FXO
+
+/* enable filesystem support */
+#undef USE_FILESYSTEM
+
+/* Version number of package */
+#undef VERSION
+
+/* VINAX system is used */
+#undef VINAX
+
+/* set system to VMMC */
+#undef VR9
+
+/* Use Vinetic-xT driver */
+#undef WITH_VXT
+
+/* XT16 System is used */
+#undef XT16
+
+
+#endif /* _TAPIDEMO_CONFIG_H_ */
+

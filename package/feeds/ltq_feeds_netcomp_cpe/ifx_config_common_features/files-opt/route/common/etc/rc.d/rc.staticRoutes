@@ -1,0 +1,27 @@
+#!/bin/sh
+
+case "$1" in
+	add)
+		#add
+		#/etc/rc.d/rc.staticRoutes_add $2 $3 $4 $5 $6 $7
+		sr_status="UP"
+		;;
+	delete)
+		#del
+		#/etc/rc.d/rc.staticRoutes_delete $2
+		sr_status="DOWN"
+		;;
+	modify)
+		#modify
+		#/etc/rc.d/rc.staticRoutes_delete $2 
+		#/etc/rc.d/rc.staticRoutes_add $3 $4 $5 $6 $7 $8
+		sr_status="UP"
+		;;
+	*)
+		echo $"Usage $0 {add|delete|modify}"
+		exit 1
+esac
+tag="route_${2}"
+tag_value=route_${2}_status
+/usr/sbin/status_oper SET $tag $tag_value "$sr_status" 
+echo "0"

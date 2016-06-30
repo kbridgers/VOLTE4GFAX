@@ -1,0 +1,24 @@
+; Teraterm script for testing MAPI functionality
+; Log is created on in /tmp/test_output.log 
+
+
+sendln "root"
+mpause 1000
+sendln "admin"
+mpause 3000
+sendln "i=0"
+sendln "echo > /tmp/test_output.log"
+
+for i 1 100
+	sendln "/etc/rc.d/rc.bringup_wlan wps_trigger_pin 0 123456780"
+	mpause 150000
+	sendln "echo Test num. $i >> /tmp/test_output.log"
+	mpause 1000
+	sendln "iwconfig wlan0 >> /tmp/test_output.log"
+	mpause 2000
+	sendln "let i=i+1"
+	mpause 1000
+next
+
+
+

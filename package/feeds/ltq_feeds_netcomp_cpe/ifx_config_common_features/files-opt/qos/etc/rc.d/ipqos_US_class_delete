@@ -1,0 +1,566 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+        IPTABLES="iptables"
+        IP6TABLES="ip6tables"
+	EBTABLES="ebtables"
+       
+	platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+      
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+QOS_INTF_WAN=15
+QOS_INTF_WAN_ALL=4
+
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1
+QOS_TYPE_802_1P=2
+
+
+
+# Read the index passed as command line parameter passed as this script
+i=$1
+#Get the qId of the classifier
+eval cl_qId='$'qcl_${i}_qId
+	
+	
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		;;
+esac
+
+#########################################################################
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+            #	if [ "$target" == "ARX3" ]; then
+            mode=1; 
+            ;;
+			1)
+				#wan mode is PTM
+            mode=1; 
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+       mode=1; 
+		;;
+	2)
+		#wan mode is MII1
+     	case "$target" in
+         "ARX3")
+                  mode=0;
+		            ;;
+         "VRX3")
+                  mode=0;
+		            ;;
+         "GRX2")
+                  mode=0;
+		            ;;
+         "GRX3")
+                  mode=0;
+		            ;;
+         "RT2")
+                  mode=0;
+		            ;;
+         "VRX2")
+                  mode=1;
+                  ;;
+
+         "ARX1")
+                  mode=1;
+                  ;;
+          esac
+          ;;
+	3)
+		#wan mode is PTM
+		mode=1;
+		;;
+esac
+###################################################################################################
+
+
+
+
+
+n=0
+while [ $n -lt $qos_queue_Count ]
+do
+	eval qCpeId='$'qq_${n}_cpeId
+	if [ $qCpeId -eq $cl_qId ]; then
+		eval qIfType='$'qq_${n}_qIfType	
+		eval queue_prio='$'qq_${n}_qPrio
+		vconfig_skb_prio=`expr -$queue_prio + 8`
+		#if [ $qIfType -eq $qIfTypeActive ]; then
+
+
+			# Read cpe ID from rc.conf
+			eval QOS_ACCEL_DISABLE='$'qcl_${i}_disableAccel
+			eval QM_ACCEL_DISABLE=$qm_AccelMngr
+			QOS_ACCEL_DISABLE=$(($QOS_ACCEL_DISABLE&$QM_ACCEL_DISABLE))
+			
+			eval QOS_CPEID='$'qcl_${i}_cpeId
+			# Read order from rc.conf
+			eval QOS_ORDER='$'qcl_${i}_order
+			# Read classifier type
+			eval QOS_TYPE='$'qcl_${i}_type
+			# Read classification interface
+			#eval QOS_IFTYPE='$'qcl_${i}_ifType
+			eval QOS_INTFTYPE='$'qcl_${i}_ifType
+			eval QOS_IFTYPE='$'qcl_${i}_classifType
+			# Read QOS Queue ID
+			eval QOS_QID='$'qcl_${i}_qId
+			# Delete the corresponding queue for this class
+			eval QOS_RATELMT='$'qcl_${i}_rateLmt
+			eval QOS_RATECTRENBL='$'qcl_${i}_rateCtrlEnbl
+			eval QOS_802_1PMARK='$'qcl_${i}_PBitsMark
+			eval QOS_INDSCP='$'qcl_${i}_inDscp
+			eval QOS_DSCPMARK='$'qcl_${i}_dscpMark
+			eval QOS_L3PROTO='$'qcl_${i}_l3proto
+			
+			# Delete the 'vconfig egress mapping for 8021P remarking' 
+			. /etc/rc.d/ipqos_common 1 1
+
+         if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ]; then
+            chain_selection=0
+         else
+            chain_selection=1
+         fi
+
+		if [ $mode -eq 0 -a $QOS_DSCPMARK == "-1" -a $QOS_ACCEL_DISABLE -eq 0 ]; then
+
+			if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+				# remove chain reference
+				eval LAN_CHAIN_NAME="LAN_$QOS_CPEID"
+
+				if [ $QOS_L3PROTO -eq 1 ];then
+					# remove from IPQOS_LAN_ING
+					IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_LAN_ING $QOS_ORDER"
+					$IPTABLES_RULE
+
+					# flush the chain that has to be deleted and then delete the chain
+					IPTABLES_RULE="$IPTABLES -t mangle -F $LAN_CHAIN_NAME"
+					$IPTABLES_RULE
+
+					# Delete the chains from the system
+					IPTABLES_RULE="$IPTABLES -t mangle -X $LAN_CHAIN_NAME"
+					$IPTABLES_RULE
+				fi
+				if [ $QOS_L3PROTO -eq 2 ];then
+					# remove from IPQOS_LAN_ING
+					IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_LAN_ING $QOS_ORDER"
+					$IP6TABLES_RULE
+
+					# flush the chain that has to be deleted and then delete the chain
+					IP6TABLES_RULE="$IP6TABLES -t mangle -F $LAN_CHAIN_NAME"
+					$IP6TABLES_RULE
+
+					# Delete the chains from the system
+					IP6TABLES_RULE="$IP6TABLES -t mangle -X $LAN_CHAIN_NAME"
+					$IP6TABLES_RULE
+				fi
+				EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_LAN_ING $QOS_ORDER"
+				$EBTABLES_RULE
+				
+
+				EBTABLES_RULE="$EBTABLES -t filter -F $LAN_CHAIN_NAME"
+				$EBTABLES_RULE
+				EBTABLES_RULE="$EBTABLES -t filter -X $LAN_CHAIN_NAME"
+				$EBTABLES_RULE
+
+			fi
+
+			if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					# remove chain reference
+					eval IPQOS_LAN_DSCP_CHAIN_NAME="IPQOS_LAN_DSCP_$QOS_CPEID"
+#					if [ $QOS_L3PROTO -eq 1 ];then
+    						# remove from IPQOS_LAN_DSCP_ALL
+						IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+						# flush the chain that has to be deleted and then delete the chain
+						IPTABLES_RULE="$IPTABLES -t mangle -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+						# Delete the chains from the system
+						IPTABLES_RULE="$IPTABLES -t mangle -X $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+#					fi
+#					if [ $QOS_L3PROTO -eq 2 ];then
+ #   						# remove from IPQOS_LAN_DSCP_ALL
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#						# flush the chain that has to be deleted and then delete the chain
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#						# Delete the chains from the system
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -X $IPQOS_LAN_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#					fi
+					EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+
+					EBTABLES_RULE="$EBTABLES -t filter -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+
+					EBTABLES_RULE="$EBTABLES -t filter -X $IPQOS_LAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+    
+				fi
+
+			fi
+
+		fi
+
+#Manamohan: Removed for GRx and RT288 on 9,April 2012	
+#		if [ "$target" != "GRX2" -a "$target" != "RT2" -o $QOS_RATECTRENBL -eq 1  ]; then
+#	   if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 -o $QOS_RATECTRENBL -eq 1 -o $QOS_DSCPMARK != "-1" ]; the
+		#delete iptables chains only if DSCP remarking is enabled or Ratelimiting is enabled or Disable accel is enabled
+		if [ $mode -eq 1 -o $QOS_RATECTRENBL -eq 1 -o $QOS_DSCPMARK != "-1" -o $QOS_ACCEL_DISABLE -eq 1 ]; then
+			# For MFC classification
+			if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+				# remove chain reference
+				eval LAN_CHAIN_NAME="LAN_$QOS_CPEID"
+				eval OUTPUT_CHAIN_NAME="OUTPUT_$QOS_CPEID"
+
+				#eval WAN_CHAIN_NAME="WAN_$QOS_CPEID"
+
+				if [ $QOS_L3PROTO -eq 1 ];then
+					# remove from IPQOS_LAN_ING
+					IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_LAN_ING $QOS_ORDER"
+					$IPTABLES_RULE
+			#		IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_WAN_ING $QOS_ORDER"
+			#		$IPTABLES_RULE
+					# remove from IPQOS_OUTPUT
+					IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_OUTPUT $QOS_ORDER"
+					$IPTABLES_RULE
+
+					# flush the chain that has to be deleted and then delete the chain
+					IPTABLES_RULE="$IPTABLES -t mangle -F $LAN_CHAIN_NAME"
+					$IPTABLES_RULE
+					IPTABLES_RULE="$IPTABLES -t mangle -F $OUTPUT_CHAIN_NAME"
+					$IPTABLES_RULE
+
+					# Delete the chains from the system
+					IPTABLES_RULE="$IPTABLES -t mangle -X $LAN_CHAIN_NAME"
+					$IPTABLES_RULE
+					IPTABLES_RULE="$IPTABLES -t mangle -X $OUTPUT_CHAIN_NAME"
+					$IPTABLES_RULE
+				fi
+				if [ $QOS_L3PROTO -eq 2 ];then
+					# remove from IPQOS_LAN_ING
+					IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_LAN_ING $QOS_ORDER"
+					$IP6TABLES_RULE
+			#		IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_WAN_ING $QOS_ORDER"
+			#		$IP6TABLES_RULE
+				#	# remove from IPQOS_OUTPUT
+				#	IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_OUTPUT $QOS_ORDER"
+				#	$IP6TABLES_RULE
+
+					# flush the chain that has to be deleted and then delete the chain
+					IP6TABLES_RULE="$IP6TABLES -t mangle -F $LAN_CHAIN_NAME"
+					$IP6TABLES_RULE
+				#	IP6TABLES_RULE="$IP6TABLES -t mangle -F $OUTPUT_CHAIN_NAME"
+				#	$IP6TABLES_RULE
+
+					# Delete the chains from the system
+					IP6TABLES_RULE="$IP6TABLES -t mangle -X $LAN_CHAIN_NAME"
+					$IP6TABLES_RULE
+				#	IP6TABLES_RULE="$IP6TABLES -t mangle -X $OUTPUT_CHAIN_NAME"
+				#	$IP6TABLES_RULE
+				fi
+				EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_LAN_ING $QOS_ORDER"
+				$EBTABLES_RULE
+				
+			#	EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_WAN_ING $QOS_ORDER"
+			#	$EBTABLES_RULE
+
+				#IPTABLES_RULE="$IPTABLES -t mangle -F $WAN_CHAIN_NAME"
+				#$IPTABLES_RULE
+				EBTABLES_RULE="$EBTABLES -t filter -F $LAN_CHAIN_NAME"
+				$EBTABLES_RULE
+				#EBTABLES_RULE="$EBTABLES -t filter -F $WAN_CHAIN_NAME"
+				#$EBTABLES_RULE
+				#IPTABLES_RULE="$IPTABLES -t mangle -X $WAN_CHAIN_NAME"
+				#$IPTABLES_RULE
+				EBTABLES_RULE="$EBTABLES -t filter -X $LAN_CHAIN_NAME"
+				$EBTABLES_RULE
+				#EBTABLES_RULE="$EBTABLES -t filter -X $WAN_CHAIN_NAME"
+				#$EBTABLES_RULE
+
+				if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+					queuecfg -x $QOS_QID/$QOS_CPEID
+               				if [ $qm_tcpackprio -eq 1 ]; then
+	               				. /etc/rc.d/ipqos_common 0 0 
+               				fi
+
+				fi
+			fi
+
+			if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					# remove chain reference
+					eval IPQOS_LAN_DSCP_CHAIN_NAME="IPQOS_LAN_DSCP_$QOS_CPEID"
+					eval IPQOS_WAN_DSCP_CHAIN_NAME="IPQOS_WAN_DSCP_$QOS_CPEID"
+#					if [ $QOS_L3PROTO -eq 1 ];then
+    						# remove from IPQOS_LAN_DSCP_ALL
+						IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+						# flush the chain that has to be deleted and then delete the chain
+						IPTABLES_RULE="$IPTABLES -t mangle -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+						# Delete the chains from the system
+						IPTABLES_RULE="$IPTABLES -t mangle -X $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+#					fi
+#					if [ $QOS_L3PROTO -eq 2 ];then
+#   						# remove from IPQOS_LAN_DSCP_ALL
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#						# flush the chain that has to be deleted and then delete the chain
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#						# Delete the chains from the system
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -X $IPQOS_LAN_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#					fi
+					EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+
+					EBTABLES_RULE="$EBTABLES -t filter -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+
+					EBTABLES_RULE="$EBTABLES -t filter -X $IPQOS_LAN_DSCP_CHAIN_NAME"
+					$EBTABLES_RULE
+    
+					#Delete MAP entries for rate limiting in /tmp/system_status
+					if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+						queuecfg -x $QOS_QID/$QOS_CPEID
+                  				if [ $qm_tcpackprio -eq 1 ]; then
+	                  				. /etc/rc.d/ipqos_common 0 0 
+                  				fi
+					fi
+				fi
+
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					# remove chain reference
+					eval IPQOS_OUTPUT_DSCP_CHAIN_NAME="IPQOS_OUTPUT_DSCP_$QOS_CPEID"
+
+#					if [ $QOS_L3PROTO -eq 1 ];then
+						# remove from IPQOS_OUTPUT_DSCP_ALL
+						IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_OUTPUT_DSCP_ALL -j $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+
+						# flush the chain that has to be deleted and then delete the chain
+						IPTABLES_RULE="$IPTABLES -t mangle -F $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+
+						# Delete the chains from the system
+						IPTABLES_RULE="$IPTABLES -t mangle -X $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+						$IPTABLES_RULE
+#					fi
+#					if [ $QOS_L3PROTO -eq 2 ];then
+#						# remove from IPQOS_OUTPUT_DSCP_ALL
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_OUTPUT_DSCP_ALL -j $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#
+#						# flush the chain that has to be deleted and then delete the chain
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -F $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#
+#						# Delete the chains from the system
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -X $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#					fi
+
+					#Delete MAP entries for rate limiting in /tmp/system_status
+					if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+						queuecfg -x $QOS_QID/$QOS_CPEID
+                  				if [ $qm_tcpackprio -eq 1 ]; then
+	                  				. /etc/rc.d/ipqos_common 0 0 
+                  				fi
+					fi
+				fi
+
+			fi
+
+			if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					# remove chain reference
+					eval IPQOS_LAN_8021P_CHAIN_NAME="IPQOS_LAN_8021P_$QOS_CPEID"
+					eval IPQOS_WAN_8021P_CHAIN_NAME="IPQOS_WAN_8021P_$QOS_CPEID"
+					
+#					if [ $QOS_L3PROTO -eq 1 ];then
+    						# remove from IPQOS_LAN_DSCP_ALL
+						IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_LAN_8021P_ALL -j $IPQOS_LAN_8021P_CHAIN_NAME"
+						$IPTABLES_RULE
+						# flush the chain that has to be deleted and then delete the chain
+						IPTABLES_RULE="$IPTABLES -t mangle -F $IPQOS_LAN_8021P_CHAIN_NAME"
+						$IPTABLES_RULE
+						# Delete the chains from the system
+						IPTABLES_RULE="$IPTABLES -t mangle -X $IPQOS_LAN_8021P_CHAIN_NAME"
+						$IPTABLES_RULE
+#					fi
+#					if [ $QOS_L3PROTO -eq 2 ];then
+ #   						# remove from IPQOS_LAN_DSCP_ALL
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_LAN_8021P_ALL -j $IPQOS_LAN_8021P_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#						# flush the chain that has to be deleted and then delete the chain
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -F $IPQOS_LAN_8021P_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#						# Delete the chains from the system
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -X $IPQOS_LAN_8021P_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#					fi
+					EBTABLES_RULE="$EBTABLES -t filter -D IPQOS_LAN_8021P_ALL -j $IPQOS_LAN_8021P_CHAIN_NAME"
+					$EBTABLES_RULE
+
+					EBTABLES_RULE="$EBTABLES -t filter -F $IPQOS_LAN_8021P_CHAIN_NAME"
+					$EBTABLES_RULE
+
+					EBTABLES_RULE="$EBTABLES -t filter -X $IPQOS_LAN_8021P_CHAIN_NAME"
+					$EBTABLES_RULE
+    
+					#Delete MAP entries for rate limiting in /tmp/system_status
+					if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+						queuecfg -x $QOS_QID/$QOS_CPEID
+                  				if [ $qm_tcpackprio -eq 1 ]; then
+	                  				. /etc/rc.d/ipqos_common 0 0 
+                  				fi
+					fi
+				fi
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+					# remove chain reference
+					eval IPQOS_OUTPUT_8021P_CHAIN_NAME="IPQOS_OUTPUT_8021P_$QOS_CPEID"
+
+#					if [ $QOS_L3PROTO -eq 1 ];then
+						# remove from IPQOS_OUTPUT_DSCP_ALL
+						IPTABLES_RULE="$IPTABLES -t mangle -D IPQOS_OUTPUT_8021P_ALL -j $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+						$IPTABLES_RULE
+
+						# flush the chain that has to be deleted and then delete the chain
+						IPTABLES_RULE="$IPTABLES -t mangle -F $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+						$IPTABLES_RULE
+
+						# Delete the chains from the system
+						IPTABLES_RULE="$IPTABLES -t mangle -X $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+						$IPTABLES_RULE
+#					fi
+#					if [ $QOS_L3PROTO -eq 2 ];then
+#						# remove from IPQOS_OUTPUT_DSCP_ALL
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -D IPQOS_OUTPUT_8021P_ALL -j $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#
+#						# flush the chain that has to be deleted and then delete the chain
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -F $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#
+#						# Delete the chains from the system
+#						IP6TABLES_RULE="$IP6TABLES -t mangle -X $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+#						$IP6TABLES_RULE
+#					fi
+
+					#Delete MAP entries for rate limiting in /tmp/system_status
+					if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+						queuecfg -x $QOS_QID/$QOS_CPEID
+                  				if [ $qm_tcpackprio -eq 1 ]; then
+	                  				. /etc/rc.d/ipqos_common 0 0 
+                  				fi
+					fi
+				fi
+			fi
+		fi
+#end of GRx288 check
+		#fi
+
+
+		# If platform is GRX288, hw classifiers are used, delete all classifier rules on switch	
+		if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL -o $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+         #	if [ "$target" = "GRX2" -o "$target" = "VRX2" -o $chain_selection -eq 0 ]; then
+		   if [ $mode -eq 0 ]; then
+ 
+				if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+			nORDER=$(( $QOS_ORDER + 10 ))
+				fi
+
+				if [ $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+		 			#Downstream classifiers start from order 30 onwards
+					nORDER=$(( $QOS_ORDER + 30 ))
+				fi
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+					cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_PCE_RULE_DELETE nIndex=$nORDER"
+					$cmd >> /tmp/ipqos_tmp.log
+				fi
+
+				if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+					if [ $QOS_INDSCP != -1 ]; then
+						nTrafficClassAlternate=3
+						cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_DSCP_CLASS_SET nDSCP=$QOS_INDSCP nTrafficClass=$nTrafficClassAlternate"
+						$cmd >> /tmp/ipqos_tmp.log
+					fi
+				fi
+				if [ $QOS_DSCPMARK != -1 ]; then
+					nTrafficClassAlternate=`expr $queue_prio - 1`
+					QOS_DSCPMARK=0
+					cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_CLASS_DSCP_SET nTrafficClass=$nTrafficClassAlternate nDSCP=$QOS_DSCPMARK"
+					$cmd >> /tmp/ipqos_tmp.log
+				fi
+		
+			fi
+
+ 		fi
+	fi
+	
+	n=$(( $n + 1 ))
+done

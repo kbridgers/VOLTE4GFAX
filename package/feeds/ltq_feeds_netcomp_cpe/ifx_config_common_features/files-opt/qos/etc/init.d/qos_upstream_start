@@ -1,0 +1,413 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. initial version
+# 507141:tc.chen 2005/07/14 add netfilter module enable/disable code 
+# 508102:tc.chen 2005/08/10 fix virtual server min bandwidth does not work when IP PTOS disable
+# 508221:linmars fix TOS issue
+# T-604071:sumedh re-organised script (from qos_start to qos_upstream_start)
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# Ritesh : Source VoIP port information 
+if [ -r /etc/rc.d/init.d/voip_ports_cfg ]; then
+        . /etc/rc.d/init.d/voip_ports_cfg
+fi
+
+#Sumedh - if QOS_ENABLE = 0, exit script, do not create imqs, calculate rates, etc
+
+if [ "$QOS_ENABLE" != "1" ]; then #[
+	echo "QoS is not enabled"
+else
+
+	## Debug
+	#echo "#################### Calling qos_start ##############################"
+	#echo "#########################################################################"
+
+	# totol downstream bandwidth in Kbites
+	DOWNSTREAM_RATE="`/usr/sbin/get_adsl_rate 1`"
+	DOWNSTREAM_IF="imq0"
+
+	LOCAL_OUT_IF="imq1"
+
+	# total upstream bandwidth in Kbites
+	UPSTREAM_RATE="`/usr/sbin/get_adsl_rate 0`"
+	UPSTREAM_IF="imq2"
+
+	# Ration in %
+	BANDWIDTH_RATIO=80
+	DOWNSTREAM_RATE=$(( $DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100 ))
+	UPSTREAM_RATE=$(( $UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100 ))
+
+	#TC="/usr/sbin/tc"
+	TC="/etc/init.d/tc.sh"
+	IPTABLES="/usr/sbin/iptables"
+
+	#Suresh : imq in built into kernel
+	insmod imq numdevs=3
+	ip link set imq0 up
+	ip link set imq1 up
+	ip link set imq2 up
+
+	if [ "$DOWNSTREAM_RATE" -eq "0" -o "$UPSTREAM_RATE" -eq "0" ]; then
+		echo "ADSL link seems to be down, cannot configure QoS"
+		#exit 
+	else #[
+	#fi
+
+		echo "FINAL DOWNSTREAM_RATE MAX = " $DOWNSTREAM_RATE
+		echo "FINAL UPSTREAM MAX = " $UPSTREAM_RATE
+
+
+		#------------------------------------------------- upstream ----------------------------------------
+
+		#
+		#					QOS Tree
+		#   +---------------------------------------------------------------------------------------------------------------+
+		#   |                      					root 1:0 htb	                   							            |
+		#   +---------------------------------------------------------------------------------------------------------------+
+		#	 	                						  |
+		#   +---------------------------------------------------------------------------------------------------------------+
+		#   |                         				   1:1 htb	  		       									            |
+		#   +---------------------------------------------------------------------------------------------------------------+
+		#	      		  |							   |						  |					   |		     |
+		#   +-------------------------+  +-------------------------+  +------------------------+ +-----------+ +------------+
+		#   |       1:4 htb (ALG)     |  |       1:2 htb (VS)      |  | 1:3 htb(Precedence TOS)| |1:12 (VoIP)| | 1:11 (web) |
+		#   +-------------------------+  +-------------------------+  +------------------------+ +-----------+ +------------+
+		#         |            |               |            |	              	   |					 
+		#   +----------+  +-----------+  +----------+  +-----------+  +------------------------+
+		#   | 1:41(htb)|..| 1:4N(htb) |  | 1:21(htb)|..| 1:2N(htb) |  |          3:0 prio      |
+		#   +----------+  +-----------+  +----------+  +-----------+  +------------------------+
+		#         |             |              |             |	           |              |
+		#   +----------+  +----------+   +----------+  +----------+   +----------+  +----------+
+		#   |410(pfif0)|..|4N0(pfifo)|   |210(pfif0)|..|2N0(pfifo)|   |3:1(prio) |..| 3:8(prio)|
+		#   +----------+  +----------+   +----------+  +----------+   +----------+  +----------+
+		#							           |              |      	 
+		#				                              +----------+  +----------+
+		#				                              |310(pfifo)|..|380(pfifo)|
+		#				                              +----------+  +----------+
+		#
+		# clear existing qdiscs
+			UP_TC_CLASS_ADD="$TC class add dev $UPSTREAM_IF parent "
+
+			UP_TC_QDISC_ADD="$TC qdisc add dev $UPSTREAM_IF parent"
+
+			UP_TC_FILTER_ADD="$TC filter add dev $UPSTREAM_IF parent 1: protocol ip"
+
+
+		echo "UP_TC init"
+		if [ "$QOS_ENABLE" = "1" ]; then #[
+		# create qdisk tree
+			echo "QoS enabled"
+
+			/usr/sbin/status_oper SET qos status initiating
+
+			${TC} qdisc add dev ${UPSTREAM_IF} root handle 1: htb default 3
+
+			${UP_TC_CLASS_ADD} 1: classid 1:1 htb rate ${UPSTREAM_RATE}kbit
+
+			others_bandwidth=100
+
+		#511181:Nirav : To allow QoS For ALG
+			if [ "$QOS_ALG" = "1" ]; then
+				echo "QoS ALG enabled"
+
+				#sumedh --calculate minimun b/w based on individual minimums for each alg
+				rtsp_min=`/etc/rc.d/init.d/get_min RTSP_QOS UP_RTSP_MINBW`
+				netmeeting_min=`/etc/rc.d/init.d/get_min NETMEETING_QOS UP_NETMEETING_MINBW`
+				pptp_min=`/etc/rc.d/init.d/get_min PPTP_QOS UP_PPTP_MINBW`
+				ftp_min=`/etc/rc.d/init.d/get_min FTP_QOS UP_FTP_MINBW`
+				ipsec_min=`/etc/rc.d/init.d/get_min IPSEC_QOS UP_IPSEC_MINBW`
+				icmp_min=`/etc/rc.d/init.d/get_min ICMP_QOS UP_ICMP_MINBW`
+				sip_min=`/etc/rc.d/init.d/get_min SIP_QOS UP_SIP_MINBW`
+
+				ALG_MINBW=$(( $rtsp_min + $netmeeting_min + $pptp_min + $ftp_min + $ipsec_min + $icmp_min + $sip_min ))
+				if [ "$ALG_MINBW" = "0" ]; then
+					ALG_MINBW="1"
+				fi
+				ALG_MIN_BW=$(( $UPSTREAM_RATE \* $ALG_MINBW / 100 ))
+				${UP_TC_CLASS_ADD} 1:1  classid 1:4 htb rate ${ALG_MIN_BW}kbit ceil ${UPSTREAM_RATE}kbit prio 3 
+				if [ "$RTSP_QOS" = "1" ]; then
+					echo "RTSP ALG enabled"
+					# Outgoing packets from WAN
+					if [ $UP_RTSP_MINBW = "" ]; then
+						UP_RTSP_MINBW="10"
+					fi
+					UP_RTSP_MIN_BW=$(( $UPSTREAM_RATE \* $UP_RTSP_MINBW / 100 ))
+					UP_RTSP_MAX_BW=$(( $UPSTREAM_RATE \* $UP_RTSP_MAXBW / 100 ))
+					RTSP_QLENGTH=50
+					${UP_TC_CLASS_ADD} 1:4 classid 1:41 htb rate ${UP_RTSP_MIN_BW}kbit ceil ${UP_RTSP_MAX_BW}kbit cburst 64
+					${UP_TC_QDISC_ADD} 1:41 handle 410: pfifo limit $RTSP_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip appl_group real flowid 1:41
+				fi
+
+				if [ "$NETMEETING_QOS" = "1" ]; then
+					echo "NETMEETING_QOS ALG enabled"
+					# Outgoing packets from WAN
+					if [ $UP_NETMEETING_MINBW = "" ]; then
+						UP_NETMEETING_MINBW="10"
+					fi
+					UP_NETMEETING_MIN_BW=$(( $UPSTREAM_RATE \* $UP_NETMEETING_MINBW / 100 ))
+					UP_NETMEETING_MAX_BW=$(( $UPSTREAM_RATE \* $UP_NETMEETING_MAXBW / 100 ))
+					NETMEETING_QLENGTH=50
+					${UP_TC_CLASS_ADD} 1:4 classid 1:42 htb rate ${UP_NETMEETING_MIN_BW}kbit ceil ${UP_NETMEETING_MAX_BW}kbit cburst 64
+					${UP_TC_QDISC_ADD} 1:42 handle 420: pfifo limit $NETMEETING_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip appl_group netmeeting flowid 1:42
+				fi
+
+				if [ "$PPTP_QOS" = "1" ]; then
+					echo "PPTP ALG enabled"
+					# Outgoing packets from WAN
+					UP_PPTP_MIN_BW=$(( $UPSTREAM_RATE \* $UP_PPTP_MINBW / 100 ))
+					UP_PPTP_MAX_BW=$(( $UPSTREAM_RATE \* $UP_PPTP_MINBW / 100 ))
+					PPTP_QLENGTH=50
+					${UP_TC_CLASS_ADD} 1:4 classid 1:43 htb rate ${UP_PPTP_MIN_BW}kbit ceil ${UP_PPTP_MAX_BW}kbit cburst 64
+					${UP_TC_QDISC_ADD} 1:43 handle 430: pfifo limit $PPTP_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip appl_group pptp flowid 1:43
+				fi
+
+				if [ "$FTP_QOS" = "1" ]; then
+					echo "FTP_QOS ALG enabled"
+					# Outgoing packets from WAN
+					UP_FTP_MIN_BW=$(( $UPSTREAM_RATE \* $UP_FTP_MINBW / 100 ))
+					UP_FTP_MAX_BW=$(( $UPSTREAM_RATE \* $UP_FTP_MAXBW / 100 ))
+					FTP_QLENGTH=50
+					${UP_TC_CLASS_ADD} 1:4 classid 1:44 htb rate ${UP_FTP_MIN_BW}kbit ceil ${UP_FTP_MAX_BW}kbit cburst 64
+					${UP_TC_QDISC_ADD} 1:44 handle 440: pfifo limit $FTP_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip appl_group ftp flowid 1:44
+				fi
+
+				if [ "$IPSEC_QOS" = "1" ]; then
+					echo "IPSEC_QOS ALG enabled"
+					# Outgoing packets from WAN
+					UP_IPSEC_MIN_BW=$(( $UPSTREAM_RATE \* $UP_IPSEC_MINBW / 100 ))
+					UP_IPSEC_MAX_BW=$(( $UPSTREAM_RATE \* $UP_IPSEC_MAXBW / 100 ))
+					IPSEC_QLENGTH=50
+					${UP_TC_CLASS_ADD} 1:4 classid 1:45 htb rate ${UP_IPSEC_MIN_BW}kbit ceil ${UP_IPSEC_MAX_BW}kbit cburst 64
+					${UP_TC_QDISC_ADD} 1:45 handle 450: pfifo limit $IPSEC_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip protocol 0x32 0xff flowid 1:45
+					${UP_TC_FILTER_ADD} u32 match ip protocol 0x33 0xff flowid 1:45
+				fi
+
+				if [ "$ICMP_QOS" = "1" ]; then
+					echo "ICMP_QOS ALG enabled"
+					# Outgoing packets from WAN
+					UP_ICMP_MIN_BW=$(( $UPSTREAM_RATE \* $UP_ICMP_MINBW / 100 ))
+					UP_ICMP_MAX_BW=$(( $UPSTREAM_RATE \* $UP_ICMP_MAXBW / 100 ))
+					ICMP_QLENGTH=50
+					${UP_TC_CLASS_ADD} 1:4 classid 1:46 htb rate ${UP_ICMP_MIN_BW}kbit ceil ${UP_ICMP_MAX_BW}kbit cburst 64
+					${UP_TC_QDISC_ADD} 1:46 handle 460: pfifo limit $ICMP_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip appl_group icmp flowid 1:46
+				fi
+				
+				if [ "$SIP_QOS" = "1" -a "$ALG_SIP_ENABLE" = "1" ]; then
+					echo "SIP_QOS ALG enabled"
+					# Outgoing packets from WAN
+					UP_SIP_MIN_BW=$(( $UPSTREAM_RATE \* $UP_SIP_MINBW / 100 ))
+					UP_SIP_MAX_BW=$(( $UPSTREAM_RATE \* $UP_SIP_MAXBW / 100 ))
+					SIP_QLENGTH=75
+					${UP_TC_CLASS_ADD} 1:4 classid 1:47 htb rate ${UP_SIP_MIN_BW}kbit ceil ${UP_SIP_MAX_BW}kbit cburst 64 
+					${UP_TC_QDISC_ADD} 1:47 handle 470: pfifo limit $SIP_QLENGTH
+					${UP_TC_FILTER_ADD} u32 match ip appl_group sip flowid 1:47
+				fi
+				
+				others_bandwidth=$(( $others_bandwidth - $ALG_MINBW ))
+			fi
+		#511181
+
+			if [ "$SIP_QOS" = "1" -a "$ALG_SIP_ENABLE" = "1" ]; then
+				echo "Sip Alg is running"
+			else
+				if [ "$DIFFSERV_DUT_VOIP" = "1" ]; then
+					VOIP_QLENGTH=75
+					UP_VOIP_MIN_BW="256"
+					UP_VOIP_MAX_BW=$UPSTREAM_RATE
+					${UP_TC_CLASS_ADD} 1:1 classid 1:12 htb rate ${UP_VOIP_MIN_BW}kbit ceil ${UP_VOIP_MAX_BW}kbit prio $VOIP_PRIORITY cburst 64
+					${UP_TC_QDISC_ADD} 1:12 handle 120: pfifo limit $VOIP_QLENGTH
+		#	Specifying tcp below also means udp as we have not specified protocol-check?
+		#	Approx port range used - to be replaced with generic logic later
+					${UP_TC_FILTER_ADD} u32 match ip sport $VOIP_SIGNAL_PORT_UDP 0xFFFF flowid 1:12
+					${UP_TC_FILTER_ADD} u32 match ip sport $VOIP_DATA_RANGE1 $VOIP_DATA_MASK1 match ip protocol 17 0xFF flowid 1:12
+					${UP_TC_FILTER_ADD} u32 match ip sport $VOIP_DATA_RANGE2 $VOIP_DATA_MASK2 match ip protocol 17 0xFF flowid 1:12
+					${UP_TC_FILTER_ADD} u32 match ip sport $VOIP_DATA_RANGE3 $VOIP_DATA_MASK3 match ip protocol 17 0xFF flowid 1:12
+					${UP_TC_FILTER_ADD} u32 match ip sport $VOIP_DATA_RANGE4 $VOIP_DATA_MASK4 match ip protocol 17 0xFF flowid 1:12
+		#	Specify tcp client ports that VOIP Application can use
+					${UP_TC_FILTER_ADD} u32 match ip sport $VOIP_TCP_CLIENT_SPORT 0xFF80 match ip protocol 6 0xFF flowid 1:12
+		#	FAX ports
+					${UP_TC_FILTER_ADD} u32 match ip sport $FAX_SPORT 0xFF80 flowid 1:12
+
+					others_bandwidth=$(( $others_bandwidth - $UP_VOIP_MIN_BW )) 
+				fi
+			fi
+
+
+		# Create Web Manageability flow
+			UP_WEB_MIN_BW=64
+			UP_WEB_MAX_BW=$UPSTREAM_RATE
+			WEB_QLENGTH=50
+			others_bandwidth=$(( $others_bandwidth - $UP_WEB_MIN_BW )) 
+			WEB_PRIORITY=2
+			WEB_PORT=80
+			echo "###### classid 1:11 htb rate " ${UP_WEB_MIN_BW}
+			${UP_TC_CLASS_ADD} 1:1 classid 1:11 htb rate ${UP_WEB_MIN_BW}kbit ceil ${UP_WEB_MAX_BW}kbit prio $WEB_PRIORITY
+		# quantum 3000
+			${UP_TC_QDISC_ADD} 1:11 handle 110: pfifo limit $WEB_QLENGTH
+			${UP_TC_FILTER_ADD} u32 match ip sport $WEB_PORT 0xFFFF match ip protocol 6 0xFF flowid 1:11
+
+			# for voip or some high priority packets
+				if [ "$DIFFSERV_VIRTUAL_SERVER" = "1" ]; then
+						i=0
+		# Calculate the total VS Min BW - Ritesh
+				VS_MINBW=1
+						while [ "$i" -lt $nat_virtualser_Count ]
+						do
+								eval NATVS_F='$'nat_virtualser_${i}_fEnable
+								eval NATVS_QOS_ENABLE='$'nat_virtualser_${i}_upqosEnable
+								eval NATVS_MIN_BW='$'nat_virtualser_${i}_upminBW
+					if [ $NATVS_QOS_ENABLE = "1" ]; then
+						VS_MINBW= $(( $VS_MINBW + $NATVS_MIN_BW ))
+		#Neeraj: calculate the available BW in case the configured is more than enable. 
+					fi
+								i=$(( $i + 1 ))
+				done
+
+				# calculate Virtual Server minimum bandwidth and other bandwidth
+				others_bandwidth=$(( $others_bandwidth - $VS_MINBW ))
+				vs_min_bandwidth=$(( $UPSTREAM_RATE \* $VS_MINBW / 100 ))
+
+				# create 1:2 class for virtual server services
+					${UP_TC_CLASS_ADD} 1:1  classid 1:2 htb rate ${vs_min_bandwidth}kbit ceil ${UPSTREAM_RATE}kbit prio 3 
+
+						i=0
+						${IPTABLES} -t mangle -F QOS_VS 
+						while [ "$i" -lt $nat_virtualser_Count ]
+						do
+								eval NATVS_F='$'nat_virtualser_${i}_fEnable
+								eval NATVS_QOS_ENABLE='$'nat_virtualser_${i}_upqosEnable
+								eval NATVS_MIN_BW='$'nat_virtualser_${i}_upminBW
+								eval NATVS_MAX_BW='$'nat_virtualser_${i}_upmaxBW
+								if [ "$NATVS_F" = "1" -a "$NATVS_QOS_ENABLE" = "1" ]; then
+										LAN_CLASS_ID=$(( $i + 21 ))
+										NATVS_MIN_BW=$(( $UPSTREAM_RATE \* $NATVS_MIN_BW / 100 ))
+										NATVS_MAX_BW=$(( $UPSTREAM_RATE \* $NATVS_MAX_BW / 100 ))
+									eval NATVS_PIP='$'nat_virtualser_${i}_privateIp
+									eval NATVS_PTYPE='$'nat_virtualser_${i}_ptype
+									eval NATVS_PPORT='$'nat_virtualser_${i}_pport
+									eval NATVS_PUPORT='$'nat_virtualser_${i}_puport
+
+									if [ "$NATVS_PTYPE" = "1" ]; then
+										PTYPE=6
+									elif [ "$NATVS_PTYPE" = "2" ]; then
+										PTYPE=17
+									else
+										PTYPE=0
+									fi
+										#${UP_TC_CLASS_ADD} 1:2 classid 1:${LAN_CLASS_ID} htb rate ${NATVS_MIN_BW}kbit ceil ${NATVS_MAX_BW}kbit cburst 10500 quantum 3000
+										#echo "Creating Class 1:2 with cburst 300 quantum default"
+										${UP_TC_CLASS_ADD} 1:2 classid 1:${LAN_CLASS_ID} htb rate ${NATVS_MIN_BW}kbit ceil ${NATVS_MAX_BW}kbit cburst 64
+
+										#${UP_TC_CLASS_ADD} 1:2 classid 1:${LAN_CLASS_ID} htb rate ${NATVS_MIN_BW}kbit ceil ${NATVS_MAX_BW}kbit cburst 1500 quantum 1510
+										${UP_TC_QDISC_ADD} 1:${LAN_CLASS_ID} handle ${LAN_CLASS_ID}0: pfifo limit 20
+		#	XXX: Change the classification logic - use u32 classifier directly to prevent fwmark clash with policy routing - Ritesh
+		#                                ${UP_TC_FILTER_ADD} handle "$(( $i \* 16 + 8 ))" fw classid 1:${LAN_CLASS_ID}
+		#                                ${IPTABLES} -t mangle -A QOS_VS -s ${NATVS_PIP} -p ${NATVS_PTYPE} --sport ${NATVS_PPORT} -j MARK --set-mark "$(( $i \* 16 + 8 ))"
+						${UP_TC_FILTER_ADD} pref $(( $i + 20000 )) u32 match ip sport ${NATVS_PUPORT} 0xFFFF match ip protocol $PTYPE 0xFF flowid 1:${LAN_CLASS_ID} 
+								fi
+								i=$(( $i + 1 ))
+						done
+				fi
+
+
+		#508102:tc.chen
+			others_bandwidth=$(( $UPSTREAM_RATE \* $others_bandwidth / 100 ))
+		# Create default flow
+			${UP_TC_CLASS_ADD} 1:1  classid 1:3 htb rate ${others_bandwidth}kbit ceil ${UPSTREAM_RATE}kbit prio 4 quantum 1500 burst 10500
+
+			if [ "$CONFIG_FEATURE_QOS_PRIORITY_QUEUE" = "1" ]; then
+				if [ "$QOS_PRIO" = "1" ]; then
+			
+		#508102:tc.chen ${UP_TC_CLASS_ADD} 1:1  classid 1:3 htb rate ${others_bandwidth}kbit ceil ${UPSTREAM_RATE}kbit prio 4 quantum 1500 burst 10500
+
+					# for tos precedence qos
+					${UP_TC_QDISC_ADD} 1:3 handle 3: prio bands 8 priomap 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7
+
+					${UP_TC_QDISC_ADD} 3:1 handle 10: pfifo 
+					${UP_TC_QDISC_ADD} 3:2 handle 20: pfifo 
+					${UP_TC_QDISC_ADD} 3:3 handle 30: pfifo
+					${UP_TC_QDISC_ADD} 3:4 handle 40: pfifo 
+					${UP_TC_QDISC_ADD} 3:5 handle 50: pfifo 
+					${UP_TC_QDISC_ADD} 3:6 handle 60: pfifo 
+					${UP_TC_QDISC_ADD} 3:7 handle 70: pfifo 
+
+					${UP_TC_QDISC_ADD} 3:8 handle 80: pfifo 
+
+					UP_TC_FILTER_ADD="$TC filter add dev $UPSTREAM_IF parent 3: protocol ip prio"
+
+					if [ "$QOS_8021P" = "1" ]; then 
+
+						## classify 802.1p packet (fw mark 1 ~7 which mark form driver)
+						${UP_TC_FILTER_ADD} 1 handle 7 fw flowid 3:1
+						${UP_TC_FILTER_ADD} 2 handle 6 fw flowid 3:2
+						${UP_TC_FILTER_ADD} 3 handle 5 fw flowid 3:3
+						${UP_TC_FILTER_ADD} 4 handle 4 fw flowid 3:4
+						${UP_TC_FILTER_ADD} 5 handle 3 fw flowid 3:5
+						${UP_TC_FILTER_ADD} 6 handle 2 fw flowid 3:6
+						${UP_TC_FILTER_ADD} 7 handle 1 fw flowid 3:7
+
+						## classify qos packet (fw mark 9 ~ 15 which mark form user setting) and apply priority bits to 802.1p 
+						${UP_TC_FILTER_ADD} 1 handle 15 fw flowid 3:1
+						${UP_TC_FILTER_ADD} 2 handle 14 fw flowid 3:2
+						${UP_TC_FILTER_ADD} 3 handle 13 fw flowid 3:3
+						${UP_TC_FILTER_ADD} 4 handle 12 fw flowid 3:4
+						${UP_TC_FILTER_ADD} 5 handle 11 fw flowid 3:5
+						${UP_TC_FILTER_ADD} 6 handle 10 fw flowid 3:6
+						${UP_TC_FILTER_ADD} 7 handle 9 fw flowid 3:7
+					fi
+
+					## classify ip qos packet (fw mark 17 ~ 23) and do not apply priority bits to 802.1p
+					${UP_TC_FILTER_ADD} 1 handle 23 fw flowid 3:1
+					${UP_TC_FILTER_ADD} 2 handle 22 fw flowid 3:2
+					${UP_TC_FILTER_ADD} 3 handle 21 fw flowid 3:3
+					${UP_TC_FILTER_ADD} 4 handle 20 fw flowid 3:4
+					${UP_TC_FILTER_ADD} 5 handle 19 fw flowid 3:5
+					${UP_TC_FILTER_ADD} 6 handle 18  fw flowid 3:6
+					${UP_TC_FILTER_ADD} 7 handle 17  fw flowid 3:7
+			else
+				OTHER_QLENGTH=100
+				${UP_TC_QDISC_ADD} 1:3 handle 30: pfifo limit $OTHER_QLENGTH
+			fi
+		else
+			OTHER_QLENGTH=100
+			${UP_TC_QDISC_ADD} 1:3 handle 30: pfifo limit $OTHER_QLENGTH
+		fi 
+			ifconfig $UPSTREAM_IF up
+
+
+			#------------------- downstream -------------------------
+			# 511191: Nirav - Removed from here...
+			# Currently, QoS in downstream is provided for ALGs only and so 
+			# moved to qos_alg_start
+
+			#initial mangle  
+			if [ "$QOS_PRIO" = "1" -o "$DIFFSERV_VIRTUAL_SERVER" = "1" -o "$QOS_ALG" = "1" ]; then
+				${IPTABLES} -t mangle -A PREROUTING -j QOS_PREROUTING
+				${IPTABLES} -t mangle -A POSTROUTING -j QOS_POSTROUTING
+			fi
+
+
+			/usr/sbin/status_oper SET qos status start
+			fi #]QOS_ENABLE
+	fi #]exit
+	# 507141:tc.chen update netfilter flag to enable/disable netfilter module
+	/usr/sbin/naptcfg --UpdateNetfilterFlag
+fi #]QOS_ENABLE

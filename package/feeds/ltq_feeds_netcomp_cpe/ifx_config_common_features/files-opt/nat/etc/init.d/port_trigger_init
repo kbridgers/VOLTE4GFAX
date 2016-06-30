@@ -1,0 +1,37 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+#initial mangle
+iptables -t nat -N PORTTRIGGER
+iptables -N PORTTRIGGER_FORWARD
+iptables -I FORWARD -j PORTTRIGGER_FORWARD
+iptables -t nat -I PREROUTING -j PORTTRIGGER
+#count number of entries in rc.conf
+    eval COUNT='$'nat_port_trigger_Count
+
+        i=0
+        while [ $i -lt $COUNT ]
+        do
+	   eval PORTTRIGGER_fENABLE='$'porttrigger_${i}_fEnable
+            if [ "$PORTTRIGGER_fENABLE" = "1" ]; then
+	    	. /etc/rc.d/init.d/port_trigger_add $i
+	    fi
+		i=`expr $i + 1`
+        done
+   
+
+
+

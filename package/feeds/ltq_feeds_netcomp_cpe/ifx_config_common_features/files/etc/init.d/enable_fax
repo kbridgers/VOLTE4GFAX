@@ -1,0 +1,39 @@
+#!/bin/sh
+
+#Sumedh- This script adds certain firewall rules to allow fax traffic. CREATED-2/3/06
+#
+
+# FAX_PORTS="7600:7620"
+
+# Ritesh : Source VoIP port information 
+if [ -r /etc/rc.d/init.d/voip_ports_cfg ]; then
+        . /etc/rc.d/init.d/voip_ports_cfg
+fi
+
+#           ---==[ OUTPUT CHAIN RULES ]==---
+#iptables -A OUTPUT -p udp --sport $FAX_PORTS -j ACCEPT
+#For FAX/T.38
+iptables -A OUTPUT -p udp --sport $FAX_SPORT:$FAX_EPORT -j ACCEPT
+#  	  ------------------------------------
+
+#           ---==[ INTPUT CHAIN RULES ]==---
+#iptables -A IFX_FW_ACCEPT_SERVICES -p udp --dport $FAX_PORTS -j ACCEPT
+#For FAX/T.38
+iptables -A IFX_FW_ACCEPT_SERVICES -p udp --dport $FAX_SPORT:$FAX_EPORT -j ACCEPT
+
+#To allow SIP signalling on specified tcp port to reach device
+#iptables -A IFX_FW_ACCEPT_SERVICES -p tcp --dport $FAX_PORTS -j ACCEPT 
+#For FAX/T.38
+iptables -A IFX_FW_ACCEPT_SERVICES -p tcp --dport $FAX_SPORT:$FAX_LISTEN_EPORT -j ACCEPT 
+#  	  ------------------------------------
+
+
+#    ---==[ TABLE NAT - PREROUTING CHAIN RULES ]==---
+#iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p udp --dport $FAX_PORTS -j ACCEPT
+#iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p tcp --dport $FAX_PORTS -j ACCEPT
+#For FAX/T.38
+iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p udp --dport $FAX_SPORT:$FAX_EPORT -j ACCEPT
+iptables -t nat -I IFX_NAPT_PREROUTING_WAN -p tcp --dport $FAX_SPORT:$FAX_LISTEN_EPORT -j ACCEPT
+#  	  ------------------------------------
+
+echo "Support for FAX is now ENABLED in the device!!"

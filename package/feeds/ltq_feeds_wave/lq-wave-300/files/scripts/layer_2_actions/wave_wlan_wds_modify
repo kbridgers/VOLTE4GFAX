@@ -1,0 +1,83 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "wave_wlan_wds_modify: args: $*"
+
+apIndex=$1
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+update_peer_aps()
+{
+	# Get list of current AP peers in rc.conf
+	PeerAPMacs=`host_api get $$ $apIndex PeerAPMacs`
+	
+	# Get list of current AP peers in driver
+	current_peerAPs=`iwpriv $wlan gPeerAPs | cut -b 5-32 | grep -v Peer`
+	
+	#Compare the driver mac list with the rc.conf mac list and delete the macs that are not present in the rc.conf list
+	for mac in $current_peerAPs
+	do
+		i=`echo $PeerAPMacs | grep $mac -c`
+		if [ $i -eq 0 ]
+		then
+			iwpriv $wlan sDelPeerAP $mac
+		fi
+	done
+	
+	$ETC_PATH/driver_api.tcl DriverParamSet $wlan PeerAPMacs "$PeerAPMacs"
+}
+
+update_wep_key()
+{
+	PeerAPkeyIdx=`host_api get $$ $apIndex PeerAPkeyIdx`
+	DriverWepkeyIdx=`iwpriv $wlan gPeerAPkeyIdx | awk -F ":" '{print $2}'`	
+	
+	# Check if WepKeyIndex updated
+	if [ $PeerAPkeyIdx -ne $DriverWepkeyIdx ]
+	then
+		current_peerAPs=`iwpriv $wlan gPeerAPs | cut -b 5-32 | grep -v Peer`
+		
+		for mac in $current_peerAPs
+		do
+			iwpriv $wlan sDelPeerAP $mac
+		done
+
+		iwpriv $wlan sPeerAPkeyIdx $PeerAPkeyIdx
+	fi
+}
+
+update_bridge_mode()
+{
+	ifconfig $wlan down
+	iwpriv $wlan sBridgeMode $WDSEnabled
+	ifconfig $wlan up
+}
+
+driverWDSEnabled=`iwpriv $wlan gBridgeMode | awk -F ":" '{print $2}'`
+WDSEnabled=`host_api get $$ $apIndex WDSEnabled`
+
+if [ $driverWDSEnabled -eq $YES ] &&  [ $WDSEnabled -eq $YES ]
+then
+	update_wep_key
+	update_peer_aps
+elif [ $driverWDSEnabled -eq $YES ] && [ $WDSEnabled -eq $NO ]
+then
+	update_bridge_mode
+elif [ $driverWDSEnabled -eq $NO ] && [ $WDSEnabled -eq $YES ]
+then
+	#workaround due to driver behaviour 
+	ifconfig $wlan down
+	iwpriv $wlan sBridgeMode $WDSEnabled
+	update_wep_key
+	ifconfig $wlan up
+	update_peer_aps
+fi
+# In case of $driverWDSEnabled and $WDSEnabled both equal $NO the scripts exits without doing anything. 
+
+print2log DBG "wave_wlan_wds modify done"

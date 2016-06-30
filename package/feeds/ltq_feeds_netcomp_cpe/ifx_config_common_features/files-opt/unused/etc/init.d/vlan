@@ -1,0 +1,26 @@
+#!/bin/sh
+#604181:Sumedh - Added for VLAN membership
+#511048:linmars fix VLAN configuration fail issue
+
+case "$1" in
+	start)
+		shift
+		. /etc/rc.d/init.d/vlan_start $@
+		. /etc/rc.d/init.d/vlan_membership_apply $@  #604181:Sumedh
+		;;
+	stop)
+		shift
+		. /etc/rc.d/init.d/vlan_stop $@
+		;;
+	restart)
+		shift
+#511048:linmars start
+		. /etc/rc.d/init.d/vlan_stop $@
+		. /etc/rc.d/init.d/vlan_start $@
+		. /etc/rc.d/init.d/vlan_membership_apply $@  #604181:Sumedh
+#511048:linmars end
+		;;
+	*)
+		echo $"Usage $0 {start|stop|restart}"
+		#exit 1
+esac

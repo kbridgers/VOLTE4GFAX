@@ -1,0 +1,20 @@
+--- a/arch/mips/lantiq/falcon/gpio.c
++++ b/arch/mips/lantiq/falcon/gpio.c
+@@ -448,16 +448,10 @@ int __init falcon_gpio_init(void)
+ 	return ret;
+ }
+ 
+-void __exit falcon_gpio_exit(void)
+-{
+-	platform_driver_unregister(&falcon_gpio_driver);
+-}
+-
+ int gpio_to_irq(unsigned int gpio)
+ {
+ 	return __gpio_to_irq(gpio);
+ }
+ EXPORT_SYMBOL(gpio_to_irq);
+ 
+-module_init(falcon_gpio_init);
+-module_exit(falcon_gpio_exit);
++postcore_initcall(falcon_gpio_init);

@@ -1,0 +1,13 @@
+#!/bin/sh
+
+if [ $1 -eq "1" ]; then
+	echo "ADSL Link UP!"
+	sleep 1
+	. /etc/rc.d/init.d/qos stop > /dev/null 2>&1
+	sleep 1
+	. /etc/rc.d/init.d/qos start
+elif [ $1 -eq "0" ]; then
+	echo "ADSL Link DOWN!"
+	. /etc/rc.d/init.d/qos stop > /dev/null 2>&1
+fi
+

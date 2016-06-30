@@ -1,0 +1,48 @@
+#!/bin/sh
+
+#start() {
+#	/usr/sbin/zebra -f /etc/zebra.conf -d
+# Generate Settings for some demands from system configuration file
+#/etc/ripd.conf
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+touch /var/zebra.conf
+touch /var/ripngd.conf
+if [ "$route_dynamic_fv6Enable" = "1" ]; then
+  if [ -s /var/ripngd.conf -o -f /var/ripngd.conf ]; then
+	if [ $# -eq 1 ]; then
+		. /etc/rc.d/init.d/create_ripng_config "1" "$1"
+	else
+		. /etc/rc.d/init.d/create_ripng_config "1"
+	fi
+  fi
+
+
+  if [ -s /var/zebra.conf -o -f /var/zebra.conf ]; then
+        if [ $# -eq 1 ]; then
+                . /etc/rc.d/init.d/create_zebra_config "1" "$1"
+        else
+                . /etc/rc.d/init.d/create_zebra_config "1"
+        fi
+  fi
+
+	#naptcfg --Servicesinit
+        mkdir -p /var/run/quagga
+	sleep 1
+        zebra -d -u root -g root -f /var/zebra.conf
+	sleep 1
+	ripngd -d -u root -g root -f /var/ripngd.conf
+fi
+#}

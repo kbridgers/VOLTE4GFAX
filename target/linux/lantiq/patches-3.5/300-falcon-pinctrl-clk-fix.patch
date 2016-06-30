@@ -1,0 +1,22 @@
+--- a/drivers/pinctrl/pinctrl-falcon.c
++++ b/drivers/pinctrl/pinctrl-falcon.c
+@@ -419,12 +419,16 @@ static int pinctrl_falcon_probe(struct p
+ 				*bank);
+ 			return -ENOMEM;
+ 		}
++		clk_activate(falcon_info.clk[*bank]);
+ 		avail = pad_r32(falcon_info.membase[*bank],
+ 					LTQ_PADC_AVAIL);
+ 		pins = fls(avail);
+-		lantiq_load_pin_desc(&falcon_pads[pad_count], *bank, pins);
+-		pad_count += pins;
+-		clk_enable(falcon_info.clk[*bank]);
++		if (pins) {
++			lantiq_load_pin_desc(&falcon_pads[pad_count], *bank, pins);
++			pad_count += pins;
++		} else {
++			clk_deactivate(falcon_info.clk[*bank]);
++		}
+ 		dev_dbg(&pdev->dev, "found %s with %d pads\n",
+ 				res.name, pins);
+ 	}

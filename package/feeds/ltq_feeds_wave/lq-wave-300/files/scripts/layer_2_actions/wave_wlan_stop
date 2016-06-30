@@ -1,0 +1,36 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "running wave_wlan_stop: args: $*" 
+apIndex=$1
+
+timestamp "wave_wlan_stop:$apIndex:begin"
+
+# Read the objects containing needed parameters into a temp file and source it
+host_api get_all $$ $apIndex 'gen_bd_cfg|wlan_main' > /tmp/stop_params.sh
+. /tmp/stop_params.sh
+
+if [ "$apEnable" = "$YES" -o "$network_type" = "$STA" ]
+then
+	(. $ETC_PATH/mtlk_wps_pbc.sh should_run $apIndex) && (. $ETC_PATH/mtlk_wps_pbc.sh stop $apIndex)
+	(. $ETC_PATH/mtlk_drvhlpr.sh stop $apIndex)
+
+	if [ "$network_type" = "$STA" ]
+	then
+		(. $ETC_PATH/mtlk_init_wpa_supplicant.sh stop $apIndex)
+	else
+		(. $ETC_PATH/mtlk_init_hostapd.sh stop $apIndex)
+	fi
+	$ETC_PATH/mtlk_set_wls_if.sh stop $apIndex
+
+	if [ "$network_type" = "$VAP" ]
+	then
+		(. $ETC_PATH/mtlk_init_mbss.sh stop $apIndex)
+	fi
+fi
+
+print2log DBG "wave_wlan_stop done"
+timestamp "wave_wlan_stop:$apIndex:done"

@@ -1,0 +1,62 @@
+From 292ff449db6e2af4d7544c370c3d38bbfddb07a5 Mon Sep 17 00:00:00 2001
+From: John Crispin <blogic@openwrt.org>
+Date: Sun, 20 May 2012 00:36:29 +0200
+Subject: [PATCH 12/22] MIPS: lantiq: adds support for nmi and ejtag bootrom
+ vectors
+
+Add registration code inside the lantiq generic prom.
+
+Signed-off-by: John Crispin <blogic@openwrt.org>
+---
+ arch/mips/lantiq/prom.c |   22 +++++++++++++++++++++-
+ 1 files changed, 21 insertions(+), 1 deletions(-)
+
+--- a/arch/mips/lantiq/prom.c
++++ b/arch/mips/lantiq/prom.c
+@@ -3,7 +3,8 @@
+  *  under the terms of the GNU General Public License version 2 as published
+  *  by the Free Software Foundation.
+  *
+- * Copyright (C) 2010 John Crispin <blogic@openwrt.org>
++ * Copyright (C) 2012 John Crispin <blogic@openwrt.org>
++ * Copyright (C) 2012 Thomas Langer <thomas.langer@lantiq.com>
+  */
+ 
+ #include <linux/export.h>
+@@ -11,6 +12,8 @@
+ #include <linux/of_platform.h>
+ #include <asm/bootinfo.h>
+ #include <asm/time.h>
++#include <asm/cacheflush.h>
++#include <asm/traps.h>
+ 
+ #include <lantiq.h>
+ 
+@@ -74,10 +77,27 @@ void __init plat_mem_setup(void)
+ 	__dt_setup_arch(bph);
+ }
+ 
++__attribute__((weak))
++void __init ltq_soc_nmi_setup(void)
++{
++}
++
++__attribute__((weak))
++void __init ltq_soc_ejtag_setup(void)
++{
++}
++
++static void __init register_rom_handler(void)
++{
++	board_nmi_handler_setup = ltq_soc_nmi_setup;
++	board_ejtag_handler_setup = ltq_soc_ejtag_setup;
++}
++
+ void __init prom_init(void)
+ {
+ 	/* call the soc specific detetcion code and get it to fill soc_info */
+ 	ltq_soc_detect(&soc_info);
++	register_rom_handler();
+ 	snprintf(soc_info.sys_type, LTQ_SYS_TYPE_LEN - 1, "%s rev %s",
+ 		soc_info.name, soc_info.rev_type);
+ 	soc_info.sys_type[LTQ_SYS_TYPE_LEN - 1] = '\0';

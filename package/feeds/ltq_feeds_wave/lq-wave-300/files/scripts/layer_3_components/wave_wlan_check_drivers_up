@@ -1,0 +1,41 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+command=$1
+
+start_check_drivers()
+{
+	print2log DBG "wave_wlan_check_drivers_up: Start"
+	driver_device="mtlk "
+	rtlogger_device="mtlkroot"
+	count_driver=`lsmod | grep -c $driver_device`
+	count_rtlogger=`lsmod | grep -c $rtlogger_device`
+	
+	# As long as driver is called mtlk and rtlogger drvier is called mtlk*, we verify that count of 'mtlk' is 2.
+	# If names are changed, this script needs changing as well.
+	if [ $count_rtlogger -eq "0" -o $count_driver -lt 2 ]
+	then 
+		echo "wave_wlan_check_drivers_up: rtlogger or mtlk driver are not up" >> $wave_init_failure
+	fi
+	
+	print2log DBG "wave_wlan_check_drivers_up: Done Start"
+}
+
+
+should_run_check_drivers()
+{
+	true
+}
+
+case $command in
+	start)
+		start_check_drivers
+	;;
+	should_run)
+		should_run_check_drivers
+	;;
+esac

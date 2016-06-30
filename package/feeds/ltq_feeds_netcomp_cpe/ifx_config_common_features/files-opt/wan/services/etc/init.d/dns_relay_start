@@ -1,0 +1,125 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+OUTPUT="/tmp/cmd_output"
+OUTPUT1="/tmp/cmd_output1"
+flush_output()
+{
+	echo "" > "$OUTPUT"
+	echo "" > "$OUTPUT1"
+}
+SED="/bin/sed"
+
+
+#start() {
+killall -9 dnrd 2> /dev/null
+
+# generate /etc/resolv.conf file
+#509025:linmars start
+echo -n > /etc/resolv.conf
+# TBD: Do this only if the WAN is connected.
+# check if global dns is present, if so use it
+if [ -n "$WAN_DNS1" -a "$WAN_DNS1" != "0" ]; then
+	echo nameserver $WAN_DNS1 >> /etc/resolv.conf
+fi
+if [ -n "$WAN_DNS2" -a "$WAN_DNS2" != "0" ]; then
+	echo nameserver $WAN_DNS2 >> /etc/resolv.conf
+fi
+
+. /etc/init.d/get_wan_mode $wanphy_phymode $wanphy_tc
+# populate resolv.conf for the wan connection $1
+# $2 - wan_idx for which dns nameserver needs to be started
+# $1 - wan_type for which wan_idx is determined
+if [ -n "$1" ] && [ -n "$2" ]; then
+	WAN_TAG="Wan${1}${2}_DNS_SERVER"
+	cp /etc/resolv.conf /tmp/
+	> /etc/resolv.conf
+	DNS="`/usr/sbin/status_oper GET $WAN_TAG DNS1`"
+	if [ -n "$DNS" -a "$DNS" != "0" ]; then
+		F_DNS=`"$SED" -n "/$DNS/p" /etc/resolv.conf`
+		if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+			echo nameserver $DNS >> /etc/resolv.conf
+		fi
+		DNS="`/usr/sbin/status_oper GET $WAN_TAG DNS2`"
+		if [ -n "$DNS" -a "$DNS" != "0" ]; then
+			F_DNS=`"$SED" -n "/$DNS/p" /etc/resolv.conf`
+			if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+				echo nameserver $DNS >> /etc/resolv.conf
+			fi
+		fi
+	fi
+	cat /tmp/resolv.conf >> /etc/resolv.conf
+else
+	# populate resolv.conf for wan connections in wan_main_index
+	echo $wan_main_index > "$OUTPUT"
+	dns_wan_idx=0
+	while [ $dns_wan_idx -lt $wan_ip_Count ]
+	do
+		eval wanip_mode='$'wanip_${dns_wan_idx}_wanMode
+		if [ "$wanMode" = "$wanip_mode" ]; then
+			WAN_TAG="WanIP${dns_wan_idx}_DNS_SERVER"
+			DNS="`/usr/sbin/status_oper GET $WAN_TAG DNS1`"
+			if [ -n "$DNS" -a "$DNS" != "0" ]; then
+				F_DNS=`"$SED" -n "/$DNS/p" /etc/resolv.conf`
+				# echo "sys status to rc.conf IP section"
+				if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+		 			echo nameserver $DNS >> /etc/resolv.conf
+					DNS="`/usr/sbin/status_oper GET $WAN_TAG DNS2`"
+					if [ -n "$DNS" -a "$DNS" != "0" ]; then
+						F_DNS=`"$SED" -n "/$DNS/p" /etc/resolv.conf`
+						if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+							echo nameserver $DNS >> /etc/resolv.conf
+						fi
+					fi
+				fi
+			fi
+		fi
+		dns_wan_idx=$(( $dns_wan_idx + 1 ))
+	done
+
+	dns_wan_idx=0
+	while [ $dns_wan_idx -lt $wan_ppp_Count ]
+	do
+		eval wanppp_mode='$'wanppp_${dns_wan_idx}_wanMode
+		if [ "$wanMode" = "$wanppp_mode" ]; then
+			WAN_TAG="WanPPP${dns_wan_idx}_DNS_SERVER"
+			DNS="`/usr/sbin/status_oper GET $WAN_TAG DNS1`"
+			if [ -n "$DNS" -a "$DNS" != "0" ]; then
+				F_DNS=`"$SED" -n "/$DNS/p" /etc/resolv.conf`
+				# echo "sys status to rc.conf PPP section"
+				if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+		 			echo nameserver $DNS >> /etc/resolv.conf
+					DNS="`/usr/sbin/status_oper GET $WAN_TAG DNS2`"
+					if [ -n "$DNS" -a "$DNS" != "0" ]; then
+						F_DNS=`"$SED" -n "/$DNS/p" /etc/resolv.conf`
+						if [ -z "$F_DNS" -o "$F_DNS" = "0" ]; then
+							echo nameserver $DNS >> /etc/resolv.conf
+						fi
+					fi
+				fi
+			fi
+		fi
+		dns_wan_idx=$(( $dns_wan_idx + 1 ))
+	done
+fi
+# get dns server ip from /etc/resolv.conf file
+for DNS_SERVER_IP in `sed -n 's,nameserver,,;p' /etc/resolv.conf`
+do
+	DNRD_ARG="$DNRD_ARG -s $DNS_SERVER_IP"
+done
+
+DNRD_ARG="$DNRD_ARG -m master"
+
+#509025:linmars end
+
+/bin/rm -rf /ramdisk/etc/dnrd
+mkdir /ramdisk/etc/dnrd
+echo hosts - > /ramdisk/etc/dnrd/master
+
+# run dnrd server
+/usr/sbin/dnrd ${DNRD_ARG}   
+#}

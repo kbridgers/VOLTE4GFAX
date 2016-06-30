@@ -1,0 +1,135 @@
+#!/bin/sh
+#509025:linmars 2005/09/02 move original vlan related script (vlan/vlan_start/vlan_start) to pif (pif/pif_start/pif_stop)
+#509026:linmars 2005/09/02 add VLAN related script (vlan/vlan_start/vlan_stop)
+#511049:linmars remove unnecessary message
+#604181:Sumedh - changes in vlanctl (for pbgid) and added vlan_mem status variable
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+FUNCFILE="/etc/rc.d/init.d/vlan_common.sh"
+
+if [ "$vb_enable" = "1" ]; then
+	if [ "`/usr/sbin/status_oper GET vlan status`" != "start" ]; then 
+		. /etc/rc.d/init.d/pif start
+		#echo "*************  disable Interface **************"
+		ifconfig br0 down
+		ifconfig eth0 down	 
+		pindex=4
+                while [ "$pindex" -gt 0 ]
+                do
+                        pindex=$(( $pindex - 1 ))
+                        ifconfig swport$pindex down
+                        #sleep 1
+                done
+
+		insmod ifx_nfext_vbridge
+		/usr/sbin/status_oper SET vlan status start
+		
+		i=16
+		while [ "$i" -lt 20 ]
+		do
+			ifname=`$FUNCFILE vbridge_get_ifname $i`
+			cfg=`$FUNCFILE vbridge_get_cfg $i`
+		#	/usr/sbin/vlanctl 1 $i $ifname $cfg
+			/usr/sbin/vlanctl 0 1 $i $ifname $cfg #604181: Sumedh
+			i=$(( $i + 1 ))
+		done
+		#echo "*************  sleep 3 sec  **************"
+		#sleep 3 
+		ifconfig br0 up
+                ifconfig eth0 up
+		pindex=4
+                while [ "$pindex" -gt 0 ]
+                do
+                        pindex=$(( $pindex - 1 ))
+                        ifconfig swport$pindex up
+                        #sleep 1
+                done
+		#echo "*************  enable OK now   **************"	
+	fi
+
+
+	#echo "************* 2nd  disable Interface **************"
+                ifconfig br0 down
+                ifconfig eth0 down
+                pindex=4
+                while [ "$pindex" -gt 0 ]
+                do
+                        pindex=$(( $pindex - 1 ))
+                        ifconfig swport$pindex down
+                        #sleep 1
+                done
+
+
+	if [ $# -eq 1 ]; then
+		wan_idx=$1
+		ifname=`$FUNCFILE vbridge_get_ifname $wan_idx`
+		if [ "$ifname" != "" ]; then
+			cfg=`$FUNCFILE vbridge_get_cfg $wan_idx`
+			/usr/sbin/vlanctl 0 1 $wan_idx $ifname $cfg #604181: Sumedh
+		#	/usr/sbin/vlanctl 1 $wan_idx $ifname $cfg
+		else
+			echo "ERROR!!! Invalid Interface ID: $wan_idx"
+		fi
+	else
+		wan_idx=1
+		while [ "$wan_idx" -lt 16 ]
+		do
+			eval link_type='$'wan_${wan_idx}_linkType
+			if [ "$link_type" = "1" ]; then # EoATM
+				eval addr_type='$'wanip_${wan_idx}_addrType
+				if [ "$addr_type" = "0" ]; then # Bridge Mode
+					wan_type="BRIDGE"
+				fi
+			else
+				wan_type=""
+			fi
+
+			# This needs to be executed only for Wan Interface of Type BRIDGE
+			case "$wan_type" in
+			[Bb][Rr][Ii][Dd][Gg][Ee])
+				ifname=`$FUNCFILE vbridge_get_ifname $wan_idx`
+				if [ "$ifname" != "" ]; then
+					cfg=`$FUNCFILE vbridge_get_cfg $wan_idx`
+					/usr/sbin/vlanctl 0 1 $wan_idx $ifname $cfg #604181: Sumedh
+				#	/usr/sbin/vlanctl 1 $wan_idx $ifname $cfg
+				else
+					echo "ERROR!!! Invalid Interface ID: $wan_idx"
+				fi
+				;;
+			*)
+				;;
+			esac
+			wan_idx=$(( $wan_idx + 1 ))
+		done
+	fi
+	
+
+	#echo "************* 2nd  sleep 3 sec  **************"
+                #sleep 3
+                ifconfig br0 up
+                ifconfig eth0 up
+                pindex=4
+                while [ "$pindex" -gt 0 ]
+                do
+                        pindex=$(( $pindex - 1 ))
+                        ifconfig swport$pindex up
+                        #sleep 1
+                done
+         #echo "*************  2nd enable OK now   **************"
+
+
+
+fi

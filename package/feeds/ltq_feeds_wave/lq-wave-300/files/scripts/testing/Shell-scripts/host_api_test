@@ -1,0 +1,373 @@
+#!/bin/sh
+
+# This script is written to test host_api level of VB300 UGW  implementation
+
+test_completed="Successfully completed test of host_api parameters"
+
+test_print_error()
+{
+	test_completed="Testing host_api parameters: one or more errors detected"
+	echo $1
+}
+
+# If current value of the parameter is 1, try to set it to 0 and back. Report errors on the way
+test_boolean_parameter()
+{
+	tmp_value=`./host_api get 0 0 $1`
+	if [ -z $tmp_value  ]
+	then 
+		if [ "$2" != "allow_empty_string" ]; then test_print_error "Error getting $1: empty string returned"; fi
+	elif [ "$tmp_value" = "1" ]
+	then 
+		./host_api set 0 0 $1 0
+		tmp_value=`./host_api get 0 0 $1`
+		if [ "$tmp_value" != "0" ]; then test_print_error "Error setting $1: "$tmp_value" returned"; fi
+		
+		./host_api set 0 0 $1 1
+		tmp_value=`./host_api get 0 0 $1`
+		if [ "$tmp_value" != "1" ]; then test_print_error "Error re-setting $1: "$tmp_value" returned"; fi
+	elif [ "$tmp_value" = "0" ]
+	then 
+		./host_api set 0 0 $1 1
+		tmp_value=`./host_api get 0 0 $1`
+		if [ "$tmp_value" != "1" ]; then test_print_error "Error setting $1: "$tmp_value" returned"; fi
+		
+		./host_api set 0 0 $1 0
+		tmp_value=`./host_api get 0 0 $1`
+		if [ "$tmp_value" != "0" ]; then test_print_error "Error re-setting $1: "$tmp_value" returned"; fi
+	else	
+		test_print_error "Error getting $1: \"$tmp_value\" returned" 
+	fi
+}
+
+# Verify non-empty value, then update: if not requested specific value, try to set 2 and verify by reading
+test_parameter()
+{
+	if [ -z $2  ]; then new_value=2; else new_value=$2; fi
+
+	orig_value=`./host_api get 0 0 $1`
+	if [ -z $orig_value  ]
+	then 
+		test_print_error "Error getting $1: empty string returned"
+	else  
+		./host_api set 0 0 $1 $new_value
+		tmp_value=`./host_api get 0 0 $1`
+		if [ "$tmp_value" != "$new_value" ]; then test_print_error "Error setting $1: "$tmp_value" returned instead of $new_value"; fi
+		
+		./host_api set 0 0 $1 $orig_value
+		tmp_value=`./host_api get 0 0 $1`
+		if [ "$tmp_value" != "$orig_value" ]; then test_print_error "Error re-setting $1: "$tmp_value" returned instead of $orig_value"; fi
+	fi
+}
+
+# Set to requested value and verify by reading
+test_set_parameter()
+{
+	req_value=$2
+	./host_api set 0 0 $@
+	tmp_value=`./host_api get 0 0 $1`
+	if [ "$tmp_value" != "$req_value" ]
+	then 
+		test_print_error "Error getting $1: $tmp_value returned instead of $req_value"
+	fi
+}
+
+
+# Get current value and compare to expected default
+test_get_parameter()
+{
+	default_value=$2
+	tmp_value=`./host_api get 0 0 $1`
+	if [ "$tmp_value" != "$default_value" ]
+	then 
+		test_print_error "Error getting $1: $tmp_value returned instead of $default_value"
+	fi
+}
+if [[ "$1" == "--help" || "$1" == "?" || "$1" == "" ]]; then echo "Usage: $0 <allow_empty_string | disallow_empty_string> <STA | AP | VB_AP >"; exit; fi
+
+if [ -z $2 ]; then DEVICE_TYPE=STA; else DEVICE_TYPE=$2; fi
+
+# Parameters mutual for STA and AP
+test_boolean_parameter dot11dActive
+test_boolean_parameter 11hRadarDetect
+test_boolean_parameter dot11nProtectionType
+test_boolean_parameter AC_BE_AcceptAggregation
+test_boolean_parameter AC_BE_ADDBATimeout
+test_parameter AC_BE_AggregationWindowSize
+test_parameter AC_BE_MaxNumOfBytes
+test_parameter AC_BE_MaxNumOfPackets
+test_parameter AC_BE_MinSizeOfPacketInAggr
+test_boolean_parameter AC_BE_TimeoutInterval
+test_boolean_parameter AC_BE_UseAggregation
+test_boolean_parameter AC_BK_AcceptAggregation
+test_boolean_parameter AC_BK_ADDBATimeout
+test_parameter AC_BK_AggregationWindowSize
+test_parameter AC_BK_MaxNumOfBytes
+test_parameter AC_BK_MaxNumOfPackets
+test_parameter AC_BK_MinSizeOfPacketInAggr
+test_boolean_parameter AC_BK_TimeoutInterval
+test_boolean_parameter AC_BK_UseAggregation
+test_boolean_parameter AC_VI_AcceptAggregation
+test_boolean_parameter AC_VI_ADDBATimeout
+test_parameter AC_VI_AggregationWindowSize
+test_parameter AC_VI_MaxNumOfBytes
+test_parameter AC_VI_MaxNumOfPackets
+test_parameter AC_VI_MinSizeOfPacketInAggr
+test_boolean_parameter AC_VI_TimeoutInterval
+test_boolean_parameter AC_VI_UseAggregation
+test_boolean_parameter AC_VO_AcceptAggregation
+test_boolean_parameter AC_VO_ADDBATimeout
+test_parameter AC_VO_AggregationWindowSize
+test_parameter AC_VO_MaxNumOfBytes
+test_parameter AC_VO_MaxNumOfPackets
+test_parameter AC_VO_MinSizeOfPacketInAggr
+test_boolean_parameter AC_VO_TimeoutInterval
+test_boolean_parameter AC_VO_UseAggregation
+test_boolean_parameter AdvancedCoding
+test_parameter AlgoCalibrMask
+test_parameter AlgoOnLineCalibrMask
+test_boolean_parameter Ant_selection
+test_parameter Country "IN"
+test_boolean_parameter Debug_SoftwareWatchdogEnable
+test_boolean_parameter DisconnectOnNACKs
+test_boolean_parameter EEPROMCountryValid
+test_boolean_parameter ERPProtectionType
+# Set not implemented for Rate parameters
+test_get_parameter FixedHTRate "auto"
+test_get_parameter FixedRate "auto"
+test_boolean_parameter FrequencyBand
+test_boolean_parameter ip_config_method
+test_set_parameter ip_lan "192.168.1.230"
+test_parameter KeepaliveInterval
+test_parameter LongRetryLimit
+test_parameter MACWdPeriodMs
+test_parameter MACWdTimeoutMs
+# Unless OPEN requested,nothing shall be done upon set request 
+test_set_parameter NonProc_Authentication 1
+test_set_parameter NonProc_WepKeyLength "128"
+test_boolean_parameter NonProc_WPA_Enterprise_Encapsulation $1
+test_boolean_parameter NonProc_WPA_Enterprise_Mode $1
+test_boolean_parameter NonProc_WPA_Personal_Encapsulation $1
+test_boolean_parameter NonProc_WPA_Personal_Mode $1
+test_set_parameter NonProc_WPA_Personal_PSK "test_passphrase"
+test_boolean_parameter NonProc_WPS_ActivateWPS
+test_set_parameter NonProc_WPS_DevicePIN "12345678"
+test_set_parameter NonProcSecurityMode 1
+test_boolean_parameter PowerIncreaseVsDutyCycle
+test_parameter PowerSelection "-3"
+test_parameter RFMgmtAveragingAlpha
+test_boolean_parameter RFMgmtForced
+test_parameter RFMgmtKeepAliveTimeout
+test_parameter RFMgmtMetMarginThreshold
+test_parameter RFMgmtRefreshTime
+test_boolean_parameter RTLoggerEnabled
+test_parameter RTSThreshold
+# Currently hard coded to return 0 - due to MAC bug
+test_get_parameter ShortCyclicPrefix 0
+test_boolean_parameter ShortPreamble
+test_parameter ShortRetryLimit
+test_boolean_parameter ShortSlotTimeOptionEnabled
+test_boolean_parameter STBC
+test_set_parameter subnet_lan "255.255.0.0" 
+test_boolean_parameter Support_3TX
+test_parameter TxMsduLifetime
+test_boolean_parameter TxPower
+test_boolean_parameter UpDebugLevel
+test_boolean_parameter Use11QMap
+test_boolean_parameter UsePwrAmp
+# Set only matters if WEP requested
+test_set_parameter WepEncryption "1"
+test_set_parameter WepKeys_DefaultKey0 "0x123456789abcdef0123456789a"
+test_set_parameter WepKeys_DefaultKey1 "0x123456789abcdef0123456789a"
+test_set_parameter WepKeys_DefaultKey2 "0x123456789abcdef0123456789a"
+test_set_parameter WepKeys_DefaultKey3 "0x123456789abcdef0123456789a"
+test_set_parameter WepTxKeyIdx "2"
+test_boolean_parameter WirelessMgmtEnabled $1
+test_boolean_parameter wlan_count
+# Nothing shall be done upon set request
+test_boolean_parameter WLSEnabled
+test_boolean_parameter WPS_IgnoreSelectedRegistrar
+test_parameter ChannelBonding 1
+
+if [ "$DEVICE_TYPE" == "AP" ]
+then
+	test_parameter AC_BE_AIFSN_AP 
+	test_parameter AC_BE_CWmax_AP 
+	test_parameter AC_BE_CWmin_AP 
+	test_parameter AC_BE_TXOP_AP "32" 
+	test_parameter AC_BK_AIFSN_AP 
+	test_parameter AC_BK_CWmax_AP 
+	test_parameter AC_BK_CWmin_AP 
+	test_parameter AC_BK_TXOP_AP "32" 
+	test_parameter AC_VI_AIFSN_AP 
+	test_parameter AC_VI_CWmax_AP 
+	test_parameter AC_VI_CWmin_AP 
+	test_parameter AC_VI_TXOP_AP "32"
+	test_parameter AC_VO_AIFSN_AP 
+	test_parameter AC_VO_CWmax_AP 
+	test_parameter AC_VO_CWmin_AP 
+	test_parameter AC_VO_TXOP_AP "32" 
+	test_get_parameter ACL ""
+	test_get_parameter AclMode "0"
+	test_boolean_parameter AMPDUMaxLength
+	test_parameter AocsCfmRAging
+	test_parameter AocsCfmRnkThr
+	test_parameter AocsIsEnabled
+	test_parameter AocsMaxPktDlBE
+	test_parameter AocsMaxPktDlBK
+	test_parameter AocsMaxPktDlVI
+	test_parameter AocsMaxPktDlVO
+	test_parameter AocsMeasurWnd
+	test_get_parameter AocsMsduRxAc "BK 0 BE 1 VI 1 VO 0"
+	test_parameter AocsMsduThr
+	test_get_parameter AocsMsduTxAc "BK 0 BE 1 VI 1 VO 0"
+	test_parameter AocsMsduWinThr
+	test_parameter AocsRestrictCh
+	test_parameter AocsThrThr
+	test_parameter AocsWinTime
+	test_boolean_parameter APforwarding
+	# Unless OPEN requested,nothing shall be done upon set request 
+	test_set_parameter Authentication 1
+	test_boolean_parameter autoChanEna
+	test_get_parameter BasicRateSet 0
+	test_parameter BeaconPeriod
+	test_set_parameter autoChanEna 0
+	test_parameter Channel
+	test_parameter ChannelBonding 1
+	test_parameter device_name
+	test_parameter device_pin_code  "1234567890"
+	test_parameter DTIMPeriod "7"
+	test_boolean_parameter HiddenSSID
+	test_boolean_parameter Ignore11hConstraints
+	test_boolean_parameter IsHTEnabled
+	test_parameter network_type 2
+	test_parameter NetworkMode 10
+	test_parameter ESSID
+	test_parameter NonProc_WPA_Enterprise_Radius_IP "0.0.0.1"
+	test_parameter NonProc_WPA_Enterprise_Radius_Key
+	test_parameter NonProc_WPA_Enterprise_Radius_Port
+	test_parameter NonProc_WPA_Enterprise_Radius_ReKey_Interval
+	test_boolean_parameter NonProc_WPS_ApStatus
+	test_boolean_parameter OverlappingBSSProtection
+	test_parameter passPhrase "1234567890"
+	test_boolean_parameter PPAenabled
+	test_set_parameter psk "1234567890"
+	test_boolean_parameter ReliableMulticast
+	test_parameter StaKeepaliveTimeout
+	test_boolean_parameter StatisticsGatherInterval
+	test_get_parameter UpperLowerChannelBonding 1
+	test_parameter wpa_group_rekey "86400"
+	test_get_parameter wlanInterfaceCount "3"
+	test_parameter BridgeMode 4
+	
+elif [ "$DEVICE_TYPE" == "VB_AP" ]
+then
+	test_parameter AC_BE_AIFSN_AP 
+	test_parameter AC_BE_CWmax_AP 
+	test_parameter AC_BE_CWmin_AP 
+	test_parameter AC_BE_TXOP_AP "32" 
+	test_parameter AC_BK_AIFSN_AP 
+	test_parameter AC_BK_CWmax_AP 
+	test_parameter AC_BK_CWmin_AP 
+	test_parameter AC_BK_TXOP_AP "32" 
+	test_parameter AC_VI_AIFSN_AP 
+	test_parameter AC_VI_CWmax_AP 
+	test_parameter AC_VI_CWmin_AP 
+	test_parameter AC_VI_TXOP_AP "32"
+	test_parameter AC_VO_AIFSN_AP 
+	test_parameter AC_VO_CWmax_AP 
+	test_parameter AC_VO_CWmin_AP 
+	test_parameter AC_VO_TXOP_AP "32" 
+	test_get_parameter ACL ""
+	test_get_parameter AclMode "0"
+	test_boolean_parameter AMPDUMaxLength
+	test_parameter AocsCfmRAging
+	test_parameter AocsCfmRnkThr
+	test_parameter AocsIsEnabled
+	test_parameter AocsMaxPktDlBE
+	test_parameter AocsMaxPktDlBK
+	test_parameter AocsMaxPktDlVI
+	test_parameter AocsMaxPktDlVO
+	test_parameter AocsMeasurWnd
+	test_get_parameter AocsMsduRxAc "BK 0 BE 1 VI 1 VO 0"
+	test_parameter AocsMsduThr
+	test_get_parameter AocsMsduTxAc "BK 0 BE 1 VI 1 VO 0"
+	test_parameter AocsMsduWinThr
+	test_parameter AocsRestrictCh
+	test_parameter AocsThrThr
+	test_parameter AocsWinTime
+	test_boolean_parameter APforwarding
+	# Unless OPEN requested,nothing shall be done upon set request 
+	test_set_parameter Authentication 1
+	test_boolean_parameter autoChanEna
+	test_get_parameter BasicRateSet 0
+	test_parameter BeaconPeriod
+	test_set_parameter autoChanEna 0
+	test_parameter Channel
+	test_parameter device_name
+	test_parameter device_pin_code  "1234567890"
+	test_parameter DTIMPeriod "7"
+	test_boolean_parameter HiddenSSID
+	test_boolean_parameter Ignore11hConstraints
+	test_boolean_parameter IsHTEnabled
+	test_parameter network_type 2
+	test_parameter NetworkMode 10
+	test_parameter ESSID
+	test_parameter NonProc_WPA_Enterprise_Radius_IP "0.0.0.1"
+	test_parameter NonProc_WPA_Enterprise_Radius_Key
+	test_parameter NonProc_WPA_Enterprise_Radius_Port
+	test_parameter NonProc_WPA_Enterprise_Radius_ReKey_Interval
+	test_boolean_parameter NonProc_WPS_ApStatus
+	test_boolean_parameter OverlappingBSSProtection
+	test_parameter passPhrase "1234567890"
+	test_boolean_parameter PPAenabled
+	test_set_parameter psk "1234567890"
+	test_boolean_parameter ReliableMulticast
+	test_parameter StaKeepaliveTimeout
+	test_boolean_parameter StatisticsGatherInterval
+	test_get_parameter UpperLowerChannelBonding 1
+	test_parameter wpa_group_rekey "86400"
+	test_get_parameter wlanInterfaceCount "1"
+	test_parameter BridgeMode 4
+
+elif [ "$DEVICE_TYPE" == "STA" ]
+then
+	test_parameter AC_BE_AIFSN 
+	test_parameter AC_BE_CWmax 
+	test_parameter AC_BE_CWmin 
+	test_parameter AC_BE_TXOP "32"
+	test_parameter AC_BK_AIFSN 
+	test_parameter AC_BK_CWmax 
+	test_parameter AC_BK_CWmin 
+	test_parameter AC_BK_TXOP "32"
+	test_parameter AC_VI_AIFSN 
+	test_parameter AC_VI_CWmax 
+	test_parameter AC_VI_CWmin 
+	test_parameter AC_VI_TXOP "32"
+	test_parameter AC_VO_AIFSN 
+	test_parameter AC_VO_CWmax 
+	test_parameter AC_VO_CWmin 
+	test_parameter AC_VO_TXOP "32"
+	test_boolean_parameter ChannelAnnouncementEnable
+	test_parameter L2NAT_AgeTO
+	test_boolean_parameter L2NAT_DefHost
+	test_boolean_parameter L2NAT_DefHostManual
+	test_boolean_parameter LoopBreakingEnabled
+	test_parameter MacCloningAddr "DE:AD:BE:AF:00:00"
+	test_parameter network_type 0
+	test_parameter NetworkModeSTA 19
+	# Set does nothing, get implements the logic
+	test_get_parameter NeverConnected 1
+	test_boolean_parameter ESSID $1
+	test_boolean_parameter NonProc_WPA_Enterprise_Certificate $1
+	test_boolean_parameter NonProc_WPA_Enterprise_Radius_Password $1
+	test_boolean_parameter NonProc_WPA_Enterprise_Radius_Username $1
+	test_boolean_parameter NonProc_WPS_StationStatus $1
+	test_parameter Scan_Cache_Timeout
+	test_boolean_parameter Wildcard_ESSID $1
+	test_boolean_parameter WPS_BSSID_USAGE
+	test_get_parameter wlanInterfaceCount 1
+	test_parameter BridgeMode 3
+
+fi
+echo $test_completed

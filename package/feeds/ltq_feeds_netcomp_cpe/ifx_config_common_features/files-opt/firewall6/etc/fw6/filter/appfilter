@@ -1,0 +1,110 @@
+#!/bin/sh
+APPFILTER_TCP_SERVICES="/tmp/.tcpservices"
+APPFILTER_UDP_SERVICES="/tmp/.udpservices"
+
+get_tcp_services()
+{
+	cat >${APPFILTER_TCP_SERVICES}<<eof
+WEB
+TELNET
+TFTP
+FTP
+SNMP
+eof
+}
+
+get_udp_services()
+{
+	cat >${APPFILTER_UDP_SERVICES}<<eof
+TFTP
+SNMP
+eof
+}
+APPFILTER_PORTNUMBERS=""
+appfilter_getports()
+{
+	APPFILTER_PORTNUMBERS=""
+	intf=$1 #LAN/WAN
+	sourcefile=$2 #${APPFILTER_TCP_SERVICES}/${APPFILTER_UDP_SERVICES}
+	rule_enabled=$3 #1 =enabled, 0=disabled
+	while read service
+	do 
+		eval enalbed='$'${service}_${intf}_ENABLE
+		if [ "$enalbed" == "$rule_enabled" ]; then 
+			eval port='$'${service}_WAN_PORT
+			if [ "$port" != "" ]; then
+				APPFILTER_PORTNUMBERS="$APPFILTER_PORTNUMBERS,$port"
+			fi
+		fi
+	done < ${sourcefile}
+	APPFILTER_PORTNUMBERS="$(echo ${APPFILTER_PORTNUMBERS} |sed -e 's/^[ ,]*//')"
+}
+appfilter_laninput_allow()
+{
+	appfilter_getports LAN ${APPFILTER_TCP_SERVICES} 1
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A lan_input -i ${lan_if} -p tcp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j ACCEPT
+	fi
+
+	appfilter_getports LAN ${APPFILTER_UDP_SERVICES} 1
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A lan_input -i ${lan_if} -p udp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j ACCEPT
+	fi
+
+}
+appfilter_waninput_allow()
+{
+	appfilter_getports WAN ${APPFILTER_TCP_SERVICES} 1
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A wan_input ! -i ${lan_if} -p tcp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j ACCEPT
+	fi
+	appfilter_getports WAN ${APPFILTER_UDP_SERVICES} 1
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A wan_input ! -i ${lan_if} -p udp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j ACCEPT
+	fi
+	if [ "$raccess_fEnable" == "1" ]; then
+		ipt -A wan_input ! -i ${lan_if} -p tcp -m multiport --dport ${raccess_port} -j ACCEPT
+	fi
+}
+
+appfilter_lan2wan_fwd_deny()
+{
+	appfilter_getports LAN ${APPFILTER_TCP_SERVICES} 0
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A lan2wan_forward  -p tcp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j DROP
+	fi
+
+	appfilter_getports LAN ${APPFILTER_UDP_SERVICES} 0
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A lan2wan_forward  -p udp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j DROP
+	fi
+
+}
+appfilter_wan2lan_fwd_allow()
+{
+	appfilter_getports WAN ${APPFILTER_TCP_SERVICES} 1
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A wan2lan_forward -p tcp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j ACCEPT
+	fi
+
+	appfilter_getports WAN ${APPFILTER_UDP_SERVICES} 1
+	if [ "$APPFILTER_PORTNUMBERS" != "" ]; then
+		ipt -A wan2lan_forward -p udp -m multiport --dport ${APPFILTER_PORTNUMBERS} -j ACCEPT
+	fi
+}
+
+
+appfilter_cleanup()
+{
+	rm -f ${APPFILTER_TCP_SERVICES}
+	rm -f ${APPFILTER_UDP_SERVICES}
+}
+
+get_tcp_services
+get_udp_services
+
+FW_FILTER_LANINPUT_ALLOW=appfilter_laninput_allow
+FW_FILTER_WANINPUT_ALLOW=appfilter_waninput_allow
+#FW_FILTER_LAN2WAN_FWD_DENY=appfilter_lan2wan_fwd_deny
+#FW_FILTER_WAN2LAN_FWD_ALLOW=appfilter_wan2lan_fwd_allow
+FW_ENABLE_NOTIFIER=appfilter_cleanup

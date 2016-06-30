@@ -1,0 +1,45 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+
+case $lan_main_ipv6_0_lan_ipv6_mode in
+# SLAAC ONLY
+        0)
+                LMODE=SLAAC
+                ;;
+# SLAAC + DHCP
+        1)
+                LMODE=SLDHCP
+                ;;
+# DHCP ONLY
+        2)
+                LMODE=SFDHCP
+                ;;
+        *)
+                LMODE=SLDHCP
+                ;;
+esac
+
+
+PREFIX=${lan_radvd_ip6addr}/${lan_radvd_prelen}
+PLIFETIME=604800
+VLIFETIME=2592000
+EVENT_SRC=LAN
+EVENT_TYPE=UP
+DNS1=${lan_dhcpv6_dnsv6Addr}
+DNS2=${lan_dhcpv6_dnsv6SecAddr}
+
+. /etc/rc.d/update_and_run_radvd.sh update
+

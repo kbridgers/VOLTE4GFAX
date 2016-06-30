@@ -1,0 +1,161 @@
+--- /dev/null
++++ b/arch/mips/include/asm/mach-lantiq/svip/irq.h
+@@ -0,0 +1,37 @@
++/******************************************************************************
++
++  arch/mips/include/asm/mach-lantiq/svip/irq.h
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  This program is distributed in the hope that it will be useful,
++  but WITHOUT ANY WARRANTY; without even the implied warranty of
++  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++  GNU General Public License for more details.
++
++  You should have received a copy of the GNU General Public License
++  along with this program; if not, write to the Free Software
++  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++
++  Copyright (C) 2010 Lantiq
++
++******************************************************************************/
++
++#ifndef __IRQ_H
++#define __IRQ_H
++
++#include <svip_irq.h>
++
++#define NR_IRQS 264
++
++#include_next <irq.h>
++
++/* Functions for EXINT handling */
++extern int ifx_enable_external_int(u32 exint, u32 mode);
++extern int ifx_disable_external_int(u32 exint);
++extern int ifx_external_int_level(u32 exint);
++
++#endif
+--- /dev/null
++++ b/arch/mips/include/asm/mach-lantiq/svip/svip_irq.h
+@@ -0,0 +1,37 @@
++/******************************************************************************
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  This program is distributed in the hope that it will be useful,
++  but WITHOUT ANY WARRANTY; without even the implied warranty of
++  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++  GNU General Public License for more details.
++
++  You should have received a copy of the GNU General Public License
++  along with this program; if not, write to the Free Software
++  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++
++  Copyright (C) 2010 Lantiq
++
++******************************************************************************/
++#ifndef __SVIP_IRQ_H
++#define __SVIP_IRQ_H
++
++#define IM_NUM				6
++
++#define INT_NUM_IRQ0			8
++#define INT_NUM_IM0_IRL0		(INT_NUM_IRQ0 + 0)
++#define INT_NUM_IM1_IRL0		(INT_NUM_IM0_IRL0 + 32)
++#define INT_NUM_IM2_IRL0		(INT_NUM_IM1_IRL0 + 32)
++#define INT_NUM_IM3_IRL0		(INT_NUM_IM2_IRL0 + 32)
++#define INT_NUM_IM4_IRL0		(INT_NUM_IM3_IRL0 + 32)
++#define INT_NUM_EXTRA_START		(INT_NUM_IM4_IRL0 + 32)
++#define INT_NUM_IM_OFFSET		(INT_NUM_IM1_IRL0 - INT_NUM_IM0_IRL0)
++
++#define INT_NUM_IM5_IRL0		(INT_NUM_IRQ0 + 160)
++#define MIPS_CPU_TIMER_IRQ		(INT_NUM_IM5_IRL0 + 2)
++
++#endif
+--- a/arch/mips/lantiq/irq.c
++++ b/arch/mips/lantiq/irq.c
+@@ -310,22 +310,25 @@ DEFINE_HWx_IRQDISPATCH(1)
+ DEFINE_HWx_IRQDISPATCH(2)
+ DEFINE_HWx_IRQDISPATCH(3)
+ DEFINE_HWx_IRQDISPATCH(4)
+-
++#if MIPS_CPU_TIMER_IRQ == 7
+ static void ltq_hw5_irqdispatch(void)
+ {
+ 	do_IRQ(MIPS_CPU_TIMER_IRQ);
+ }
++#else
++DEFINE_HWx_IRQDISPATCH(5)
++#endif
+ 
+ asmlinkage void plat_irq_dispatch(void)
+ {
+ 	unsigned int pending = read_c0_status() & read_c0_cause() & ST0_IM;
+ 	unsigned int i;
+ 
+-	if (pending & CAUSEF_IP7) {
++	if ((MIPS_CPU_TIMER_IRQ == 7) && (pending & CAUSEF_IP7)) {
+ 		do_IRQ(MIPS_CPU_TIMER_IRQ);
+ 		goto out;
+ 	} else {
+-		for (i = 0; i < 5; i++) {
++		for (i = 0; i < IM_NUM; i++) {
+ 			if (pending & (CAUSEF_IP2 << i)) {
+ 				ltq_hw_irqdispatch(i);
+ 				goto out;
+@@ -348,6 +351,21 @@ void __init arch_init_irq(void)
+ {
+ 	int i;
+ 
++#if 0
++	pr_info("setup irqs\n");
++	{
++		unsigned long j = jiffies;
++		pr_info("jiffies = %lu\n", j);
++
++		while (1) {
++			if (j != jiffies) {
++				j = jiffies;
++				pr_info("jiffies = %lu\n", j);
++			}
++		}
++	}
++#endif
++
+ 	for (i=0; i<IM_NUM; i++) {
+ 		if (insert_resource(&iomem_resource, &ltq_icu_resource[i]) < 0)
+ 			panic("Failed to insert icu memory\n");
+@@ -399,7 +417,7 @@ void __init arch_init_irq(void)
+ 	}
+ 
+ 	for (i = INT_NUM_IRQ0;
+-		i <= (INT_NUM_IRQ0 + (5 * INT_NUM_IM_OFFSET)); i++)
++		i <= (INT_NUM_IRQ0 + (IM_NUM * INT_NUM_IM_OFFSET)); i++)
+ #ifdef CONFIG_SOC_TYPE_XWAY
+ 			if ((i == LTQ_EIU_IR0) || (i == LTQ_EIU_IR1) || (i == LTQ_EIU_IR2))
+ 				set_irq_chip_and_handler(i, &ltq_eiu_type, handle_level_irq);
+@@ -418,10 +436,18 @@ void __init arch_init_irq(void)
+ 	set_c0_status(IE_SW0 | IE_SW1 | IE_IRQ0 | IE_IRQ1 |
+ 		IE_IRQ2 | IE_IRQ3 | IE_IRQ4 | IE_IRQ5);
+ #endif
++#ifdef CONFIG_SOC_SVIP
++	cp0_compare_irq = MIPS_CPU_TIMER_IRQ;
++#else
+ 	cp0_compare_irq = CP0_LEGACY_COMPARE_IRQ;
++#endif
+ }
+ 
+ unsigned int __cpuinit get_c0_compare_int(void)
+ {
++#ifdef CONFIG_SOC_SVIP
++	return MIPS_CPU_TIMER_IRQ;
++#else
+ 	return CP0_LEGACY_COMPARE_IRQ;
++#endif
+ }

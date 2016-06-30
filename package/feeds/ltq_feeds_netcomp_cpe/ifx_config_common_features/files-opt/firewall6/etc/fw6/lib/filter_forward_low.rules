@@ -1,0 +1,17 @@
+#  Configuration: Low "Allow all Outbound and pinhole-defined Inbound"
+#  Default policy is DROP
+-P FORWARD DROP
+#  User defined chain lan2wan_forward filters outbound traffic
+#  User defined chain wan2lan_forward filters inbound traffic
+#  Allow all outbound  traffics
+-A lan2wan_forward -j ACCEPT
+#  Allow IPsec AH
+-A wan2lan_forward -p 51 -j ACCEPT
+#  Allow IPsec ESP
+-A wan2lan_forward -p 50 -j ACCEPT
+#  Allow IPsec key exchange
+-A wan2lan_forward -p udp --dport 500 -j ACCEPT
+#  Allow Related & Established inbound traffic, initiated by above outbound traffic
+-A wan2lan_forward -m state --state RELATED,ESTABLISHED -j ACCEPT 
+# Restall DROP
+-A wan2lan_forward -j DROP

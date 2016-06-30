@@ -1,0 +1,3660 @@
+From 7a80fba7ed2922ab2688150275aeea43f0acb897 Mon Sep 17 00:00:00 2001
+From: John Crispin <blogic@openwrt.org>
+Date: Tue, 26 Jun 2012 14:28:00 +0200
+Subject: [PATCH 21/22] MIPS: lantiq: update ethernet driver
+
+Signed-off-by: John Crispin <blogic@openwrt.org>
+---
+ arch/mips/lantiq/xway/sysctrl.c               |    4 +
+ drivers/net/ethernet/Kconfig                  |    7 +-
+ drivers/net/ethernet/Makefile                 |    2 +-
+ drivers/net/ethernet/lantiq/Kconfig           |   38 ++
+ drivers/net/ethernet/lantiq/Makefile          |    4 +
+ drivers/net/ethernet/lantiq/mdio.c            |  261 ++++++++
+ drivers/net/ethernet/lantiq/vr9_switch_regs.h |  425 ++++++++++++
+ drivers/net/ethernet/lantiq/xrx200.c          |  825 +++++++++++++++++++++++
+ drivers/net/ethernet/lantiq/xway_dma_net.c    |  487 ++++++++++++++
+ drivers/net/ethernet/lantiq/xway_dma_net.h    |   74 +++
+ drivers/net/ethernet/lantiq/xway_etop.c       |  437 +++++++++++++
+ drivers/net/ethernet/lantiq/xway_phy_fw.c     |  145 +++++
+ drivers/net/ethernet/lantiq_etop.c            |  862 -------------------------
+ 13 files changed, 2702 insertions(+), 869 deletions(-)
+ create mode 100644 drivers/net/ethernet/lantiq/Kconfig
+ create mode 100644 drivers/net/ethernet/lantiq/Makefile
+ create mode 100644 drivers/net/ethernet/lantiq/mdio.c
+ create mode 100644 drivers/net/ethernet/lantiq/vr9_switch_regs.h
+ create mode 100644 drivers/net/ethernet/lantiq/xrx200.c
+ create mode 100644 drivers/net/ethernet/lantiq/xway_dma_net.c
+ create mode 100644 drivers/net/ethernet/lantiq/xway_dma_net.h
+ create mode 100644 drivers/net/ethernet/lantiq/xway_etop.c
+ create mode 100644 drivers/net/ethernet/lantiq/xway_phy_fw.c
+ delete mode 100644 drivers/net/ethernet/lantiq_etop.c
+
+--- a/arch/mips/lantiq/xway/sysctrl.c
++++ b/arch/mips/lantiq/xway/sysctrl.c
+@@ -363,6 +363,10 @@ void __init ltq_soc_init(void)
+ 		clkdev_add_pmu("1d900000.pcie", "pdi", 1, PMU1_PCIE_PDI);
+ 		clkdev_add_pmu("1d900000.pcie", "ctl", 1, PMU1_PCIE_CTL);
+ 		clkdev_add_pmu("1d900000.pcie", "ahb", 0, PMU_AHBM | PMU_AHBS);
++		clkdev_add_pmu("1e108000.eth", NULL, 0,
++			PMU_SWITCH | PMU_PPE_DPLUS | PMU_PPE_DPLUM |
++			PMU_PPE_EMA | PMU_PPE_TC | PMU_PPE_SLL01 |
++			PMU_PPE_QSB);
+ 	} else if (of_machine_is_compatible("lantiq,ar9")) {
+ 		clkdev_add_static(ltq_ar9_cpu_hz(), ltq_ar9_fpi_hz(),
+ 				ltq_ar9_fpi_hz());
+--- a/drivers/net/ethernet/Kconfig
++++ b/drivers/net/ethernet/Kconfig
+@@ -79,12 +79,7 @@ config KORINA
+ 	  If you have a Mikrotik RouterBoard 500 or IDT RC32434
+ 	  based system say Y. Otherwise say N.
+ 
+-config LANTIQ_ETOP
+-	tristate "Lantiq SoC ETOP driver"
+-	depends on SOC_TYPE_XWAY
+-	---help---
+-	  Support for the MII0 inside the Lantiq SoC
+-
++source "drivers/net/ethernet/lantiq/Kconfig"
+ source "drivers/net/ethernet/marvell/Kconfig"
+ source "drivers/net/ethernet/mellanox/Kconfig"
+ source "drivers/net/ethernet/micrel/Kconfig"
+--- a/drivers/net/ethernet/Makefile
++++ b/drivers/net/ethernet/Makefile
+@@ -35,7 +35,7 @@ obj-$(CONFIG_NET_VENDOR_XSCALE) += xscal
+ obj-$(CONFIG_IP1000) += icplus/
+ obj-$(CONFIG_JME) += jme.o
+ obj-$(CONFIG_KORINA) += korina.o
+-obj-$(CONFIG_LANTIQ_ETOP) += lantiq_etop.o
++obj-$(CONFIG_NET_VENDOR_LANTIQ) += lantiq/
+ obj-$(CONFIG_NET_VENDOR_MARVELL) += marvell/
+ obj-$(CONFIG_NET_VENDOR_MELLANOX) += mellanox/
+ obj-$(CONFIG_NET_VENDOR_MICREL) += micrel/
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/Kconfig
+@@ -0,0 +1,38 @@
++#
++# Lantiq network device configuration
++#
++
++config NET_VENDOR_LANTIQ
++	bool "Lantiq devices"
++	default y
++	depends on LANTIQ && SOC_TYPE_XWAY
++
++if NET_VENDOR_INTEL
++
++config XWAY_PHY_FW_LOAD
++	tristate "Lantiq GPHY FW Loader"
++	depends on SOC_TYPE_XWAY
++	---help---
++	  Support for the MII0 inside the Lantiq SoC
++
++config XWAY_DMA_NET
++	tristate "XWAY DMA Ethernet binding"
++	depends on SOC_TYPE_XWAY
++	---help---
++	  Support for the MII0 inside the Lantiq SoC
++
++config XWAY_ETOP
++	tristate "XWAY ETOP Switch Frontend"
++	depends on SOC_TYPE_XWAY
++	select XWAY_DMA_NET
++	---help---
++	  Support for the MII0 inside the Lantiq SoC
++
++config XWAY_XRX200
++	tristate "XRX200 Switch Frontend"
++	depends on SOC_TYPE_XWAY
++	select XWAY_DMA_NET
++	---help---
++	  Support for the MII0 inside the Lantiq SoC
++
++endif
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/Makefile
+@@ -0,0 +1,4 @@
++obj-$(CONFIG_XWAY_PHY_FW_LOAD)	+= xway_phy_fw.o
++obj-$(CONFIG_XWAY_DMA_NET)	+= xway_dma_net.o mdio.o
++obj-$(CONFIG_XWAY_ETOP)		+= xway_etop.o
++obj-$(CONFIG_XWAY_XRX200)	+= xrx200.o
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/mdio.c
+@@ -0,0 +1,261 @@
++/*
++ *   This program is free software; you can redistribute it and/or modify it
++ *   under the terms of the GNU General Public License version 2 as published
++ *   by the Free Software Foundation.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++ *
++ *   Copyright (C) 2011 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/interrupt.h>
++#include <linux/uaccess.h>
++#include <linux/in.h>
++#include <linux/netdevice.h>
++#include <linux/etherdevice.h>
++#include <linux/phy.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <linux/skbuff.h>
++#include <linux/mm.h>
++#include <linux/platform_device.h>
++#include <linux/ethtool.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/dma-mapping.h>
++#include <linux/module.h>
++#include <linux/clk.h>
++
++#include <asm/checksum.h>
++
++#include <lantiq_soc.h>
++#include "xway_dma_net.h"
++
++#define ADVERTIZE_MPD          (1 << 10)
++
++#define MDIO_DEVAD_NONE                    (-1)
++
++static void
++xway_net_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++
++	strcpy(info->driver, priv->sw->name);
++	strcpy(info->bus_info, "internal");
++	strcpy(info->version, DRV_VERSION);
++}
++
++static int
++xway_net_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
++{
++/*	struct xway_net_priv *priv = netdev_priv(dev);
++
++	if (priv->phydev)
++		return phy_ethtool_gset(priv->phydev, cmd);
++	else*/
++	return 0;
++}
++
++static int
++xway_net_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
++{
++/*	struct xway_net_priv *priv = netdev_priv(dev);
++
++	if (priv->phydev)
++		return phy_ethtool_sset(priv->phydev, cmd);
++	else*/
++		return 0;
++}
++
++static int
++xway_net_nway_reset(struct net_device *dev)
++{
++/*	struct xway_net_priv *priv = netdev_priv(dev);
++
++	if (priv->phydev)
++		return phy_start_aneg(priv->phydev);
++	else*/
++		return 0;
++}
++
++static const struct ethtool_ops xway_net_ethtool_ops = {
++	.get_drvinfo = xway_net_get_drvinfo,
++	.get_settings = xway_net_get_settings,
++	.set_settings = xway_net_set_settings,
++	.nway_reset = xway_net_nway_reset,
++};
++
++int
++xway_mdio_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
++{
++	//struct xway_net_priv *priv = netdev_priv(dev);
++
++	/* TODO: mii-toll reports "No MII transceiver present!." ?!*/
++	return 0; //phy_mii_ioctl(priv->phydev, rq, cmd);
++}
++
++void
++xway_mdio_start(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	int i;
++
++	for (i = 0; i < PHY_MAX_ADDR; i++)
++		if (priv->mii_bus->phy_map[i])
++			phy_start(priv->mii_bus->phy_map[i]);
++}
++
++void
++xway_mdio_stop(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	int i;
++
++	for (i = 0; i < PHY_MAX_ADDR; i++) {
++		if (priv->mii_bus->phy_map[i]) {
++			phy_stop(priv->mii_bus->phy_map[i]);
++			priv->phylink[i] = 0;
++		}
++	}
++}
++
++void vrx200_gmac_update(struct phy_device *phydev, int num);
++
++
++static void
++xway_mdio_link(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	int i;
++
++	for (i = 0; i < PHY_MAX_ADDR; i++) {
++		if (priv->mii_bus->phy_map[i] && (priv->phylink[i] != priv->mii_bus->phy_map[i]->link)) {
++			priv->phylink[i] = priv->mii_bus->phy_map[i]->link;
++			if (priv->sw->mdio_update)
++				priv->sw->mdio_update(priv->phydev[i], i);
++		}
++	}
++}
++
++static int
++xway_mdio_probe(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	struct phy_device *phydev = NULL;
++	int i;
++	int val;
++
++	for (i = 0; i < PHY_MAX_ADDR; i++) {
++		if (!priv->mii_bus->phy_map[i])
++			continue;
++
++		phydev = phy_connect(dev, dev_name(&priv->mii_bus->phy_map[i]->dev),
++				&xway_mdio_link, 0, priv->sw->mii_mode);
++		if (IS_ERR(phydev)) {
++			pr_err("could not attach to PHY [%d] (%lX)\n",
++					i, PTR_ERR(phydev));
++			continue;
++		}
++
++		phydev->supported &= (SUPPORTED_10baseT_Half
++					| SUPPORTED_10baseT_Full
++					| SUPPORTED_100baseT_Half
++					| SUPPORTED_100baseT_Full
++					| SUPPORTED_Autoneg
++					| SUPPORTED_MII
++					| SUPPORTED_TP);
++		if (priv->sw->gbit)
++			phydev->supported |= SUPPORTED_1000baseT_Half
++					| SUPPORTED_1000baseT_Full;
++
++		phydev->advertising = phydev->supported;
++		priv->phylink[i] = 0;
++		priv->phydev[i] = phydev;
++		val = priv->mii_bus->read(priv->mii_bus, i, MII_CTRL1000);
++		val |= ADVERTIZE_MPD;
++		priv->mii_bus->write(priv->mii_bus, i, MII_CTRL1000, val);
++
++		priv->mii_bus->write(priv->mii_bus, i, 0, 0x1040);
++		pr_info("%s: attached (phy_addr=%s, irq=%d)\n",
++			phydev->drv->name, dev_name(&phydev->dev), phydev->irq);
++		phy_start_aneg(phydev);
++	}
++	return 0;
++}
++
++int
++xway_mdio_init(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	int i;
++	int err;
++
++	priv->mii_bus = mdiobus_alloc();
++	if (!priv->mii_bus) {
++		netdev_err(dev, "failed to allocate mii bus\n");
++		err = -ENOMEM;
++		goto err_out;
++	}
++
++	priv->mii_bus->priv = dev;
++	priv->mii_bus->read = priv->sw->mdio_rd;
++	priv->mii_bus->write = priv->sw->mdio_wr;
++	priv->mii_bus->name = "ltq_mii";
++	snprintf(priv->mii_bus->id, MII_BUS_ID_SIZE, "%s-%x",
++		priv->pdev->name, priv->pdev->id);
++	priv->mii_bus->irq = kmalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
++	if (!priv->mii_bus->irq) {
++		err = -ENOMEM;
++		goto err_out_free_mdiobus;
++	}
++
++	for (i = 0; i < PHY_MAX_ADDR; ++i)
++		priv->mii_bus->irq[i] = PHY_POLL;
++
++	if (mdiobus_register(priv->mii_bus)) {
++		err = -ENXIO;
++		goto err_out_free_mdio_irq;
++	}
++
++	if (xway_mdio_probe(dev)) {
++		err = -ENXIO;
++		goto err_out_unregister_bus;
++	}
++	dev->ethtool_ops = &xway_net_ethtool_ops;
++	return 0;
++
++err_out_unregister_bus:
++	mdiobus_unregister(priv->mii_bus);
++err_out_free_mdio_irq:
++	kfree(priv->mii_bus->irq);
++err_out_free_mdiobus:
++	mdiobus_free(priv->mii_bus);
++err_out:
++	return err;
++}
++
++void
++xway_mdio_cleanup(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	int i;
++
++	for (i = 0; i < PHY_MAX_ADDR; ++i)
++		if (priv->mii_bus->phy_map[i])
++			phy_disconnect(priv->mii_bus->phy_map[i]);
++	mdiobus_unregister(priv->mii_bus);
++	kfree(priv->mii_bus->irq);
++	mdiobus_free(priv->mii_bus);
++}
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/vr9_switch_regs.h
+@@ -0,0 +1,425 @@
++/*
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU General Public License as published by
++ *   the Free Software Foundation; either version 2 of the License, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++ *
++ *   Copyright (C) 2012 Daniel Schwierzeck <daniel.schwierzeck@googlemail.com>
++ */
++
++#ifndef __VR9_SWITCH_REGS_H__
++#define __VR9_SWITCH_REGS_H__
++
++/* Switch core registers */
++struct vr9_switch_core_regs {
++	__be32 swres;
++	/* TODO: implement registers */
++	__be32 rsvd0[0x3f];
++};
++
++/* Switch buffer management registers */
++struct vr9_switch_bm_regs {
++	struct bm_core {
++		__be32 ram_val3;	/* RAM value 3 */
++		__be32 ram_val2;	/* RAM value 2 */
++		__be32 ram_val1;	/* RAM value 1 */
++		__be32 ram_val0;	/* RAM value 0 */
++		__be32 ram_addr;	/* RAM address */
++		__be32 ram_ctrl;	/* RAM access control */
++		__be32 fsqm_gctrl;	/* Free segment queue global control */
++		__be32 cons_sel;	/* Number of consumed segments */
++		__be32 cons_pkt;	/* Number of consumed packet pointers */
++		__be32 gctrl;		/* Global control */
++		__be32 queue_gctrl;	/* Queue manager global control */
++		/* TODO: implement registers */
++		__be32 rsvd0[0x35];
++	} core;
++
++	struct bm_port {
++		__be32 pcfg;		/* Port config */
++		__be32 rmon_ctrl;	/* RMON control */
++	} port[13];
++
++	__be32 rsvd0[0x66];
++
++	struct bm_queue {
++		__be32 rsvd0;
++		__be32 pqm_rs;		/* Packet queue manager rate shape assignment */
++	} queue[32];
++
++	struct bm_shaper {
++		__be32 ctrl;		/* Rate shaper control */
++		__be32 cbs;		/* Rate shaper committed burst size */
++		__be32 ibs;		/* Rate shaper instantaneous burst size */
++		__be32 cir_ext;		/* Rate shaper rate exponent */
++		__be32 cir_mant;	/* Rate shaper rate mantissa */
++	} shaper[16];
++
++	__be32 rsvd1[0x2a8];
++};
++
++/* Switch parser and classification engine registers */
++struct vr9_switch_pce_regs {
++	struct pce_core {
++		__be32 tbl_key[16];	/* Table key data */
++		__be32 tbl_mask;	/* Table mask */
++		__be32 tbl_val[5];	/* Table value */
++		__be32 tbl_addr;	/* Table entry address */
++		__be32 tbl_ctrl;	/* Table access control */
++		__be32 tbl_stat;	/* Table general status */
++		__be32 age_0;		/* Aging counter config 0 */
++		__be32 age_1;		/* Aging counter config 1 */
++		__be32 pmap_1;		/* Port map (monitoring) */
++		__be32 pmap_2;		/* Port map (multicast) */
++		__be32 pmap_3;		/* Port map (unknown unicast) */
++		__be32 gctrl_0;		/* Global control 0 */
++		__be32 gctrl_1;		/* Global control 1 */
++		__be32 tcm_gctrl;	/* Three-color marker global control */
++		__be32 igmp_ctrl;	/* IGMP control */
++		__be32 igmp_drpm;	/* IGMP default router port map */
++		__be32 igmp_age_0;	/* IGMP aging 0 */
++		__be32 igmp_age_1;	/* IGMP aging 1 */
++		__be32 igmp_stat;	/* IGMP status */
++		__be32 wol_gctrl;	/* Wake-on-LAN control */
++		__be32 wol_da_0;	/* Wake-on-LAN destination address 0 */
++		__be32 wol_da_1;	/* Wake-on-LAN destination address 1 */
++		__be32 wol_da_2;	/* Wake-on-LAN destination address 2 */
++		__be32 wol_pw_0;	/* Wake-on-LAN password 0 */
++		__be32 wol_pw_1;	/* Wake-on-LAN password 1 */
++		__be32 wol_pw_2;	/* Wake-on-LAN password 2 */
++		__be32 ier_0;		/* PCE global interrupt enable 0 */
++		__be32 ier_1;		/* PCE global interrupt enable 1 */
++		__be32 isr_0;		/* PCE global interrupt status 0 */
++		__be32 isr_1;		/* PCE global interrupt status 1 */
++		__be32 parser_stat;	/* Parser status */
++		__be32 rsvd0[0x6];
++	} core;
++
++	__be32 rsvd0[0x10];
++
++	struct pce_port {
++		__be32 pctrl_0;		/* Port control 0 */
++		__be32 pctrl_1;		/* Port control 1 */
++		__be32 pctrl_2;		/* Port control 2 */
++		__be32 pctrl_3;		/* Port control 3 */
++		__be32 wol_ctrl;	/* Wake-on-LAN control */
++		__be32 vlan_ctrl;	/* VLAN control */
++		__be32 def_pvid;	/* Default port VID */
++		__be32 pstat;		/* Port status */
++		__be32 pier;		/* Interrupt enable */
++		__be32 pisr;		/* Interrupt status */
++	} port[13];
++
++	__be32 rsvd1[0x7e];
++
++	struct pce_meter {
++		/* TODO: implement registers */
++		__be32 rsvd0[0x7];
++	} meter[8];
++
++	__be32 rsvd2[0x308];
++};
++
++static inline unsigned int to_pce_tbl_key_id(unsigned int id)
++{
++	return 15 - id;
++}
++
++static inline unsigned int to_pce_tbl_value_id(unsigned int id)
++{
++	return 4 - id;
++}
++
++/* Switch ethernet MAC registers */
++struct vr9_switch_mac_regs {
++	struct mac_core {
++		__be32 test;		/* MAC test */
++		__be32 pfad_cfg;	/* Pause frame source address config */
++		__be32 pfsa_0;		/* Pause frame source address 0 */
++		__be32 pfsa_1;		/* Pause frame source address 1 */
++		__be32 pfsa_2;		/* Pause frame source address 2 */
++		__be32 flen;		/* Frame length */
++		__be32 vlan_etype_0;	/* VLAN ethertype 0 */
++		__be32 vlan_etype_1;	/* VLAN ethertype 1 */
++		__be32 ier;		/* Interrupt enable */
++		__be32 isr;		/* Interrupt status */
++		__be32 rsvd0[0x36];
++	} core;
++
++	struct mac_port {
++		__be32 pstat;		/* Port status */
++		__be32 pisr;		/* Interrupt status */
++		__be32 pier;		/* Interrupt enable */
++		__be32 ctrl_0;		/* Control 0 */
++		__be32 ctrl_1;		/* Control 1 */
++		__be32 ctrl_2;		/* Control 2 */
++		__be32 ctrl_3;		/* Control 3 */
++		__be32 ctrl_4;		/* Control 4 */
++		__be32 ctrl_5;		/* Control 5 */
++		__be32 rsvd0[0x2];
++		__be32 testen;		/* Test enable */
++	} port[13];
++
++	__be32 rsvd0[0xa4];
++};
++
++/* Switch Fetch DMA registers */
++struct vr9_switch_fdma_regs {
++	struct fdma_core {
++		__be32 ctrl;		/* FDMA control */
++		__be32 stetype;		/* Special tag ethertype control */
++		__be32 vtetype;		/* VLAN tag ethertype control */
++		__be32 stat;		/* FDMA status */
++		__be32 ier;		/* FDMA interrupt enable */
++		__be32 isr;		/* FDMA interrupt status */
++	} core;
++
++	__be32 rsvd0[0x3a];
++
++	struct fdma_port {
++		__be32 pctrl;		/* Port control */
++		__be32 prio;		/* Port priority */
++		__be32 pstat_0;		/* Port status 0 */
++		__be32 pstat_1;		/* Port status 1 */
++		__be32 tstamp_0;	/* Egress time stamp 0 */
++		__be32 tstamp_1;	/* Egress time stamp 1 */
++	} port[13];
++
++	__be32 rsvd1[0x72];
++};
++
++/* Switch Store DMA registers */
++struct vr9_switch_sdma_regs {
++	struct sdma_core {
++		__be32 ctrl;		/* SDMA Control */
++		__be32 fcthr_1;		/* Flow control threshold 1 */
++		__be32 rsvd0;
++		__be32 fcthr_3;		/* Flow control threshold 3 */
++		__be32 fcthr_4;		/* Flow control threshold 4 */
++		__be32 fcthr_5;		/* Flow control threshold 5 */
++		__be32 fcthr_6;		/* Flow control threshold 6 */
++		__be32 fcthr_7;		/* Flow control threshold 7 */
++		__be32 stat_0;		/* SDMA status 0 */
++		__be32 stat_1;		/* SDMA status 1 */
++		__be32 stat_2;		/* SDMA status 2 */
++		__be32 ier;		/* SDMA interrupt enable */
++		__be32 isr;		/* SDMA interrupt status */
++	} core;
++
++	__be32 rsvd0[0x73];
++
++	struct sdma_port {
++		__be32 pctrl;		/* Port control */
++		__be32 prio;		/* Port priority */
++		__be32 pstat_0;		/* Port status 0 */
++		__be32 pstat_1;		/* Port status 1 */
++		__be32 tstamp_0;	/* Ingress time stamp 0 */
++		__be32 tstamp_1;	/* Ingress time stamp 1 */
++	} port[13];
++
++	__be32 rsvd1[0x32];
++};
++
++/* Switch MDIO control and status registers */
++struct vr9_switch_mdio_regs {
++	__be32 glob_ctrl;	/* Global control 0 */
++	__be32 rsvd0[7];
++	__be32 mdio_ctrl;	/* MDIO control */
++	__be32 mdio_read;	/* MDIO read data */
++	__be32 mdio_write;	/* MDIO write data */
++	__be32 mdc_cfg_0;	/* MDC clock configuration 0 */
++	__be32 mdc_cfg_1;	/* MDC clock configuration 1 */
++	__be32 rsvd1[0x3];
++	__be32 phy_addr[6];	/* PHY address port 5..0 */
++	__be32 mdio_stat[6];	/* MDIO PHY polling status port 0..5 */
++	__be32 aneg_eee[6];	/* EEE auto-neg overrides port 0..5 */
++	__be32 rsvd2[0x14];
++};
++
++static inline unsigned int to_mdio_phyaddr_id(unsigned int id)
++{
++	return 5 - id;
++}
++
++/* Switch xMII control registers */
++struct vr9_switch_mii_regs {
++	__be32 mii_cfg0;	/* xMII port 0 configuration */
++	__be32 pcdu0;		/* Port 0 clock delay configuration */
++	__be32 mii_cfg1;	/* xMII port 1 configuration */
++	__be32 pcdu1;		/* Port 1 clock delay configuration */
++	__be32 rsvd0[0x6];
++	__be32 mii_cfg5;	/* xMII port 5 configuration */
++	__be32 pcdu5;		/* Port 5 clock delay configuration */
++	__be32 rsvd1[0x14];
++	__be32 rxb_ctl_0;	/* Port 0 receive buffer control */
++	__be32 rxb_ctl_1;	/* Port 1 receive buffer control */
++	__be32 rxb_ctl_5;	/* Port 5 receive buffer control */
++	__be32 rsvd2[0x28];
++	__be32 dbg_ctl;		/* Debug control */
++};
++
++/* Switch Pseudo-MAC registers */
++struct vr9_switch_pmac_regs {
++	__be32 hd_ctl;		/* PMAC header control */
++	__be32 tl;		/* PMAC type/length */
++	__be32 sa1;		/* PMAC source address 1 */
++	__be32 sa2;		/* PMAC source address 2 */
++	__be32 sa3;		/* PMAC source address 3 */
++	__be32 da1;		/* PMAC destination address 1 */
++	__be32 da2;		/* PMAC destination address 2 */
++	__be32 da3;		/* PMAC destination address 3 */
++	__be32 vlan;		/* PMAC VLAN */
++	__be32 rx_ipg;		/* PMAC interpacket gap in RX direction */
++	__be32 st_etype;	/* PMAC special tag ethertype */
++	__be32 ewan;		/* PMAC ethernet WAN group */
++	__be32 ctl;		/* PMAC control */
++	__be32 rsvd0[0x2];
++};
++
++struct vr9_switch_regs {
++	struct vr9_switch_core_regs core;
++	struct vr9_switch_bm_regs bm;
++	struct vr9_switch_pce_regs pce;
++	struct vr9_switch_mac_regs mac;
++	struct vr9_switch_fdma_regs fdma;
++	struct vr9_switch_sdma_regs sdma;
++	struct vr9_switch_mdio_regs mdio;
++	struct vr9_switch_mii_regs mii;
++	struct vr9_switch_pmac_regs pmac;
++};
++
++#define VR9_SWITCH_REG_OFFSET(reg)	(4 * (reg))
++
++#define BUILD_CHECK_VR9_REG(name, offset)	\
++	BUILD_BUG_ON(offsetof(struct vr9_switch_regs, name) != (4 * offset))
++
++static inline void build_check_vr9_registers(void)
++{
++	BUILD_CHECK_VR9_REG(core, 0x0);
++	BUILD_CHECK_VR9_REG(bm.core, 0x40);
++	BUILD_CHECK_VR9_REG(bm.core.queue_gctrl, 0x4a);
++	BUILD_CHECK_VR9_REG(bm.port[0], 0x80);
++	BUILD_CHECK_VR9_REG(bm.queue, 0x100);
++	BUILD_CHECK_VR9_REG(bm.shaper, 0x140);
++	BUILD_CHECK_VR9_REG(pce.core, 0x438);
++	BUILD_CHECK_VR9_REG(pce.core.tbl_ctrl, 0x44f);
++	BUILD_CHECK_VR9_REG(pce.core.parser_stat, 0x469);
++	BUILD_CHECK_VR9_REG(pce.port[0], 0x480);
++	BUILD_CHECK_VR9_REG(pce.meter[0], 0x580);
++	BUILD_CHECK_VR9_REG(mac.core, 0x8c0);
++	BUILD_CHECK_VR9_REG(mac.port[0].pstat, 0x900);
++	BUILD_CHECK_VR9_REG(mac.port[0].ctrl_0, 0x903);
++	BUILD_CHECK_VR9_REG(mac.port[1].pstat, 0x90c);
++	BUILD_CHECK_VR9_REG(mac.port[1].ctrl_0, 0x90f);
++	BUILD_CHECK_VR9_REG(mac.port[2].pstat, 0x918);
++	BUILD_CHECK_VR9_REG(mac.port[2].ctrl_0, 0x91b);
++	BUILD_CHECK_VR9_REG(fdma.core, 0xa40);
++	BUILD_CHECK_VR9_REG(fdma.port[0], 0xa80);
++	BUILD_CHECK_VR9_REG(sdma.core, 0xb40);
++	BUILD_CHECK_VR9_REG(sdma.port[0], 0xbc0);
++	BUILD_CHECK_VR9_REG(mdio, 0xc40);
++	BUILD_CHECK_VR9_REG(mii, (0xc40 + 0x36));
++	BUILD_CHECK_VR9_REG(pmac, (0xc40 + 0x82));
++}
++
++#define MAC_CTRL0_BM		BIT(12)
++#define MAC_CTRL0_APADEN	BIT(11)
++#define MAC_CTRL0_VPAD2EN	BIT(10)
++#define MAC_CTRL0_VPADEN	BIT(9)
++#define MAC_CTRL0_PADEN		BIT(8)
++#define MAC_CTRL0_FCS		BIT(7)
++#define MAC_CTRL0_FCON_SHIFT	4
++#define MAC_CTRL0_FCON_AUTO	(0x0 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_RX	(0x1 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_TX	(0x2 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_RXTX	(0x3 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_NONE	(0x4 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FDUP_SHIFT	2
++#define MAC_CTRL0_FDUP_AUTO	(0x0 << MAC_CTRL0_FDUP_SHIFT)
++#define MAC_CTRL0_FDUP_EN	(0x1 << MAC_CTRL0_FDUP_SHIFT)
++#define MAC_CTRL0_FDUP_DIS	(0x3 << MAC_CTRL0_FDUP_SHIFT)
++#define MAC_CTRL0_GMII_AUTO	0x0
++#define MAC_CTRL0_GMII_MII	0x1
++#define MAC_CTRL0_GMII_GMII	0x2
++#define MAC_CTRL0_GMII_GMII_2G	0x3
++
++#define MAC_CTRL1_DEFERMODE	BIT(15)
++#define MAC_CTRL1_SHORTPRE	BIT(8)
++
++#define MAC_CTRL2_MLEN		BIT(3)
++#define MAC_CTRL2_LCHKL		BIT(2)
++#define MAC_CTRL2_LCHKS_DIS	0x0
++#define MAC_CTRL2_LCHKS_UNTAG	0x1
++#define MAC_CTRL2_LCHKS_TAG	0x2
++
++#define PHY_ADDR_LNKST_SHIFT	13
++#define PHY_ADDR_LNKST_AUTO	(0x0 << PHY_ADDR_LNKST_SHIFT)
++#define PHY_ADDR_LNKST_UP	(0x1 << PHY_ADDR_LNKST_SHIFT)
++#define PHY_ADDR_LNKST_DOWN	(0x2 << PHY_ADDR_LNKST_SHIFT)
++#define PHY_ADDR_SPEED_SHIFT	11
++#define PHY_ADDR_SPEED_M10	(0x0 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_SPEED_M100	(0x1 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_SPEED_G1	(0x2 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_SPEED_AUTO	(0x3 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_FDUP_SHIFT	9
++#define PHY_ADDR_FDUP_AUTO	(0x0 << PHY_ADDR_FDUP_SHIFT)
++#define PHY_ADDR_FDUP_EN	(0x1 << PHY_ADDR_FDUP_SHIFT)
++#define PHY_ADDR_FDUP_DIS	(0x3 << PHY_ADDR_FDUP_SHIFT)
++#define PHY_ADDR_FCONTX_SHIFT	7
++#define PHY_ADDR_FCONTX_AUTO	(0x0 << PHY_ADDR_FCONTX_SHIFT)
++#define PHY_ADDR_FCONTX_EN	(0x1 << PHY_ADDR_FCONTX_SHIFT)
++#define PHY_ADDR_FCONTX_DIS	(0x3 << PHY_ADDR_FCONTX_SHIFT)
++#define PHY_ADDR_FCONRX_SHIFT	5
++#define PHY_ADDR_FCONRX_AUTO	(0x0 << PHY_ADDR_FCONRX_SHIFT)
++#define PHY_ADDR_FCONRX_EN	(0x1 << PHY_ADDR_FCONRX_SHIFT)
++#define PHY_ADDR_FCONRX_DIS	(0x3 << PHY_ADDR_FCONRX_SHIFT)
++
++#define MII_CFG_RES		BIT(15)
++#define MII_CFG_EN		BIT(14)
++#define MII_CFG_LDCLKDIS	BIT(12)
++#define MII_CFG_MIIRATE_SHIFT	4
++#define MII_CFG_MIIRATE_MASK	(0x7 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M2P5	(0x0 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M25	(0x1 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M125	(0x2 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M50	(0x3 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_AUTO	(0x4 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIMODE_MASK	0xf
++#define MII_CFG_MIIMODE_MIIP	0x0
++#define MII_CFG_MIIMODE_MIIM	0x1
++#define MII_CFG_MIIMODE_RMIIP	0x2
++#define MII_CFG_MIIMODE_RMIIM	0x3
++#define MII_CFG_MIIMODE_RGMII	0x4
++
++#define PMAC_HD_CTL_FC		BIT(10)
++#define PMAC_HD_CTL_RST		BIT(8)
++#define PMAC_HD_CTL_AST		BIT(7)
++#define PMAC_HD_CTL_RXSH	BIT(6)
++#define PMAC_HD_CTL_RC		BIT(4)
++#define PMAC_HD_CTL_AS		BIT(3)
++#define PMAC_HD_CTL_AC		BIT(2)
++
++#define PCE_PCTRL_0_IGSTEN	BIT(11)
++
++#define FDMA_PCTRL_STEN		BIT(1)
++#define FDMA_PCTRL_EN		BIT(0)
++
++#define SDMA_PCTRL_EN		BIT(0)
++
++#define MDIO_CTRL_MBUSY		BIT(12)
++#define MDIO_CTRL_OP_READ	BIT(11)
++#define MDIO_CTRL_OP_WRITE	BIT(10)
++#define MDIO_CTRL_PHYAD_SHIFT	5
++#define MDIO_CTRL_PHYAD_MASK	(0x1f << MDIO_CTRL_PHYAD_SHIFT)
++#define MDIO_CTRL_REGAD_MASK	0x1f
++
++#endif /* __VR9_SWITCH_REGS_H__ */
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/xrx200.c
+@@ -0,0 +1,825 @@
++/*
++ *   This program is free software; you can redistribute it and/or modify it
++ *   under the terms of the GNU General Public License version 2 as published
++ *   by the Free Software Foundation.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++ *
++ *   Copyright (C) 2011 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/interrupt.h>
++#include <linux/uaccess.h>
++#include <linux/in.h>
++#include <linux/netdevice.h>
++#include <linux/etherdevice.h>
++#include <linux/phy.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <linux/skbuff.h>
++#include <linux/mm.h>
++#include <linux/platform_device.h>
++#include <linux/ethtool.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/dma-mapping.h>
++#include <linux/module.h>
++#include <linux/clk.h>
++#include <linux/of_irq.h>
++#include <linux/of_net.h>
++
++#include <asm/checksum.h>
++
++#include <lantiq_soc.h>
++#include <xway_dma.h>
++#include <lantiq_platform.h>
++
++#include "xway_dma_net.h"
++
++#define LTQ_SWITCH_BASE                 0x1E108000
++#define LTQ_SWITCH_CORE_BASE            LTQ_SWITCH_BASE
++#define LTQ_SWITCH_TOP_PDI_BASE         LTQ_SWITCH_CORE_BASE
++#define LTQ_SWITCH_BM_PDI_BASE          (LTQ_SWITCH_CORE_BASE + 4 * 0x40)
++#define LTQ_SWITCH_MAC_PDI_0_BASE       (LTQ_SWITCH_CORE_BASE + 4 * 0x900)
++#define LTQ_SWITCH_MAC_PDI_X_BASE(x)    (LTQ_SWITCH_MAC_PDI_0_BASE + x * 0x30)
++#define LTQ_SWITCH_TOPLEVEL_BASE        (LTQ_SWITCH_BASE + (4 * 0xC40))
++#define LTQ_SWITCH_MDIO_PDI_BASE        (LTQ_SWITCH_TOPLEVEL_BASE)
++#define LTQ_SWITCH_MII_PDI_BASE         (LTQ_SWITCH_TOPLEVEL_BASE + 4 * 0x36)
++#define LTQ_SWITCH_PMAC_PDI_BASE        (LTQ_SWITCH_TOPLEVEL_BASE + 4 * 0x82)
++#define FDMA_PCTRL_REG(port)		KSEG1ADDR(LTQ_SWITCH_BASE + ((0xA80 + (port) * 6) * 4))
++#define SDMA_PCTRL_REG(port)		KSEG1ADDR(LTQ_SWITCH_BASE + ((0xBC0 + (port) * 6) * 4))
++
++#define LTQ_ETHSW_MAC_CTRL0_PADEN               (1 << 8)
++#define LTQ_ETHSW_MAC_CTRL0_FCS                 (1 << 7)
++#define LTQ_ETHSW_MAC_CTRL1_SHORTPRE            (1 << 8)
++#define LTQ_ETHSW_MAC_CTRL2_MLEN                (1 << 3)
++#define LTQ_ETHSW_MAC_CTRL2_LCHKL               (1 << 2)
++#define LTQ_ETHSW_MAC_CTRL2_LCHKS_DIS           0
++#define LTQ_ETHSW_MAC_CTRL2_LCHKS_UNTAG         1
++#define LTQ_ETHSW_MAC_CTRL2_LCHKS_TAG           2
++#define LTQ_ETHSW_MAC_CTRL6_RBUF_DLY_WP_SHIFT   9
++#define LTQ_ETHSW_MAC_CTRL6_RXBUF_BYPASS        (1 << 6)
++#define LTQ_ETHSW_GLOB_CTRL_SE                  (1 << 15)
++#define LTQ_ETHSW_MDC_CFG1_MCEN                 (1 << 8)
++#define LTQ_ETHSW_PMAC_HD_CTL_FC                (1 << 10)
++#define LTQ_ETHSW_PMAC_HD_CTL_RC                (1 << 4)
++#define LTQ_ETHSW_PMAC_HD_CTL_AC                (1 << 2)
++#define ADVERTIZE_MPD          (1 << 10)
++
++#define MDIO_DEVAD_NONE                    (-1)
++
++#define LTQ_ETH_RX_BUFFER_CNT           PKTBUFSRX
++
++#define LTQ_MDIO_DRV_NAME               "ltq-mdio"
++#define LTQ_ETH_DRV_NAME                "ltq-eth"
++
++#define LTQ_ETHSW_MAX_GMAC              1
++#define LTQ_ETHSW_PMAC                  1
++
++#define ltq_setbits(a, set) \
++        ltq_w32(ltq_r32(a) | (set), a)
++
++static inline void
++dbg_ltq_writel(void *a, unsigned int b)
++{
++	//printk("%p %x\n", a, b);
++	ltq_w32(b, a);
++}
++
++struct ltq_ethsw_mac_pdi_x_regs {
++	u32     pstat;          /* Port status */
++	u32     pisr;           /* Interrupt status */
++	u32     pier;           /* Interrupt enable */
++	u32     ctrl_0;         /* Control 0 */
++	u32     ctrl_1;         /* Control 1 */
++	u32     ctrl_2;         /* Control 2 */
++	u32     ctrl_3;         /* Control 3 */
++	u32     ctrl_4;         /* Control 4 */
++	u32     ctrl_5;         /* Control 5 */
++	u32     ctrl_6;         /* Control 6 */
++	u32     bufst;          /* TX/RX buffer control */
++	u32     testen;         /* Test enable */
++};
++
++struct ltq_ethsw_mac_pdi_regs {
++	struct ltq_ethsw_mac_pdi_x_regs mac[12];
++};
++
++struct ltq_ethsw_mdio_pdi_regs {
++	u32     glob_ctrl;      /* Global control 0 */
++	u32     rsvd0[7];
++	u32     mdio_ctrl;      /* MDIO control */
++	u32     mdio_read;      /* MDIO read data */
++	u32     mdio_write;     /* MDIO write data */
++	u32     mdc_cfg_0;      /* MDC clock configuration 0 */
++	u32     mdc_cfg_1;      /* MDC clock configuration 1 */
++	u32     rsvd[3];
++	u32     phy_addr_5;     /* PHY address port 5 */
++	u32     phy_addr_4;     /* PHY address port 4 */
++	u32     phy_addr_3;     /* PHY address port 3 */
++	u32     phy_addr_2;     /* PHY address port 2 */
++	u32     phy_addr_1;     /* PHY address port 1 */
++	u32     phy_addr_0;     /* PHY address port 0 */
++	u32     mdio_stat_0;    /* MDIO PHY polling status port 0 */
++	u32     mdio_stat_1;    /* MDIO PHY polling status port 1 */
++	u32     mdio_stat_2;    /* MDIO PHY polling status port 2 */
++	u32     mdio_stat_3;    /* MDIO PHY polling status port 3 */
++	u32     mdio_stat_4;    /* MDIO PHY polling status port 4 */
++	u32     mdio_stat_5;    /* MDIO PHY polling status port 5 */
++};
++
++struct ltq_ethsw_mii_pdi_regs {
++	u32     mii_cfg0;       /* xMII port 0 configuration */
++	u32     pcdu0;          /* Port 0 clock delay configuration */
++	u32     mii_cfg1;       /* xMII port 1 configuration */
++	u32     pcdu1;          /* Port 1 clock delay configuration */
++	u32     mii_cfg2;       /* xMII port 2 configuration */
++	u32     rsvd0;
++	u32     mii_cfg3;       /* xMII port 3 configuration */
++	u32     rsvd1;
++	u32     mii_cfg4;       /* xMII port 4 configuration */
++	u32     rsvd2;
++	u32     mii_cfg5;       /* xMII port 5 configuration */
++	u32     pcdu5;          /* Port 5 clock delay configuration */
++};
++
++struct ltq_ethsw_pmac_pdi_regs {
++	u32     hd_ctl;         /* PMAC header control */
++	u32     tl;             /* PMAC type/length */
++	u32     sa1;            /* PMAC source address 1 */
++	u32     sa2;            /* PMAC source address 2 */
++	u32     sa3;            /* PMAC source address 3 */
++	u32     da1;            /* PMAC destination address 1 */
++	u32     da2;            /* PMAC destination address 2 */
++	u32     da3;            /* PMAC destination address 3 */
++	u32     vlan;           /* PMAC VLAN */
++	u32     rx_ipg;         /* PMAC interpacket gap in RX direction */
++	u32     st_etype;       /* PMAC special tag ethertype */
++	u32     ewan;           /* PMAC ethernet WAN group */
++};
++
++struct ltq_mdio_phy_addr_reg {
++	union {
++		struct {
++			unsigned rsvd:1;
++			unsigned lnkst:2;       /* Link status control */
++			unsigned speed:2;       /* Speed control */
++			unsigned fdup:2;        /* Full duplex control */
++			unsigned fcontx:2;      /* Flow control mode TX */
++			unsigned fconrx:2;      /* Flow control mode RX */
++			unsigned addr:5;        /* PHY address */
++		} bits;
++		u16 val;
++	};
++};
++
++enum ltq_mdio_phy_addr_lnkst {
++	LTQ_MDIO_PHY_ADDR_LNKST_AUTO = 0,
++	LTQ_MDIO_PHY_ADDR_LNKST_UP = 1,
++	LTQ_MDIO_PHY_ADDR_LNKST_DOWN = 2,
++};
++
++enum ltq_mdio_phy_addr_speed {
++	LTQ_MDIO_PHY_ADDR_SPEED_M10 = 0,
++	LTQ_MDIO_PHY_ADDR_SPEED_M100 = 1,
++	LTQ_MDIO_PHY_ADDR_SPEED_G1 = 2,
++	LTQ_MDIO_PHY_ADDR_SPEED_AUTO = 3,
++};
++
++enum ltq_mdio_phy_addr_fdup {
++	LTQ_MDIO_PHY_ADDR_FDUP_AUTO = 0,
++	LTQ_MDIO_PHY_ADDR_FDUP_ENABLE = 1,
++	LTQ_MDIO_PHY_ADDR_FDUP_DISABLE = 3,
++};
++
++enum ltq_mdio_phy_addr_fcon {
++	LTQ_MDIO_PHY_ADDR_FCON_AUTO = 0,
++	LTQ_MDIO_PHY_ADDR_FCON_ENABLE = 1,
++	LTQ_MDIO_PHY_ADDR_FCON_DISABLE = 3,
++};
++
++struct ltq_mii_mii_cfg_reg {
++	union {
++		struct {
++			unsigned res:1;         /* Hardware reset */
++			unsigned en:1;          /* xMII interface enable */
++			unsigned isol:1;        /* xMII interface isolate */
++			unsigned ldclkdis:1;    /* Link down clock disable */
++			unsigned rsvd:1;
++			unsigned crs:2;         /* CRS sensitivity config */
++			unsigned rgmii_ibs:1;   /* RGMII In Band status */
++			unsigned rmii:1;        /* RMII ref clock direction */
++			unsigned miirate:3;     /* xMII interface clock rate */
++			unsigned miimode:4;     /* xMII interface mode */
++		} bits;
++		u16 val;
++	};
++};
++
++enum ltq_mii_mii_cfg_miirate {
++	LTQ_MII_MII_CFG_MIIRATE_M2P5 = 0,
++	LTQ_MII_MII_CFG_MIIRATE_M25 = 1,
++	LTQ_MII_MII_CFG_MIIRATE_M125 = 2,
++	LTQ_MII_MII_CFG_MIIRATE_M50 = 3,
++	LTQ_MII_MII_CFG_MIIRATE_AUTO = 4,
++};
++
++enum ltq_mii_mii_cfg_miimode {
++	LTQ_MII_MII_CFG_MIIMODE_MIIP = 0,
++	LTQ_MII_MII_CFG_MIIMODE_MIIM = 1,
++	LTQ_MII_MII_CFG_MIIMODE_RMIIP = 2,
++	LTQ_MII_MII_CFG_MIIMODE_RMIIM = 3,
++	LTQ_MII_MII_CFG_MIIMODE_RGMII = 4,
++};
++
++enum ltq_mdio_mbusy {
++	LTQ_MDIO_MBUSY_IDLE = 0,
++	LTQ_MDIO_MBUSY_BUSY = 1,
++};
++
++enum ltq_mdio_op {
++	LTQ_MDIO_OP_WRITE = 1,
++	LTQ_MDIO_OP_READ = 2,
++};
++
++struct ltq_mdio_access {
++	union {
++		struct {
++			unsigned rsvd:3;
++			unsigned mbusy:1;
++			unsigned op:2;
++			unsigned phyad:5;
++			unsigned regad:5;
++		} bits;
++		u16 val;
++	};
++};
++
++enum LTQ_ETH_PORT_FLAGS {
++	LTQ_ETH_PORT_NONE       = 0,
++	LTQ_ETH_PORT_PHY        = 1,
++	LTQ_ETH_PORT_SWITCH     = (1 << 1),
++	LTQ_ETH_PORT_MAC        = (1 << 2),
++};
++
++struct ltq_eth_port_config {
++	u8 num;
++	u8 phy_addr;
++	u16 flags;
++	phy_interface_t phy_if;
++};
++
++struct ltq_eth_board_config {
++	const struct ltq_eth_port_config *ports;
++	int num_ports;
++};
++
++static const struct ltq_eth_port_config eth_port_config[] = {
++	/* GMAC0: external Lantiq PEF7071 10/100/1000 PHY for LAN port 0 */
++	{ 0, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
++	/* GMAC1: external Lantiq PEF7071 10/100/1000 PHY for LAN port 1 */
++	{ 1, 0x1, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
++	{ 2, 0x11, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
++	{ 4, 0x13, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
++};
++
++static const struct ltq_eth_board_config board_config = {
++	.ports = eth_port_config,
++	.num_ports = ARRAY_SIZE(eth_port_config),
++};
++
++static struct ltq_ethsw_mac_pdi_regs *ltq_ethsw_mac_pdi_regs =
++	(struct ltq_ethsw_mac_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_MAC_PDI_0_BASE);
++
++static struct ltq_ethsw_mdio_pdi_regs *ltq_ethsw_mdio_pdi_regs =
++	(struct ltq_ethsw_mdio_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_MDIO_PDI_BASE);
++
++static struct ltq_ethsw_mii_pdi_regs *ltq_ethsw_mii_pdi_regs =
++	(struct ltq_ethsw_mii_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_MII_PDI_BASE);
++
++static struct ltq_ethsw_pmac_pdi_regs *ltq_ethsw_pmac_pdi_regs =
++	(struct ltq_ethsw_pmac_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_PMAC_PDI_BASE);
++
++
++#define MAX_DMA_CHAN		0x8
++#define MAX_DMA_CRC_LEN		0x4
++#define MAX_DMA_DATA_LEN	0x600
++
++/* use 2 static channels for TX/RX
++   depending on the SoC we need to use different DMA channels for ethernet */
++#define LTQ_ETOP_TX_CHANNEL	1
++#define LTQ_ETOP_RX_CHANNEL	0
++
++#define IS_TX(x)		(x == LTQ_ETOP_TX_CHANNEL)
++#define IS_RX(x)		(x == LTQ_ETOP_RX_CHANNEL)
++
++static void __iomem *ltq_vrx200_membase;
++
++struct ltq_vrx200_chan {
++	int idx;
++	int tx_free;
++	struct net_device *netdev;
++	struct napi_struct napi;
++	struct ltq_dma_channel dma;
++	struct sk_buff *skb[LTQ_DESC_NUM];
++};
++
++static struct clk *clk_ppe;
++
++static int ltq_vrx200_mdio_wr(struct mii_bus *bus, int phy_addr,
++				int phy_reg, u16 phy_data);
++
++static void
++ltq_vrx200_hw_exit(struct net_device *dev)
++{
++	clk_disable(clk_ppe);
++}
++
++static void *ltq_eth_phy_addr_reg(int num)
++{
++	if (num > 0x10)
++		num -= 0xe;
++	switch (num) {
++	case 0:
++		return &ltq_ethsw_mdio_pdi_regs->phy_addr_0;
++	case 1:
++		return &ltq_ethsw_mdio_pdi_regs->phy_addr_1;
++	case 2:
++		return &ltq_ethsw_mdio_pdi_regs->phy_addr_2;
++	case 3:
++		return &ltq_ethsw_mdio_pdi_regs->phy_addr_3;
++	case 4:
++		return &ltq_ethsw_mdio_pdi_regs->phy_addr_4;
++	case 5:
++		return &ltq_ethsw_mdio_pdi_regs->phy_addr_5;
++	}
++
++	return NULL;
++}
++
++static void *ltq_eth_mii_cfg_reg(int num)
++{
++	if (num > 0x10)
++		num -= 0xe;
++	switch (num) {
++	case 0:
++		return &ltq_ethsw_mii_pdi_regs->mii_cfg0;
++	case 1:
++		return &ltq_ethsw_mii_pdi_regs->mii_cfg1;
++	case 2:
++		return &ltq_ethsw_mii_pdi_regs->mii_cfg2;
++	case 3:
++		return &ltq_ethsw_mii_pdi_regs->mii_cfg3;
++	case 4:
++		return &ltq_ethsw_mii_pdi_regs->mii_cfg4;
++	case 5:
++		return &ltq_ethsw_mii_pdi_regs->mii_cfg5;
++	}
++
++	return NULL;
++}
++
++void vrx200_gmac_update(struct phy_device *phydev, int num)
++{
++	struct ltq_mdio_phy_addr_reg phy_addr_reg;
++	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
++	void *phy_addr = ltq_eth_phy_addr_reg(num);
++	void *mii_cfg = ltq_eth_mii_cfg_reg(num);
++
++	phy_addr_reg.val = ltq_r32(phy_addr);
++	mii_cfg_reg.val = ltq_r32(mii_cfg);
++
++	phy_addr_reg.bits.addr = phydev->addr;
++
++	if (phydev->link)
++		phy_addr_reg.bits.lnkst = LTQ_MDIO_PHY_ADDR_LNKST_UP;
++	else
++		phy_addr_reg.bits.lnkst = LTQ_MDIO_PHY_ADDR_LNKST_DOWN;
++
++	switch (phydev->speed) {
++	case SPEED_1000:
++		phy_addr_reg.bits.speed = LTQ_MDIO_PHY_ADDR_SPEED_G1;
++		mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M125;
++		break;
++	case SPEED_100:
++		phy_addr_reg.bits.speed = LTQ_MDIO_PHY_ADDR_SPEED_M100;
++		switch (mii_cfg_reg.bits.miimode) {
++		case LTQ_MII_MII_CFG_MIIMODE_RMIIM:
++		case LTQ_MII_MII_CFG_MIIMODE_RMIIP:
++			mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M50;
++			break;
++		default:
++			mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M25;
++			break;
++		}
++		break;
++	default:
++		phy_addr_reg.bits.speed = LTQ_MDIO_PHY_ADDR_SPEED_M10;
++		mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M2P5;
++		break;
++	}
++
++	if (phydev->duplex == DUPLEX_FULL)
++		phy_addr_reg.bits.fdup = LTQ_MDIO_PHY_ADDR_FDUP_ENABLE;
++	else
++		phy_addr_reg.bits.fdup = LTQ_MDIO_PHY_ADDR_FDUP_DISABLE;
++
++	dbg_ltq_writel(phy_addr, phy_addr_reg.val);
++	dbg_ltq_writel(mii_cfg, mii_cfg_reg.val);
++	udelay(1);
++}
++
++
++static void ltq_eth_port_config(const struct ltq_eth_port_config *port)
++{
++	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
++	void *mii_cfg = ltq_eth_mii_cfg_reg(port->num);
++	int setup_gpio = 0;
++
++	mii_cfg_reg.val = ltq_r32(mii_cfg);
++
++
++
++	switch (port->num) {
++	case 0: /* xMII0 */
++	case 1: /* xMII1 */
++		switch (port->phy_if) {
++		case PHY_INTERFACE_MODE_MII:
++			if (port->flags & LTQ_ETH_PORT_PHY)
++				/* MII MAC mode, connected to external PHY */
++				mii_cfg_reg.bits.miimode =
++					LTQ_MII_MII_CFG_MIIMODE_MIIM;
++			else
++				/* MII PHY mode, connected to external MAC */
++				mii_cfg_reg.bits.miimode =
++					LTQ_MII_MII_CFG_MIIMODE_MIIP;
++				setup_gpio = 1;
++			break;
++		case PHY_INTERFACE_MODE_RMII:
++			if (port->flags & LTQ_ETH_PORT_PHY)
++				/* RMII MAC mode, connected to external PHY */
++				mii_cfg_reg.bits.miimode =
++					LTQ_MII_MII_CFG_MIIMODE_RMIIM;
++			else
++				/* RMII PHY mode, connected to external MAC */
++				mii_cfg_reg.bits.miimode =
++					LTQ_MII_MII_CFG_MIIMODE_RMIIP;
++				setup_gpio = 1;
++				break;
++		case PHY_INTERFACE_MODE_RGMII:
++			/* RGMII MAC mode, connected to external PHY */
++			mii_cfg_reg.bits.miimode =
++				LTQ_MII_MII_CFG_MIIMODE_RGMII;
++			setup_gpio = 1;
++			break;
++		default:
++			break;
++		}
++		break;
++	case 2: /* internal GPHY0 */
++	case 3: /* internal GPHY0 */
++	case 4: /* internal GPHY1 */
++		switch (port->phy_if) {
++			case PHY_INTERFACE_MODE_MII:
++			case PHY_INTERFACE_MODE_GMII:
++				/* MII MAC mode, connected to internal GPHY */
++				mii_cfg_reg.bits.miimode =
++					LTQ_MII_MII_CFG_MIIMODE_MIIM;
++				setup_gpio = 1;
++				break;
++			default:
++				break;
++		}
++		break;
++	case 5: /* internal GPHY1 or xMII2 */
++		switch (port->phy_if) {
++		case PHY_INTERFACE_MODE_MII:
++			/* MII MAC mode, connected to internal GPHY */
++			mii_cfg_reg.bits.miimode =
++				LTQ_MII_MII_CFG_MIIMODE_MIIM;
++			setup_gpio = 1;
++			break;
++		case PHY_INTERFACE_MODE_RGMII:
++			/* RGMII MAC mode, connected to external PHY */
++			mii_cfg_reg.bits.miimode =
++				LTQ_MII_MII_CFG_MIIMODE_RGMII;
++			setup_gpio = 1;
++			break;
++		default:
++			break;
++		}
++		break;
++	default:
++		break;
++	}
++
++	/* Enable MII interface */
++	mii_cfg_reg.bits.en = port->flags ? 1 : 0;
++	dbg_ltq_writel(mii_cfg, mii_cfg_reg.val);
++
++}
++
++static void ltq_eth_gmac_init(int num)
++{
++	struct ltq_mdio_phy_addr_reg phy_addr_reg;
++	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
++	void *phy_addr = ltq_eth_phy_addr_reg(num);
++	void *mii_cfg = ltq_eth_mii_cfg_reg(num);
++	struct ltq_ethsw_mac_pdi_x_regs *mac_pdi_regs;
++
++	mac_pdi_regs = &ltq_ethsw_mac_pdi_regs->mac[num];
++
++	/* Reset PHY status to link down */
++	phy_addr_reg.val = ltq_r32(phy_addr);
++	phy_addr_reg.bits.addr = num;
++	phy_addr_reg.bits.lnkst = LTQ_MDIO_PHY_ADDR_LNKST_DOWN;
++	phy_addr_reg.bits.speed = LTQ_MDIO_PHY_ADDR_SPEED_M10;
++	phy_addr_reg.bits.fdup = LTQ_MDIO_PHY_ADDR_FDUP_DISABLE;
++	dbg_ltq_writel(phy_addr, phy_addr_reg.val);
++
++	/* Reset and disable MII interface */
++	mii_cfg_reg.val = ltq_r32(mii_cfg);
++	mii_cfg_reg.bits.en = 0;
++	mii_cfg_reg.bits.res = 1;
++	mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M2P5;
++	dbg_ltq_writel(mii_cfg, mii_cfg_reg.val);
++
++	/*
++	* Enable padding of short frames, enable frame checksum generation
++	* in transmit direction
++	*/
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_0, LTQ_ETHSW_MAC_CTRL0_PADEN |
++		LTQ_ETHSW_MAC_CTRL0_FCS);
++
++	/* Set inter packet gap size to 12 bytes */
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_1, 12);
++
++	/*
++	* Configure frame length checks:
++	* - allow jumbo frames
++	* - enable long length check
++	* - enable short length without VLAN tags
++	*/
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_2, LTQ_ETHSW_MAC_CTRL2_MLEN |
++		LTQ_ETHSW_MAC_CTRL2_LCHKL |
++		LTQ_ETHSW_MAC_CTRL2_LCHKS_UNTAG);
++}
++
++
++static void ltq_eth_pmac_init(void)
++{
++	struct ltq_ethsw_mac_pdi_x_regs *mac_pdi_regs;
++
++	mac_pdi_regs = &ltq_ethsw_mac_pdi_regs->mac[LTQ_ETHSW_PMAC];
++
++	/*
++	* Enable padding of short frames, enable frame checksum generation
++	* in transmit direction
++	*/
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_0, LTQ_ETHSW_MAC_CTRL0_PADEN |
++		LTQ_ETHSW_MAC_CTRL0_FCS);
++
++	/*
++	* Configure frame length checks:
++	* - allow jumbo frames
++	* - enable long length check
++	* - enable short length without VLAN tags
++	*/
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_2, LTQ_ETHSW_MAC_CTRL2_MLEN |
++		LTQ_ETHSW_MAC_CTRL2_LCHKL |
++		LTQ_ETHSW_MAC_CTRL2_LCHKS_UNTAG);
++
++	/*
++	* Apply workaround for buffer congestion:
++	* - shorten preambel to 1 byte
++	* - set minimum inter packet gap size to 7 bytes
++	* - enable receive buffer bypass mode
++	*/
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_1, LTQ_ETHSW_MAC_CTRL1_SHORTPRE | 7);
++	dbg_ltq_writel(&mac_pdi_regs->ctrl_6,
++		(6 << LTQ_ETHSW_MAC_CTRL6_RBUF_DLY_WP_SHIFT) |
++		LTQ_ETHSW_MAC_CTRL6_RXBUF_BYPASS);
++
++	/* Set request assertion threshold to 8, IPG counter to 11 */
++	dbg_ltq_writel(&ltq_ethsw_pmac_pdi_regs->rx_ipg, 0x8B);
++
++	/*
++	* Configure frame header control:
++	* - enable reaction on pause frames (flow control)
++	* - remove CRC for packets from PMAC to DMA
++	* - add CRC for packets from DMA to PMAC
++	*/
++	dbg_ltq_writel(&ltq_ethsw_pmac_pdi_regs->hd_ctl, LTQ_ETHSW_PMAC_HD_CTL_FC |
++		/*LTQ_ETHSW_PMAC_HD_CTL_RC | */LTQ_ETHSW_PMAC_HD_CTL_AC);
++
++/*	for ( reg = 0; reg < 7; reg++ ) {
++		ltq_setbits(FDMA_PCTRL_REG(reg), 0x01);
++		ltq_setbits(SDMA_PCTRL_REG(reg), 0x01);
++	}*/
++}
++
++static int
++ltq_vrx200_hw_init(struct net_device *dev)
++{
++	int err = 0;
++	int i;
++
++	clk_enable(clk_ppe);
++
++	/* Reset ethernet and switch subsystems */
++	ltq_reset_once(BIT(8), 10);
++
++	/* Enable switch macro */
++	ltq_setbits(&ltq_ethsw_mdio_pdi_regs->glob_ctrl,
++		LTQ_ETHSW_GLOB_CTRL_SE);
++
++	/* Disable MDIO auto-polling for all ports */
++	dbg_ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdc_cfg_0, 0);
++
++	/*
++	 * Enable and set MDIO management clock to 2.5 MHz. This is the
++	 * maximum clock for FE PHYs.
++	 * Formula for clock is:
++	 *
++	 *      50 MHz
++	 * x = ----------- - 1
++	 *      2 * f_MDC
++	 */
++	dbg_ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdc_cfg_1,
++		LTQ_ETHSW_MDC_CFG1_MCEN | 9);
++
++	/* Init MAC connected to CPU  */
++	ltq_eth_pmac_init();
++
++	/* Init MACs connected to external MII interfaces */
++	for (i = 0; i < LTQ_ETHSW_MAX_GMAC; i++)
++		ltq_eth_gmac_init(i);
++
++	for (i = 0; i < board_config.num_ports; i++)
++		ltq_eth_port_config(&board_config.ports[i]);
++
++	return err;
++}
++
++static inline int ltq_mdio_poll(struct mii_bus *bus)
++{
++	struct ltq_mdio_access acc;
++	unsigned cnt = 10000;
++
++	while (likely(cnt--)) {
++		acc.val = ltq_r32(&ltq_ethsw_mdio_pdi_regs->mdio_ctrl);
++		if (!acc.bits.mbusy)
++			return 0;
++	}
++
++	return 1;
++}
++
++static int
++ltq_vrx200_mdio_wr(struct mii_bus *bus, int addr, int regnum, u16 val)
++{
++	struct ltq_mdio_access acc;
++	int ret;
++
++	acc.val = 0;
++	acc.bits.mbusy = LTQ_MDIO_MBUSY_BUSY;
++	acc.bits.op = LTQ_MDIO_OP_WRITE;
++	acc.bits.phyad = addr;
++	acc.bits.regad = regnum;
++
++	ret = ltq_mdio_poll(bus);
++	if (ret)
++		return ret;
++
++	dbg_ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdio_write, val);
++	dbg_ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdio_ctrl, acc.val);
++
++	return 0;
++}
++
++static int
++ltq_vrx200_mdio_rd(struct mii_bus *bus, int addr, int regnum)
++{
++	struct ltq_mdio_access acc;
++	int ret;
++
++	acc.val = 0;
++	acc.bits.mbusy = LTQ_MDIO_MBUSY_BUSY;
++	acc.bits.op = LTQ_MDIO_OP_READ;
++	acc.bits.phyad = addr;
++	acc.bits.regad = regnum;
++
++	ret = ltq_mdio_poll(bus);
++	if (ret)
++		goto timeout;
++
++	dbg_ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdio_ctrl, acc.val);
++
++	ret = ltq_mdio_poll(bus);
++	if (ret)
++		goto timeout;
++
++	ret = ltq_r32(&ltq_ethsw_mdio_pdi_regs->mdio_read);
++
++	return ret;
++timeout:
++	return -1;
++}
++
++struct xway_net_switch xrx200_switch = {
++	.name = "xway",
++	.hw_init = ltq_vrx200_hw_init,
++	.hw_exit = ltq_vrx200_hw_exit,
++	.mdio_wr = ltq_vrx200_mdio_wr,
++	.mdio_rd = ltq_vrx200_mdio_rd,
++	.mdio_update = vrx200_gmac_update,
++	.gbit = 1
++};
++
++static int __devinit
++ltq_vrx200_probe(struct platform_device *pdev)
++{
++	struct device_node *node = pdev->dev.of_node;
++	struct resource irqres[2];
++	struct resource *res;
++
++	if (of_irq_to_resource_table(node, irqres, 2) != 2) {
++		dev_err(&pdev->dev, "not enough irqs defined\n");
++		return -EINVAL;
++	}
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res) {
++		dev_err(&pdev->dev, "failed to get vrx200 resource\n");
++		return -ENOENT;
++	}
++
++	res = devm_request_mem_region(&pdev->dev, res->start,
++		resource_size(res), dev_name(&pdev->dev));
++	if (!res) {
++		dev_err(&pdev->dev, "failed to request vrx200 resource\n");
++		return -EBUSY;
++	}
++
++	ltq_vrx200_membase = devm_ioremap_nocache(&pdev->dev,
++		res->start, resource_size(res));
++	if (!ltq_vrx200_membase) {
++		dev_err(&pdev->dev, "failed to remap vrx200 engine %d\n",
++			pdev->id);
++		return -ENOMEM;
++	}
++
++	xrx200_switch.mii_mode = of_get_phy_mode(node);
++	xrx200_switch.mac = of_get_mac_address(node);
++	xrx200_switch.txirq = irqres[0].start;
++	xrx200_switch.rxirq = irqres[1].start;
++
++	clk_ppe = clk_get(&pdev->dev, NULL);
++	if (IS_ERR(clk_ppe)) {
++		dev_err(&pdev->dev, "Failed to load clock\n");
++		return PTR_ERR(clk_ppe);
++	}
++
++	return xway_net_probe(pdev, &xrx200_switch);
++}
++
++static int __devexit
++ltq_vrx200_remove(struct platform_device *pdev)
++{
++	return xway_net_remove(pdev);
++}
++
++static const struct of_device_id ltq_vrx200_match[] = {
++	{ .compatible = "lantiq,net-xrx200" },
++	{},
++};
++MODULE_DEVICE_TABLE(of, ltq_vrx200_match);
++
++
++static struct platform_driver ltq_mii_driver = {
++	.probe = ltq_vrx200_probe,
++	.remove = __devexit_p(ltq_vrx200_remove),
++	.driver = {
++		.name = "ltq_vrx200",
++		.owner = THIS_MODULE,
++		.of_match_table = ltq_vrx200_match,
++	},
++};
++
++module_platform_driver(ltq_mii_driver);
++
++MODULE_AUTHOR("Daniel Schwierzeck <daniel.schwierzeck@googlemail.com>");
++MODULE_DESCRIPTION("Lantiq SoC ETOP");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/xway_dma_net.c
+@@ -0,0 +1,487 @@
++/*
++ *   This program is free software; you can redistribute it and/or modify it
++ *   under the terms of the GNU General Public License version 2 as published
++ *   by the Free Software Foundation.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++ *
++ *   Copyright (C) 2011-12 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/interrupt.h>
++#include <linux/uaccess.h>
++#include <linux/in.h>
++#include <linux/netdevice.h>
++#include <linux/etherdevice.h>
++#include <linux/phy.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <linux/skbuff.h>
++#include <linux/mm.h>
++#include <linux/platform_device.h>
++#include <linux/ethtool.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/dma-mapping.h>
++#include <linux/module.h>
++#include <linux/clk.h>
++
++#include <asm/checksum.h>
++
++#include <lantiq_platform.h>
++
++#include "xway_dma_net.h"
++
++#define MAX_DMA_CHAN		0x8
++#define MAX_DMA_CRC_LEN		0x4
++#define MAX_DMA_DATA_LEN	0x600
++
++static int
++xway_net_alloc_skb(struct xway_net_chan *ch)
++{
++	ch->skb[ch->dma.desc] = netdev_alloc_skb(ch->netdev, MAX_DMA_DATA_LEN);
++	if (!ch->skb[ch->dma.desc])
++		return -ENOMEM;
++	ch->dma.desc_base[ch->dma.desc].addr = dma_map_single(NULL,
++		ch->skb[ch->dma.desc]->data, MAX_DMA_DATA_LEN,
++		DMA_FROM_DEVICE);
++	ch->dma.desc_base[ch->dma.desc].addr =
++		CPHYSADDR(ch->skb[ch->dma.desc]->data);
++	ch->dma.desc_base[ch->dma.desc].ctl =
++		LTQ_DMA_OWN | LTQ_DMA_RX_OFFSET(NET_IP_ALIGN) |
++		MAX_DMA_DATA_LEN;
++	skb_reserve(ch->skb[ch->dma.desc], NET_IP_ALIGN);
++	return 0;
++}
++
++static void
++xway_net_hw_receive(struct xway_net_chan *ch)
++{
++	struct xway_net_priv *priv = netdev_priv(ch->netdev);
++	struct ltq_dma_desc *desc = &ch->dma.desc_base[ch->dma.desc];
++	struct sk_buff *skb = ch->skb[ch->dma.desc];
++	int len = (desc->ctl & LTQ_DMA_SIZE_MASK) - MAX_DMA_CRC_LEN;
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->lock, flags);
++	if (xway_net_alloc_skb(ch)) {
++		netdev_err(ch->netdev,
++			"failed to allocate new rx buffer, stopping DMA\n");
++		ltq_dma_close(&ch->dma);
++	}
++	ch->dma.desc++;
++	ch->dma.desc %= LTQ_DESC_NUM;
++	spin_unlock_irqrestore(&priv->lock, flags);
++
++	skb_put(skb, len);
++	skb->dev = ch->netdev;
++	skb->protocol = eth_type_trans(skb, ch->netdev);
++	netif_receive_skb(skb);
++	ch->netdev->stats.rx_packets++;
++	ch->netdev->stats.rx_bytes += len;
++}
++
++static int
++xway_net_poll_rx(struct napi_struct *napi, int budget)
++{
++	struct xway_net_chan *ch = container_of(napi,
++				struct xway_net_chan, napi);
++	struct xway_net_priv *priv = netdev_priv(ch->netdev);
++	int rx = 0;
++	int complete = 0;
++	unsigned long flags;
++
++	while ((rx < budget) && !complete) {
++		struct ltq_dma_desc *desc = &ch->dma.desc_base[ch->dma.desc];
++
++		if ((desc->ctl & (LTQ_DMA_OWN | LTQ_DMA_C)) == LTQ_DMA_C) {
++			xway_net_hw_receive(ch);
++			rx++;
++		} else {
++			complete = 1;
++		}
++	}
++	if (complete || !rx) {
++		napi_complete(&ch->napi);
++		spin_lock_irqsave(&priv->lock, flags);
++		ltq_dma_ack_irq(&ch->dma);
++		spin_unlock_irqrestore(&priv->lock, flags);
++	}
++	return rx;
++}
++
++static int
++xway_net_poll_tx(struct napi_struct *napi, int budget)
++{
++	struct xway_net_chan *ch =
++		container_of(napi, struct xway_net_chan, napi);
++	struct xway_net_priv *priv = netdev_priv(ch->netdev);
++	struct netdev_queue *txq =
++		netdev_get_tx_queue(ch->netdev, ch->dma.nr >> 1);
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->lock, flags);
++	while ((ch->dma.desc_base[ch->tx_free].ctl &
++			(LTQ_DMA_OWN | LTQ_DMA_C)) == LTQ_DMA_C) {
++		ch->netdev->stats.tx_packets++;
++		ch->netdev->stats.tx_bytes +=
++			ch->dma.desc_base[ch->tx_free].ctl & LTQ_DMA_SIZE_MASK;
++		dev_kfree_skb_any(ch->skb[ch->tx_free]);
++		ch->skb[ch->tx_free] = NULL;
++		memset(&ch->dma.desc_base[ch->tx_free], 0,
++			sizeof(struct ltq_dma_desc));
++		ch->tx_free++;
++		ch->tx_free %= LTQ_DESC_NUM;
++	}
++	spin_unlock_irqrestore(&priv->lock, flags);
++
++	if (netif_tx_queue_stopped(txq))
++		netif_tx_start_queue(txq);
++	napi_complete(&ch->napi);
++	spin_lock_irqsave(&priv->lock, flags);
++	ltq_dma_ack_irq(&ch->dma);
++	spin_unlock_irqrestore(&priv->lock, flags);
++	return 1;
++}
++
++static irqreturn_t
++xway_net_dma_irq(int irq, void *_priv)
++{
++	struct xway_net_priv *priv = _priv;
++	if (irq == priv->txch.dma.irq)
++		napi_schedule(&priv->txch.napi);
++	else
++		napi_schedule(&priv->rxch.napi);
++	return IRQ_HANDLED;
++}
++
++static void
++xway_net_free_channel(struct net_device *dev, struct xway_net_chan *ch)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++
++	ltq_dma_free(&ch->dma);
++	if (ch->dma.irq)
++		free_irq(ch->dma.irq, priv);
++	if (ch == &priv->txch) {
++		int desc;
++		for (desc = 0; desc < LTQ_DESC_NUM; desc++)
++			dev_kfree_skb_any(ch->skb[ch->dma.desc]);
++	}
++}
++
++static int
++xway_net_hw_init(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++
++	return priv->sw->hw_init(dev);
++}
++
++static void
++xway_net_hw_exit(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++
++	priv->sw->hw_exit(dev);
++
++	xway_net_free_channel(dev, &priv->txch);
++	xway_net_free_channel(dev, &priv->rxch);
++}
++
++static int
++xway_net_dma_init(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	int err;
++
++	ltq_dma_init_port(DMA_PORT_ETOP);
++
++	priv->txch.dma.nr = priv->sw->txirq - LTQ_DMA_CH0_INT;
++	ltq_dma_alloc_tx(&priv->txch.dma);
++	err = request_irq(priv->sw->txirq, xway_net_dma_irq,
++				0, "eth_tx", priv);
++	if (err) {
++		netdev_err(dev, "failed to allocate tx irq\n");
++		goto err_out;
++	}
++	priv->txch.dma.irq = priv->sw->txirq;
++
++	priv->rxch.dma.nr = priv->sw->rxirq - LTQ_DMA_CH0_INT;
++	ltq_dma_alloc_rx(&priv->rxch.dma);
++	for (priv->rxch.dma.desc = 0; priv->rxch.dma.desc < LTQ_DESC_NUM;
++			priv->rxch.dma.desc++) {
++		if (xway_net_alloc_skb(&priv->rxch)) {
++			netdev_err(dev, "failed to allocate skbs\n");
++			err = -ENOMEM;
++			goto err_out;
++		}
++	}
++	priv->rxch.dma.desc = 0;
++	err = request_irq(priv->sw->rxirq, xway_net_dma_irq,
++				0, "eth_rx", priv);
++	if (err)
++		netdev_err(dev, "failed to allocate rx irq\n");
++	else
++		priv->rxch.dma.irq = priv->sw->rxirq;
++err_out:
++	return err;
++}
++
++static int
++xway_net_open(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	unsigned long flags;
++
++	napi_enable(&priv->txch.napi);
++	napi_enable(&priv->rxch.napi);
++
++	spin_lock_irqsave(&priv->lock, flags);
++	ltq_dma_open(&priv->txch.dma);
++	ltq_dma_open(&priv->rxch.dma);
++	spin_unlock_irqrestore(&priv->lock, flags);
++
++	xway_mdio_start(dev);
++	netif_tx_start_all_queues(dev);
++	return 0;
++}
++
++static int
++xway_net_stop(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	unsigned long flags;
++
++	netif_tx_stop_all_queues(dev);
++	xway_mdio_stop(dev);
++	napi_disable(&priv->txch.napi);
++	napi_disable(&priv->rxch.napi);
++
++	spin_lock_irqsave(&priv->lock, flags);
++	ltq_dma_close(&priv->txch.dma);
++	ltq_dma_close(&priv->rxch.dma);
++	spin_unlock_irqrestore(&priv->lock, flags);
++
++	return 0;
++}
++
++static int
++xway_net_tx(struct sk_buff *skb, struct net_device *dev)
++{
++	int queue = skb_get_queue_mapping(skb);
++	struct netdev_queue *txq = netdev_get_tx_queue(dev, queue);
++	struct xway_net_priv *priv = netdev_priv(dev);
++	struct ltq_dma_desc *desc =
++		&priv->txch.dma.desc_base[priv->txch.dma.desc];
++	unsigned long flags;
++	u32 byte_offset;
++	int len;
++
++	len = skb->len < ETH_ZLEN ? ETH_ZLEN : skb->len;
++
++	if ((desc->ctl & (LTQ_DMA_OWN | LTQ_DMA_C)) ||
++			priv->txch.skb[priv->txch.dma.desc]) {
++		netdev_err(dev, "tx ring full\n");
++		netif_tx_stop_queue(txq);
++		return NETDEV_TX_BUSY;
++	}
++
++	/* dma needs to start on a 16 byte aligned address */
++	byte_offset = CPHYSADDR(skb->data) % 16;
++	priv->txch.skb[priv->txch.dma.desc] = skb;
++
++	dev->trans_start = jiffies;
++
++	spin_lock_irqsave(&priv->lock, flags);
++	desc->addr = ((unsigned int) dma_map_single(NULL, skb->data, len,
++						DMA_TO_DEVICE)) - byte_offset;
++	wmb();
++	desc->ctl = LTQ_DMA_OWN | LTQ_DMA_SOP | LTQ_DMA_EOP |
++		LTQ_DMA_TX_OFFSET(byte_offset) | (len & LTQ_DMA_SIZE_MASK);
++	priv->txch.dma.desc++;
++	priv->txch.dma.desc %= LTQ_DESC_NUM;
++	spin_unlock_irqrestore(&priv->lock, flags);
++
++	if (priv->txch.dma.desc_base[priv->txch.dma.desc].ctl & LTQ_DMA_OWN)
++		netif_tx_stop_queue(txq);
++
++	return NETDEV_TX_OK;
++}
++
++static u16
++xway_net_select_queue(struct net_device *dev, struct sk_buff *skb)
++{
++	/* we are currently only using the first queue */
++	return 0;
++}
++
++int ltq_vrx200_mdio_init(struct net_device *dev);
++
++static int
++xway_net_init(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	struct sockaddr mac;
++	bool random_mac = false;
++	int err;
++
++	ether_setup(dev);
++	dev->watchdog_timeo = 10 * HZ;
++	err = xway_net_hw_init(dev);
++	if (err)
++		goto err_hw;
++	err = xway_net_dma_init(dev);
++	if (err)
++		goto err_hw;
++
++	dev->netdev_ops->ndo_change_mtu(dev, 1500);
++
++	memcpy(&mac.sa_data, &priv->sw->mac, ETH_ALEN);
++	if (!is_valid_ether_addr(mac.sa_data)) {
++		pr_warn("net: invalid MAC, using random\n");
++		random_ether_addr(mac.sa_data);
++		random_mac = true;
++	}
++	err = dev->netdev_ops->ndo_set_mac_address(dev, &mac);
++	if (err)
++		goto err_netdev;
++
++	/* Set addr_assign_type here, ltq_etop_set_mac_address would reset it. */
++	if (random_mac)
++		dev->addr_assign_type |= NET_ADDR_RANDOM;
++
++	if (dev->netdev_ops->ndo_set_rx_mode)
++		dev->netdev_ops->ndo_set_rx_mode(dev);
++	err = xway_mdio_init(dev);
++	if (err)
++		pr_warn("net: mdio probe failed\n");
++	return 0;
++
++err_netdev:
++	unregister_netdev(dev);
++	free_netdev(dev);
++err_hw:
++	xway_net_hw_exit(dev);
++	return err;
++}
++
++static void
++xway_net_tx_timeout(struct net_device *dev)
++{
++	int err;
++
++	xway_net_hw_exit(dev);
++	err = xway_net_hw_init(dev);
++	if (err)
++		goto err_hw;
++	err = xway_net_dma_init(dev);
++	if (err)
++		goto err_hw;
++	dev->trans_start = jiffies;
++	netif_wake_queue(dev);
++	return;
++
++err_hw:
++	xway_net_hw_exit(dev);
++	netdev_err(dev, "failed to restart net after TX timeout\n");
++}
++
++int
++xway_net_probe(struct platform_device *pdev, struct xway_net_switch *sw)
++{
++	struct net_device_ops *ops;
++	struct net_device *dev;
++	struct xway_net_priv *priv;
++	int err;
++
++	dev = alloc_etherdev_mq(sizeof(struct xway_net_priv), 4);
++	if (!dev) {
++		pr_err("failed to allocate net_device\n");
++		return -ENOMEM;
++	}
++
++	ops = kzalloc(sizeof(struct net_device_ops), GFP_KERNEL);
++	if (!ops) {
++		pr_err("failed to allocate net_device_ops\n");
++		err = -ENOMEM;
++		goto err_free_dev;
++	}
++
++	ops->ndo_open = xway_net_open;
++	ops->ndo_stop = xway_net_stop;
++	ops->ndo_start_xmit = xway_net_tx;
++	ops->ndo_do_ioctl = xway_mdio_ioctl;
++	ops->ndo_validate_addr = eth_validate_addr;
++	ops->ndo_select_queue = xway_net_select_queue;
++	ops->ndo_init = xway_net_init;
++	ops->ndo_tx_timeout = xway_net_tx_timeout;
++	if (sw->eth_mac_addr)
++		ops->ndo_set_mac_address = sw->eth_mac_addr;
++	else
++		ops->ndo_set_mac_address = eth_mac_addr;
++	if (sw->eth_change_mtu)
++		ops->ndo_change_mtu = sw->eth_change_mtu;
++	else
++		ops->ndo_change_mtu = eth_change_mtu;
++	ops->ndo_set_rx_mode = sw->rx_mode;
++	dev->netdev_ops = ops;
++
++	strcpy(dev->name, "eth%d");
++	priv = netdev_priv(dev);
++	priv->pdev = pdev;
++	priv->netdev = dev;
++	priv->sw = sw;
++
++	spin_lock_init(&priv->lock);
++
++	netif_napi_add(dev, &priv->txch.napi, xway_net_poll_tx, 8);
++	netif_napi_add(dev, &priv->rxch.napi, xway_net_poll_rx, 32);
++	priv->txch.netdev = dev;
++	priv->rxch.netdev = dev;
++
++	err = register_netdev(dev);
++	if (err) {
++		pr_err("failed to register_netdev\n");
++		goto err_free_ops;
++	}
++
++	platform_set_drvdata(pdev, dev);
++	return 0;
++
++err_free_ops:
++	kfree(ops);
++err_free_dev:
++	kfree(dev);
++	return err;
++}
++EXPORT_SYMBOL_GPL(xway_net_probe);
++
++int
++xway_net_remove(struct platform_device *pdev)
++{
++	struct net_device *dev = platform_get_drvdata(pdev);
++
++	if (dev) {
++		netif_tx_stop_all_queues(dev);
++		xway_net_hw_exit(dev);
++		xway_mdio_cleanup(dev);
++		unregister_netdev(dev);
++	}
++	return 0;
++}
++EXPORT_SYMBOL_GPL(xway_net_remove);
++
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/xway_dma_net.h
+@@ -0,0 +1,74 @@
++/*
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ *
++ * Copyright (C) 2012 John Crispin <blogic@openwrt.org>
++ */
++
++#ifndef __XWAY_NET_H
++#define __XWAY_NET_H
++
++#include <linux/phy.h>
++
++#include <lantiq_soc.h>
++#include <xway_dma.h>
++
++#define DRV_VERSION	"1.1"
++
++struct xway_net_switch {
++	char *name;
++	int txirq;
++	int rxirq;
++	int gbit;
++	const void *mac;
++	int mii_mode;
++
++	int (*hw_init)(struct net_device *dev);
++	void (*hw_exit)(struct net_device *dev);
++	int (*mdio_wr)(struct mii_bus *bus, int phy_addr,
++		int phy_reg, u16 phy_data);
++	int (*mdio_rd)(struct mii_bus *bus, int phy_addr, int phy_reg);
++	void (*mdio_link)(struct net_device *dev);
++	void (*rx_mode)(struct net_device *dev);
++	int (*eth_change_mtu)(struct net_device *dev, int new_mtu);
++	int (*eth_mac_addr)(struct net_device *dev, void *p);
++	void (*mdio_update)(struct phy_device *phydev, int num);
++};
++
++struct xway_net_chan {
++	int tx_free;
++	int irq;
++
++	struct net_device *netdev;
++	struct napi_struct napi;
++	struct ltq_dma_channel dma;
++	struct sk_buff *skb[LTQ_DESC_NUM];
++};
++
++struct xway_net_priv {
++	struct net_device *netdev;
++	struct platform_device *pdev;
++	struct xway_net_switch *sw;
++
++	struct mii_bus *mii_bus;
++	int phylink[PHY_MAX_ADDR];
++	struct phy_device *phydev[PHY_MAX_ADDR];
++	struct xway_net_chan txch;
++	struct xway_net_chan rxch;
++
++	spinlock_t lock;
++};
++
++extern int xway_net_probe(struct platform_device *pdev, struct xway_net_switch *sw);
++extern int xway_net_remove(struct platform_device *pdev);
++
++extern int xway_mdio_init(struct net_device *dev);
++extern void xway_mdio_cleanup(struct net_device *dev);
++
++extern int xway_mdio_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
++extern void xway_mdio_start(struct net_device *dev);
++extern void xway_mdio_stop(struct net_device *dev);
++
++
++#endif
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/xway_etop.c
+@@ -0,0 +1,437 @@
++/*
++ *   This program is free software; you can redistribute it and/or modify it
++ *   under the terms of the GNU General Public License version 2 as published
++ *   by the Free Software Foundation.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++ *
++ *   Copyright (C) 2011-12 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/interrupt.h>
++#include <linux/uaccess.h>
++#include <linux/in.h>
++#include <linux/netdevice.h>
++#include <linux/etherdevice.h>
++#include <linux/phy.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <linux/skbuff.h>
++#include <linux/mm.h>
++#include <linux/platform_device.h>
++#include <linux/ethtool.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/dma-mapping.h>
++#include <linux/module.h>
++#include <linux/clk.h>
++#include <linux/of.h>
++#include <asm/checksum.h>
++#include <linux/of_irq.h>
++#include <linux/of_net.h>
++
++#include <lantiq_soc.h>
++#include <xway_dma.h>
++#include <lantiq_platform.h>
++
++#include "xway_dma_net.h"
++
++#define LTQ_ETOP_MDIO		0x11804
++#define MDIO_REQUEST		0x80000000
++#define MDIO_READ		0x40000000
++#define MDIO_ADDR_MASK		0x1f
++#define MDIO_ADDR_OFFSET	0x15
++#define MDIO_REG_MASK		0x1f
++#define MDIO_REG_OFFSET		0x10
++#define MDIO_VAL_MASK		0xffff
++
++#define PPE32_CGEN		0x800
++#define LQ_PPE32_ENET_MAC_CFG	0x1840
++
++#define LTQ_ETOP_ENETS0		0x11850
++#define LTQ_ETOP_MAC_DA0	0x1186C
++#define LTQ_ETOP_MAC_DA1	0x11870
++#define LTQ_ETOP_CFG		0x16020
++#define LTQ_ETOP_IGPLEN		0x16080
++
++#define MAX_DMA_CHAN		0x8
++#define MAX_DMA_CRC_LEN		0x4
++#define MAX_DMA_DATA_LEN	0x600
++
++#define ETOP_FTCU		BIT(28)
++#define ETOP_MII_MASK		0xf
++#define ETOP_MII_NORMAL		0xd
++#define ETOP_MII_REVERSE	0xe
++#define ETOP_PLEN_UNDER		0x40
++#define ETOP_CGEN		0x800
++#define ETOP_CFG_MII0		0x01
++
++#define LTQ_GBIT_MDIO_CTL	0xCC
++#define LTQ_GBIT_MDIO_DATA	0xd0
++#define LTQ_GBIT_GCTL0		0x68
++#define LTQ_GBIT_PMAC_HD_CTL	0x8c
++#define LTQ_GBIT_P0_CTL		0x04
++#define LTQ_GBIT_P1_CTL		0x08
++#define LTQ_GBIT_P2_CTL		0x0c
++#define LTQ_GBIT_PMAC_RX_IPG	0xa8
++
++#define PMAC_HD_CTL_AS		(1 << 19)
++#define PMAC_HD_CTL_RXSH	(1 << 22)
++
++/* Switch Enable (0=disable, 1=enable) */
++#define GCTL0_SE		0x80000000
++/* Disable MDIO auto polling (0=disable, 1=enable) */
++#define PX_CTL_DMDIO		0x00400000
++/* Force Link Down */
++#define PX_CTL_FLD		BIT(17)
++/* Force Link Up */
++#define PX_CTL_FLP		BIT(18)
++/* register information for the gbit's MDIO bus */
++#define MDIO_XR9_REQUEST	0x00008000
++#define MDIO_XR9_READ		0x00000800
++#define MDIO_XR9_WRITE		0x00000400
++#define MDIO_XR9_REG_MASK	0x1f
++#define MDIO_XR9_ADDR_MASK	0x1f
++#define MDIO_XR9_RD_MASK	0xffff
++#define MDIO_XR9_REG_OFFSET	0
++#define MDIO_XR9_ADDR_OFFSET	5
++#define MDIO_XR9_WR_OFFSET	16
++
++#define etop_r32(x)		ltq_r32(etop_membase + (x))
++#define etop_w32(x, y)	ltq_w32(x, etop_membase + (y))
++#define etop_w32_mask(x, y, z)	\
++		ltq_w32_mask(x, y, etop_membase + (z))
++
++#define ltq_gbit_r32(x)		ltq_r32(gbit_membase + (x))
++#define ltq_gbit_w32(x, y)	ltq_w32(x, gbit_membase + (y))
++#define ltq_gbit_w32_mask(x, y, z)	\
++		ltq_w32_mask(x, y, gbit_membase + (z))
++
++static void __iomem *etop_membase;
++static void __iomem *gbit_membase;
++static struct clk *clk_ppe;
++static struct clk *clk_switch;
++static struct clk *clk_ephy;
++static struct clk *clk_ephycgu;
++
++static int
++etop_mdio_wr_ar9(struct mii_bus *bus, int phy_addr,
++		int phy_reg, u16 phy_data)
++{
++	u32 val = MDIO_XR9_REQUEST | MDIO_XR9_WRITE |
++		(phy_data << MDIO_XR9_WR_OFFSET) |
++		((phy_addr & MDIO_XR9_ADDR_MASK) << MDIO_XR9_ADDR_OFFSET) |
++		((phy_reg & MDIO_XR9_REG_MASK) << MDIO_XR9_REG_OFFSET);
++
++	while (ltq_gbit_r32(LTQ_GBIT_MDIO_CTL) & MDIO_XR9_REQUEST)
++		;
++	ltq_gbit_w32(val, LTQ_GBIT_MDIO_CTL);
++	while (ltq_gbit_r32(LTQ_GBIT_MDIO_CTL) & MDIO_XR9_REQUEST)
++		;
++	return 0;
++}
++
++static int
++etop_mdio_rd_ar9(struct mii_bus *bus, int phy_addr, int phy_reg)
++{
++	u32 val = MDIO_XR9_REQUEST | MDIO_XR9_READ |
++		((phy_addr & MDIO_XR9_ADDR_MASK) << MDIO_XR9_ADDR_OFFSET) |
++		((phy_reg & MDIO_XR9_REG_MASK) << MDIO_XR9_REG_OFFSET);
++
++	while (ltq_gbit_r32(LTQ_GBIT_MDIO_CTL) & MDIO_XR9_REQUEST)
++		;
++	ltq_gbit_w32(val, LTQ_GBIT_MDIO_CTL);
++	while (ltq_gbit_r32(LTQ_GBIT_MDIO_CTL) & MDIO_XR9_REQUEST)
++		;
++	val = ltq_gbit_r32(LTQ_GBIT_MDIO_DATA) & MDIO_XR9_RD_MASK;
++	return val;
++}
++
++static int
++etop_mdio_wr(struct mii_bus *bus, int phy_addr, int phy_reg, u16 phy_data)
++{
++	u32 val = MDIO_REQUEST |
++		((phy_addr & MDIO_ADDR_MASK) << MDIO_ADDR_OFFSET) |
++		((phy_reg & MDIO_REG_MASK) << MDIO_REG_OFFSET) |
++		phy_data;
++
++	while (etop_r32(LTQ_ETOP_MDIO) & MDIO_REQUEST)
++		;
++	etop_w32(val, LTQ_ETOP_MDIO);
++	return 0;
++}
++
++static int
++etop_mdio_rd(struct mii_bus *bus, int phy_addr, int phy_reg)
++{
++	u32 val = MDIO_REQUEST | MDIO_READ |
++		((phy_addr & MDIO_ADDR_MASK) << MDIO_ADDR_OFFSET) |
++		((phy_reg & MDIO_REG_MASK) << MDIO_REG_OFFSET);
++
++	while (etop_r32(LTQ_ETOP_MDIO) & MDIO_REQUEST)
++		;
++	etop_w32(val, LTQ_ETOP_MDIO);
++	while (etop_r32(LTQ_ETOP_MDIO) & MDIO_REQUEST)
++		;
++	val = etop_r32(LTQ_ETOP_MDIO) & MDIO_VAL_MASK;
++	return val;
++}
++
++static int
++etop_change_mtu(struct net_device *dev, int new_mtu)
++{
++	int ret = eth_change_mtu(dev, new_mtu);
++
++	if (!ret) {
++		struct xway_net_priv *priv = netdev_priv(dev);
++		unsigned long flags;
++
++		spin_lock_irqsave(&priv->lock, flags);
++		etop_w32((ETOP_PLEN_UNDER << 16) | new_mtu,
++			LTQ_ETOP_IGPLEN);
++		spin_unlock_irqrestore(&priv->lock, flags);
++	}
++	return ret;
++}
++
++static int
++etop_set_mac_address(struct net_device *dev, void *p)
++{
++	int ret = eth_mac_addr(dev, p);
++
++	if (!ret) {
++		struct xway_net_priv *priv = netdev_priv(dev);
++		unsigned long flags;
++
++		/* store the mac for the unicast filter */
++		spin_lock_irqsave(&priv->lock, flags);
++		etop_w32(*((u32 *)dev->dev_addr), LTQ_ETOP_MAC_DA0);
++		etop_w32(*((u16 *)&dev->dev_addr[4]) << 16,
++			LTQ_ETOP_MAC_DA1);
++		spin_unlock_irqrestore(&priv->lock, flags);
++	}
++	return ret;
++}
++
++static void
++etop_set_multicast_list(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	unsigned long flags;
++
++	/* ensure that the unicast filter is not enabled in promiscious mode */
++	spin_lock_irqsave(&priv->lock, flags);
++	if ((dev->flags & IFF_PROMISC) || (dev->flags & IFF_ALLMULTI))
++		etop_w32_mask(ETOP_FTCU, 0, LTQ_ETOP_ENETS0);
++	else
++		etop_w32_mask(0, ETOP_FTCU, LTQ_ETOP_ENETS0);
++	spin_unlock_irqrestore(&priv->lock, flags);
++}
++
++static void
++etop_hw_exit(struct net_device *dev)
++{
++	clk_disable(clk_ppe);
++
++	if (of_machine_is_compatible("lantiq,ar9"))
++		clk_disable(clk_switch);
++
++	if (of_machine_is_compatible("lantiq,ase")) {
++		clk_disable(clk_ephy);
++		clk_disable(clk_ephycgu);
++	}
++}
++
++static void
++etop_gbit_init(struct net_device *dev)
++{
++	clk_enable(clk_switch);
++
++	ltq_gbit_w32_mask(0, GCTL0_SE, LTQ_GBIT_GCTL0);
++	/* Disable MDIO auto polling mode */
++	ltq_gbit_w32_mask(PX_CTL_FLD, PX_CTL_DMDIO, LTQ_GBIT_P0_CTL);
++	/* enable the 2 downstream ports */
++	ltq_gbit_w32_mask(PX_CTL_FLD, PX_CTL_FLP, LTQ_GBIT_P1_CTL);
++	ltq_gbit_w32_mask(PX_CTL_FLD, PX_CTL_FLP, LTQ_GBIT_P2_CTL);
++	/* set 1522 packet size */
++	ltq_gbit_w32_mask(0x300, 0, LTQ_GBIT_GCTL0);
++	/* disable pmac & dmac headers */
++	ltq_gbit_w32_mask(PMAC_HD_CTL_AS | PMAC_HD_CTL_RXSH, 0,
++		LTQ_GBIT_PMAC_HD_CTL);
++	/* Due to traffic halt when burst length 8,
++		replace default IPG value with 0x3B */
++	ltq_gbit_w32(0x3B, LTQ_GBIT_PMAC_RX_IPG);
++}
++
++static int
++etop_hw_init(struct net_device *dev)
++{
++	struct xway_net_priv *priv = netdev_priv(dev);
++	unsigned int mii_mode = priv->sw->mii_mode;
++
++	clk_enable(clk_ppe);
++
++	if (of_machine_is_compatible("lantiq,ar9")) {
++		etop_gbit_init(dev);
++		/* force the etops link to the gbit to MII */
++		mii_mode = PHY_INTERFACE_MODE_MII;
++	}
++
++	switch (mii_mode) {
++	case PHY_INTERFACE_MODE_RMII:
++		etop_w32_mask(ETOP_MII_MASK,
++			ETOP_MII_REVERSE, LTQ_ETOP_CFG);
++		break;
++
++	case PHY_INTERFACE_MODE_MII:
++		etop_w32_mask(ETOP_MII_MASK,
++			ETOP_MII_NORMAL, LTQ_ETOP_CFG);
++		break;
++
++	default:
++		if (of_machine_is_compatible("lantiq,ase")) {
++			clk_enable(clk_ephy);
++			/* disable external MII */
++			etop_w32_mask(0, ETOP_CFG_MII0, LTQ_ETOP_CFG);
++			/* enable clock for internal PHY */
++			clk_enable(clk_ephycgu);
++			/* we need to write this magic to the internal phy to
++			   make it work */
++			etop_mdio_wr(NULL, 0x8, 0x12, 0xC020);
++			pr_info("Selected EPHY mode\n");
++			break;
++		}
++		netdev_err(dev, "unknown mii mode %d\n",
++			priv->sw->mii_mode);
++		return -ENOTSUPP;
++	}
++
++	/* enable crc generation */
++	etop_w32(PPE32_CGEN, LQ_PPE32_ENET_MAC_CFG);
++
++	return 0;
++}
++
++struct xway_net_switch xway_switch = {
++	.name = "xway",
++	.hw_init = etop_hw_init,
++	.hw_exit = etop_hw_exit,
++	.mdio_wr = etop_mdio_wr,
++	.mdio_rd = etop_mdio_rd,
++	.rx_mode = etop_set_multicast_list,
++	.eth_change_mtu = etop_change_mtu,
++	.eth_mac_addr = etop_set_mac_address,
++};
++
++static int __devinit
++etop_probe(struct platform_device *pdev)
++{
++	struct device_node *node = pdev->dev.of_node;
++	struct resource *res, *gbit_res;
++	struct resource irqres[2];
++
++	if (of_irq_to_resource_table(node, irqres, 2) != 2) {
++		dev_err(&pdev->dev, "not enough irqs defined\n");
++		return -EINVAL;
++	}
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res) {
++		dev_err(&pdev->dev, "failed to get etop resource\n");
++		return -ENOENT;
++	}
++
++	res = devm_request_mem_region(&pdev->dev, res->start,
++		resource_size(res), dev_name(&pdev->dev));
++	if (!res) {
++		dev_err(&pdev->dev, "failed to request etop resource\n");
++		return -EBUSY;
++	}
++
++	etop_membase = devm_ioremap_nocache(&pdev->dev,
++		res->start, resource_size(res));
++	if (!etop_membase) {
++		dev_err(&pdev->dev, "failed to remap etop engine %d\n",
++			pdev->id);
++		return -ENOMEM;
++	}
++
++	clk_ppe = clk_get(&pdev->dev, NULL);
++	if (IS_ERR(clk_ppe))
++		return PTR_ERR(clk_ppe);
++
++	xway_switch.mii_mode = of_get_phy_mode(node);
++	xway_switch.mac = of_get_mac_address(node);
++	xway_switch.txirq = irqres[0].start;
++	xway_switch.rxirq = irqres[1].start;
++
++	if (of_machine_is_compatible("lantiq,ar9")) {
++		gbit_res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++		if (!gbit_res) {
++			dev_err(&pdev->dev, "failed to get gbit resource\n");
++			return -ENOENT;
++		}
++		gbit_membase = devm_ioremap_nocache(&pdev->dev,
++			gbit_res->start, resource_size(gbit_res));
++		if (!gbit_membase) {
++			dev_err(&pdev->dev, "failed to remap gigabit switch %d\n",
++				pdev->id);
++			return -ENOMEM;
++		}
++		clk_switch = clk_get(&pdev->dev, "switch");
++		if (IS_ERR(clk_switch))
++			return PTR_ERR(clk_switch);
++		xway_switch.mdio_wr = etop_mdio_wr_ar9;
++		xway_switch.mdio_rd = etop_mdio_rd_ar9;
++		xway_switch.gbit = 1;
++	} else if (of_machine_is_compatible("lantiq,ase"))
++	{
++		clk_ephy = clk_get(&pdev->dev, "ephy");
++		if (IS_ERR(clk_ephy))
++			return PTR_ERR(clk_ephy);
++		clk_ephycgu = clk_get(&pdev->dev, "ephycgu");
++		if (IS_ERR(clk_ephycgu))
++			return PTR_ERR(clk_ephycgu);
++	}
++	return xway_net_probe(pdev, &xway_switch);
++}
++
++static int __devexit
++etop_remove(struct platform_device *pdev)
++{
++	return xway_net_remove(pdev);
++}
++
++static const struct of_device_id ltq_etop_match[] = {
++	{ .compatible = "lantiq,etop-xway" },
++	{},
++};
++MODULE_DEVICE_TABLE(of, ltq_etop_match);
++
++static struct platform_driver etop_driver = {
++	.probe = etop_probe,
++	.remove = __devexit_p(etop_remove),
++	.driver = {
++		.name = "etop-xway",
++		.owner = THIS_MODULE,
++		.of_match_table = ltq_etop_match,
++	},
++};
++
++module_platform_driver(etop_driver);
++
++MODULE_AUTHOR("John Crispin <blogic@openwrt.org>");
++MODULE_DESCRIPTION("Lantiq SoC ETOP");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/net/ethernet/lantiq/xway_phy_fw.c
+@@ -0,0 +1,145 @@
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/interrupt.h>
++#include <linux/uaccess.h>
++#include <linux/in.h>
++#include <linux/netdevice.h>
++#include <linux/etherdevice.h>
++#include <linux/phy.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <linux/skbuff.h>
++#include <linux/mm.h>
++#include <linux/ethtool.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/dma-mapping.h>
++#include <linux/module.h>
++#include <linux/firmware.h>
++#include <linux/of_platform.h>
++#include <linux/of_net.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++#include <linux/of_gpio.h>
++
++#include <asm/checksum.h>
++
++#include <lantiq_soc.h>
++#include <xway_dma.h>
++
++#include "vr9_switch_regs.h"
++
++#define XWAY_GPHY_FW_ALIGN		(16 * 1024)
++#define XWAY_GPHY_FW_NAME_SIZE		32
++
++struct xway_gphy_core {
++	struct device *dev;
++	char fw_name[XWAY_GPHY_FW_NAME_SIZE];
++	dma_addr_t dev_addr;
++	void *fw_addr;
++	size_t fw_size;
++};
++
++static int xway_gphy_load(struct platform_device *pdev, struct xway_gphy_core *gphy)
++{
++	const struct firmware *fw;
++	dma_addr_t dev_addr;
++	void *fw_addr;
++	int err;
++	size_t size;
++	const char *fw_name;
++
++	err = of_property_read_string(pdev->dev.of_node, "firmware", &fw_name);
++	if (err) {
++		dev_err(&pdev->dev, "failed to load firmware filename\n");
++		return err;
++	}
++
++	if (strlen(fw_name) >= sizeof(gphy->fw_name)) {
++		dev_err(&pdev->dev, "firmware filename too long\n");
++		return ENAMETOOLONG;
++	}
++
++	strncpy(gphy->fw_name, fw_name, sizeof(gphy->fw_name));
++
++	err = request_firmware(&fw, gphy->fw_name, &pdev->dev);
++	if (err) {
++		dev_err(&pdev->dev, "failed to load firmware: %s\n", gphy->fw_name);
++		return err;
++	}
++
++	/*
++	 * GPHY cores need the firmware code in a persistent and contiguous
++	 * memory area with a 16 kB boundary aligned start address
++	 */
++	size = fw->size + XWAY_GPHY_FW_ALIGN;
++	fw_addr = dma_alloc_coherent(&pdev->dev, size, &dev_addr, GFP_KERNEL);
++	if (!fw_addr) {
++		dev_err(&pdev->dev, "failed to alloc firmware memory\n");
++		goto err_release;
++	}
++
++	fw_addr = PTR_ALIGN(fw_addr, XWAY_GPHY_FW_ALIGN);
++	dev_addr = ALIGN(dev_addr, XWAY_GPHY_FW_ALIGN);
++
++	memcpy(fw_addr, fw->data, fw->size);
++	release_firmware(fw);
++
++	gphy->dev = &pdev->dev;
++	gphy->dev_addr = dev_addr;
++	gphy->fw_addr = fw_addr;
++	gphy->fw_size = size;
++
++	return 0;
++
++err_release:
++	release_firmware(fw);
++
++	return err;
++}
++
++static int __devinit xway_phy_fw_probe(struct platform_device *pdev)
++{
++	struct xway_gphy_core gphy;
++	struct property *pp;
++	unsigned char *phyids;
++	int i, ret;
++
++	ret = xway_gphy_load(pdev, &gphy);
++	if (ret)
++		return ret;
++	pp = of_find_property(pdev->dev.of_node, "phys", NULL);
++	if (!pp)
++		return -ENOENT;
++	phyids = pp->value;
++	for (i = 0; i < pp->length && !ret; i++)
++		ret = xrx200_gphy_boot(&pdev->dev, phyids[i], gphy.dev_addr);
++	if (!ret)
++		mdelay(100);
++	return ret;
++}
++
++static const struct of_device_id xway_phy_match[] = {
++	{ .compatible = "lantiq,phy-xrx200" },
++	{},
++};
++MODULE_DEVICE_TABLE(of, xway_phy_match);
++
++static struct platform_driver xway_phy_driver = {
++	.probe = xway_phy_fw_probe,
++	.driver = {
++		.name = "phy-xrx200",
++		.owner = THIS_MODULE,
++		.of_match_table = xway_phy_match,
++	},
++};
++
++module_platform_driver(xway_phy_driver);
++
++MODULE_AUTHOR("John Crispin <blogic@openwrt.org>");
++MODULE_DESCRIPTION("Lantiq XRX200 PHY Firmware Loader");
++MODULE_LICENSE("GPL");
++
+--- a/drivers/net/ethernet/lantiq_etop.c
++++ /dev/null
+@@ -1,862 +0,0 @@
+-/*
+- *   This program is free software; you can redistribute it and/or modify it
+- *   under the terms of the GNU General Public License version 2 as published
+- *   by the Free Software Foundation.
+- *
+- *   This program is distributed in the hope that it will be useful,
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- *   GNU General Public License for more details.
+- *
+- *   You should have received a copy of the GNU General Public License
+- *   along with this program; if not, write to the Free Software
+- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+- *
+- *   Copyright (C) 2011 John Crispin <blogic@openwrt.org>
+- */
+-
+-#include <linux/kernel.h>
+-#include <linux/slab.h>
+-#include <linux/errno.h>
+-#include <linux/types.h>
+-#include <linux/interrupt.h>
+-#include <linux/uaccess.h>
+-#include <linux/in.h>
+-#include <linux/netdevice.h>
+-#include <linux/etherdevice.h>
+-#include <linux/phy.h>
+-#include <linux/ip.h>
+-#include <linux/tcp.h>
+-#include <linux/skbuff.h>
+-#include <linux/mm.h>
+-#include <linux/ethtool.h>
+-#include <linux/init.h>
+-#include <linux/delay.h>
+-#include <linux/io.h>
+-#include <linux/dma-mapping.h>
+-#include <linux/module.h>
+-#include <linux/of_platform.h>
+-#include <linux/of_net.h>
+-#include <linux/of_address.h>
+-#include <linux/of_irq.h>
+-#include <linux/of_gpio.h>
+-
+-#include <asm/checksum.h>
+-
+-#include <lantiq_soc.h>
+-#include <xway_dma.h>
+-
+-#define LTQ_ETOP_MDIO		0x11804
+-#define MDIO_REQUEST		0x80000000
+-#define MDIO_READ		0x40000000
+-#define MDIO_ADDR_MASK		0x1f
+-#define MDIO_ADDR_OFFSET	0x15
+-#define MDIO_REG_MASK		0x1f
+-#define MDIO_REG_OFFSET		0x10
+-#define MDIO_VAL_MASK		0xffff
+-
+-#define PPE32_CGEN		0x800
+-#define LQ_PPE32_ENET_MAC_CFG	0x1840
+-
+-#define LTQ_ETOP_ENETS0		0x11850
+-#define LTQ_ETOP_MAC_DA0	0x1186C
+-#define LTQ_ETOP_MAC_DA1	0x11870
+-#define LTQ_ETOP_CFG		0x16020
+-#define LTQ_ETOP_IGPLEN		0x16080
+-
+-#define MAX_DMA_CHAN		0x8
+-#define MAX_DMA_CRC_LEN		0x4
+-#define MAX_DMA_DATA_LEN	0x600
+-
+-#define ETOP_FTCU		BIT(28)
+-#define ETOP_MII_MASK		0xf
+-#define ETOP_MII_NORMAL		0xd
+-#define ETOP_MII_REVERSE	0xe
+-#define ETOP_PLEN_UNDER		0x40
+-#define ETOP_CGEN		0x800
+-
+-/* use 2 static channels for TX/RX */
+-#define LTQ_DMA_CH0_INT		INT_NUM_IM2_IRL0
+-#define LTQ_ETOP_TX_CHANNEL	1
+-#define LTQ_ETOP_RX_CHANNEL	6
+-#define IS_TX(x)		(x == LTQ_ETOP_TX_CHANNEL)
+-#define IS_RX(x)		(x == LTQ_ETOP_RX_CHANNEL)
+-
+-#define ltq_etop_r32(x)		ltq_r32(ltq_etop_membase + (x))
+-#define ltq_etop_w32(x, y)	ltq_w32(x, ltq_etop_membase + (y))
+-#define ltq_etop_w32_mask(x, y, z)	\
+-		ltq_w32_mask(x, y, ltq_etop_membase + (z))
+-
+-#define DRV_VERSION	"1.0"
+-
+-static void __iomem *ltq_etop_membase;
+-
+-struct ltq_etop_chan {
+-	int idx;
+-	int tx_free;
+-	struct net_device *netdev;
+-	struct napi_struct napi;
+-	struct ltq_dma_channel dma;
+-	struct sk_buff *skb[LTQ_DESC_NUM];
+-};
+-
+-struct ltq_etop_priv {
+-	struct net_device *netdev;
+-	struct platform_device *pdev;
+-	struct resource *res;
+-
+-	struct mii_bus *mii_bus;
+-	struct phy_device *phydev;
+-
+-	struct clk *clk;
+-	const void *mac;
+-	int mii_mode;
+-	int tx_irq;
+-	int rx_irq;
+-
+-	struct ltq_etop_chan ch[MAX_DMA_CHAN];
+-	int tx_free[MAX_DMA_CHAN >> 1];
+-
+-	spinlock_t lock;
+-};
+-
+-static int
+-ltq_etop_alloc_skb(struct ltq_etop_chan *ch)
+-{
+-	ch->skb[ch->dma.desc] = netdev_alloc_skb(ch->netdev, MAX_DMA_DATA_LEN);
+-	if (!ch->skb[ch->dma.desc])
+-		return -ENOMEM;
+-	ch->dma.desc_base[ch->dma.desc].addr = dma_map_single(NULL,
+-		ch->skb[ch->dma.desc]->data, MAX_DMA_DATA_LEN,
+-		DMA_FROM_DEVICE);
+-	ch->dma.desc_base[ch->dma.desc].addr =
+-		CPHYSADDR(ch->skb[ch->dma.desc]->data);
+-	ch->dma.desc_base[ch->dma.desc].ctl =
+-		LTQ_DMA_OWN | LTQ_DMA_RX_OFFSET(NET_IP_ALIGN) |
+-		MAX_DMA_DATA_LEN;
+-	skb_reserve(ch->skb[ch->dma.desc], NET_IP_ALIGN);
+-	return 0;
+-}
+-
+-static void
+-ltq_etop_hw_receive(struct ltq_etop_chan *ch)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(ch->netdev);
+-	struct ltq_dma_desc *desc = &ch->dma.desc_base[ch->dma.desc];
+-	struct sk_buff *skb = ch->skb[ch->dma.desc];
+-	int len = (desc->ctl & LTQ_DMA_SIZE_MASK) - MAX_DMA_CRC_LEN;
+-	unsigned long flags;
+-
+-	spin_lock_irqsave(&priv->lock, flags);
+-	if (ltq_etop_alloc_skb(ch)) {
+-		netdev_err(ch->netdev,
+-			"failed to allocate new rx buffer, stopping DMA\n");
+-		ltq_dma_close(&ch->dma);
+-	}
+-	ch->dma.desc++;
+-	ch->dma.desc %= LTQ_DESC_NUM;
+-	spin_unlock_irqrestore(&priv->lock, flags);
+-
+-	skb_put(skb, len);
+-	skb->dev = ch->netdev;
+-	skb->protocol = eth_type_trans(skb, ch->netdev);
+-	netif_receive_skb(skb);
+-}
+-
+-static int
+-ltq_etop_poll_rx(struct napi_struct *napi, int budget)
+-{
+-	struct ltq_etop_chan *ch = container_of(napi,
+-				struct ltq_etop_chan, napi);
+-	int rx = 0;
+-	int complete = 0;
+-
+-	while ((rx < budget) && !complete) {
+-		struct ltq_dma_desc *desc = &ch->dma.desc_base[ch->dma.desc];
+-
+-		if ((desc->ctl & (LTQ_DMA_OWN | LTQ_DMA_C)) == LTQ_DMA_C) {
+-			ltq_etop_hw_receive(ch);
+-			rx++;
+-		} else {
+-			complete = 1;
+-		}
+-	}
+-	if (complete || !rx) {
+-		napi_complete(&ch->napi);
+-		ltq_dma_ack_irq(&ch->dma);
+-	}
+-	return rx;
+-}
+-
+-static int
+-ltq_etop_poll_tx(struct napi_struct *napi, int budget)
+-{
+-	struct ltq_etop_chan *ch =
+-		container_of(napi, struct ltq_etop_chan, napi);
+-	struct ltq_etop_priv *priv = netdev_priv(ch->netdev);
+-	struct netdev_queue *txq =
+-		netdev_get_tx_queue(ch->netdev, ch->idx >> 1);
+-	unsigned long flags;
+-
+-	spin_lock_irqsave(&priv->lock, flags);
+-	while ((ch->dma.desc_base[ch->tx_free].ctl &
+-			(LTQ_DMA_OWN | LTQ_DMA_C)) == LTQ_DMA_C) {
+-		dev_kfree_skb_any(ch->skb[ch->tx_free]);
+-		ch->skb[ch->tx_free] = NULL;
+-		memset(&ch->dma.desc_base[ch->tx_free], 0,
+-			sizeof(struct ltq_dma_desc));
+-		ch->tx_free++;
+-		ch->tx_free %= LTQ_DESC_NUM;
+-	}
+-	spin_unlock_irqrestore(&priv->lock, flags);
+-
+-	if (netif_tx_queue_stopped(txq))
+-		netif_tx_start_queue(txq);
+-	napi_complete(&ch->napi);
+-	ltq_dma_ack_irq(&ch->dma);
+-	return 1;
+-}
+-
+-static irqreturn_t
+-ltq_etop_dma_irq(int irq, void *_priv)
+-{
+-	struct ltq_etop_priv *priv = _priv;
+-	int ch = irq - LTQ_DMA_CH0_INT;
+-
+-	napi_schedule(&priv->ch[ch].napi);
+-	return IRQ_HANDLED;
+-}
+-
+-static void
+-ltq_etop_free_channel(struct net_device *dev, struct ltq_etop_chan *ch)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	ltq_dma_free(&ch->dma);
+-	if (ch->dma.irq)
+-		free_irq(ch->dma.irq, priv);
+-	if (IS_RX(ch->idx)) {
+-		int desc;
+-		for (desc = 0; desc < LTQ_DESC_NUM; desc++)
+-			dev_kfree_skb_any(ch->skb[ch->dma.desc]);
+-	}
+-}
+-
+-static void
+-ltq_etop_hw_exit(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	int i;
+-
+-	clk_disable(priv->clk);
+-	for (i = 0; i < MAX_DMA_CHAN; i++)
+-		if (IS_TX(i) || IS_RX(i))
+-			ltq_etop_free_channel(dev, &priv->ch[i]);
+-}
+-
+-static int
+-ltq_etop_hw_init(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	int i;
+-
+-	clk_enable(priv->clk);
+-
+-	switch (priv->mii_mode) {
+-	case PHY_INTERFACE_MODE_RMII:
+-		ltq_etop_w32_mask(ETOP_MII_MASK,
+-			ETOP_MII_REVERSE, LTQ_ETOP_CFG);
+-		break;
+-
+-	case PHY_INTERFACE_MODE_MII:
+-		ltq_etop_w32_mask(ETOP_MII_MASK,
+-			ETOP_MII_NORMAL, LTQ_ETOP_CFG);
+-		break;
+-
+-	default:
+-		netdev_err(dev, "unknown mii mode %d\n",
+-			priv->mii_mode);
+-		return -ENOTSUPP;
+-	}
+-
+-	/* enable crc generation */
+-	ltq_etop_w32(PPE32_CGEN, LQ_PPE32_ENET_MAC_CFG);
+-
+-	ltq_dma_init_port(DMA_PORT_ETOP);
+-
+-	for (i = 0; i < MAX_DMA_CHAN; i++) {
+-		int irq = LTQ_DMA_CH0_INT + i;
+-		struct ltq_etop_chan *ch = &priv->ch[i];
+-
+-		ch->idx = ch->dma.nr = i;
+-
+-		if (IS_TX(i)) {
+-			ltq_dma_alloc_tx(&ch->dma);
+-			request_irq(irq, ltq_etop_dma_irq, IRQF_DISABLED,
+-				"etop_tx", priv);
+-		} else if (IS_RX(i)) {
+-			ltq_dma_alloc_rx(&ch->dma);
+-			for (ch->dma.desc = 0; ch->dma.desc < LTQ_DESC_NUM;
+-					ch->dma.desc++)
+-				if (ltq_etop_alloc_skb(ch))
+-					return -ENOMEM;
+-			ch->dma.desc = 0;
+-			request_irq(irq, ltq_etop_dma_irq, IRQF_DISABLED,
+-				"etop_rx", priv);
+-		}
+-		ch->dma.irq = irq;
+-	}
+-	return 0;
+-}
+-
+-static void
+-ltq_etop_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
+-{
+-	strcpy(info->driver, "Lantiq ETOP");
+-	strcpy(info->bus_info, "internal");
+-	strcpy(info->version, DRV_VERSION);
+-}
+-
+-static int
+-ltq_etop_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	return phy_ethtool_gset(priv->phydev, cmd);
+-}
+-
+-static int
+-ltq_etop_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	return phy_ethtool_sset(priv->phydev, cmd);
+-}
+-
+-static int
+-ltq_etop_nway_reset(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	return phy_start_aneg(priv->phydev);
+-}
+-
+-static const struct ethtool_ops ltq_etop_ethtool_ops = {
+-	.get_drvinfo = ltq_etop_get_drvinfo,
+-	.get_settings = ltq_etop_get_settings,
+-	.set_settings = ltq_etop_set_settings,
+-	.nway_reset = ltq_etop_nway_reset,
+-};
+-
+-static int
+-ltq_etop_mdio_wr(struct mii_bus *bus, int phy_addr, int phy_reg, u16 phy_data)
+-{
+-	u32 val = MDIO_REQUEST |
+-		((phy_addr & MDIO_ADDR_MASK) << MDIO_ADDR_OFFSET) |
+-		((phy_reg & MDIO_REG_MASK) << MDIO_REG_OFFSET) |
+-		phy_data;
+-
+-	while (ltq_etop_r32(LTQ_ETOP_MDIO) & MDIO_REQUEST)
+-		;
+-	ltq_etop_w32(val, LTQ_ETOP_MDIO);
+-	return 0;
+-}
+-
+-static int
+-ltq_etop_mdio_rd(struct mii_bus *bus, int phy_addr, int phy_reg)
+-{
+-	u32 val = MDIO_REQUEST | MDIO_READ |
+-		((phy_addr & MDIO_ADDR_MASK) << MDIO_ADDR_OFFSET) |
+-		((phy_reg & MDIO_REG_MASK) << MDIO_REG_OFFSET);
+-
+-	while (ltq_etop_r32(LTQ_ETOP_MDIO) & MDIO_REQUEST)
+-		;
+-	ltq_etop_w32(val, LTQ_ETOP_MDIO);
+-	while (ltq_etop_r32(LTQ_ETOP_MDIO) & MDIO_REQUEST)
+-		;
+-	val = ltq_etop_r32(LTQ_ETOP_MDIO) & MDIO_VAL_MASK;
+-	return val;
+-}
+-
+-static void
+-ltq_etop_mdio_link(struct net_device *dev)
+-{
+-	/* nothing to do  */
+-}
+-
+-static int
+-ltq_etop_mdio_probe(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	struct phy_device *phydev = NULL;
+-	int phy_addr;
+-
+-	for (phy_addr = 0; phy_addr < PHY_MAX_ADDR; phy_addr++) {
+-		if (priv->mii_bus->phy_map[phy_addr]) {
+-			phydev = priv->mii_bus->phy_map[phy_addr];
+-			break;
+-		}
+-	}
+-
+-	if (!phydev) {
+-		netdev_err(dev, "no PHY found\n");
+-		return -ENODEV;
+-	}
+-
+-	phydev = phy_connect(dev, dev_name(&phydev->dev), &ltq_etop_mdio_link,
+-			0, priv->mii_mode);
+-
+-	if (IS_ERR(phydev)) {
+-		netdev_err(dev, "Could not attach to PHY\n");
+-		return PTR_ERR(phydev);
+-	}
+-
+-	phydev->supported &= (SUPPORTED_10baseT_Half
+-			      | SUPPORTED_10baseT_Full
+-			      | SUPPORTED_100baseT_Half
+-			      | SUPPORTED_100baseT_Full
+-			      | SUPPORTED_Autoneg
+-			      | SUPPORTED_MII
+-			      | SUPPORTED_TP);
+-
+-	phydev->advertising = phydev->supported;
+-	priv->phydev = phydev;
+-	pr_info("%s: attached PHY [%s] (phy_addr=%s, irq=%d)\n",
+-	       dev->name, phydev->drv->name,
+-	       dev_name(&phydev->dev), phydev->irq);
+-
+-	return 0;
+-}
+-
+-static int
+-ltq_etop_mdio_init(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	int i;
+-	int err;
+-
+-	priv->mii_bus = mdiobus_alloc();
+-	if (!priv->mii_bus) {
+-		netdev_err(dev, "failed to allocate mii bus\n");
+-		err = -ENOMEM;
+-		goto err_out;
+-	}
+-
+-	priv->mii_bus->priv = dev;
+-	priv->mii_bus->read = ltq_etop_mdio_rd;
+-	priv->mii_bus->write = ltq_etop_mdio_wr;
+-	priv->mii_bus->name = "ltq_mii";
+-	snprintf(priv->mii_bus->id, MII_BUS_ID_SIZE, "%s-%x",
+-		priv->pdev->name, priv->pdev->id);
+-	priv->mii_bus->irq = kmalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
+-	if (!priv->mii_bus->irq) {
+-		err = -ENOMEM;
+-		goto err_out_free_mdiobus;
+-	}
+-
+-	for (i = 0; i < PHY_MAX_ADDR; ++i)
+-		priv->mii_bus->irq[i] = PHY_POLL;
+-
+-	if (mdiobus_register(priv->mii_bus)) {
+-		err = -ENXIO;
+-		goto err_out_free_mdio_irq;
+-	}
+-
+-	if (ltq_etop_mdio_probe(dev)) {
+-		err = -ENXIO;
+-		goto err_out_unregister_bus;
+-	}
+-	return 0;
+-
+-err_out_unregister_bus:
+-	mdiobus_unregister(priv->mii_bus);
+-err_out_free_mdio_irq:
+-	kfree(priv->mii_bus->irq);
+-err_out_free_mdiobus:
+-	mdiobus_free(priv->mii_bus);
+-err_out:
+-	return err;
+-}
+-
+-static void
+-ltq_etop_mdio_cleanup(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	phy_disconnect(priv->phydev);
+-	mdiobus_unregister(priv->mii_bus);
+-	kfree(priv->mii_bus->irq);
+-	mdiobus_free(priv->mii_bus);
+-}
+-
+-static int
+-ltq_etop_open(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	int i;
+-
+-	for (i = 0; i < MAX_DMA_CHAN; i++) {
+-		struct ltq_etop_chan *ch = &priv->ch[i];
+-
+-		if (!IS_TX(i) && (!IS_RX(i)))
+-			continue;
+-		ltq_dma_open(&ch->dma);
+-		napi_enable(&ch->napi);
+-	}
+-	phy_start(priv->phydev);
+-	netif_tx_start_all_queues(dev);
+-	return 0;
+-}
+-
+-static int
+-ltq_etop_stop(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	int i;
+-
+-	netif_tx_stop_all_queues(dev);
+-	phy_stop(priv->phydev);
+-	for (i = 0; i < MAX_DMA_CHAN; i++) {
+-		struct ltq_etop_chan *ch = &priv->ch[i];
+-
+-		if (!IS_RX(i) && !IS_TX(i))
+-			continue;
+-		napi_disable(&ch->napi);
+-		ltq_dma_close(&ch->dma);
+-	}
+-	return 0;
+-}
+-
+-static int
+-ltq_etop_tx(struct sk_buff *skb, struct net_device *dev)
+-{
+-	int queue = skb_get_queue_mapping(skb);
+-	struct netdev_queue *txq = netdev_get_tx_queue(dev, queue);
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	struct ltq_etop_chan *ch = &priv->ch[(queue << 1) | 1];
+-	struct ltq_dma_desc *desc = &ch->dma.desc_base[ch->dma.desc];
+-	int len;
+-	unsigned long flags;
+-	u32 byte_offset;
+-
+-	len = skb->len < ETH_ZLEN ? ETH_ZLEN : skb->len;
+-
+-	if ((desc->ctl & (LTQ_DMA_OWN | LTQ_DMA_C)) || ch->skb[ch->dma.desc]) {
+-		dev_kfree_skb_any(skb);
+-		netdev_err(dev, "tx ring full\n");
+-		netif_tx_stop_queue(txq);
+-		return NETDEV_TX_BUSY;
+-	}
+-
+-	/* dma needs to start on a 16 byte aligned address */
+-	byte_offset = CPHYSADDR(skb->data) % 16;
+-	ch->skb[ch->dma.desc] = skb;
+-
+-	dev->trans_start = jiffies;
+-
+-	spin_lock_irqsave(&priv->lock, flags);
+-	desc->addr = ((unsigned int) dma_map_single(NULL, skb->data, len,
+-						DMA_TO_DEVICE)) - byte_offset;
+-	wmb();
+-	desc->ctl = LTQ_DMA_OWN | LTQ_DMA_SOP | LTQ_DMA_EOP |
+-		LTQ_DMA_TX_OFFSET(byte_offset) | (len & LTQ_DMA_SIZE_MASK);
+-	ch->dma.desc++;
+-	ch->dma.desc %= LTQ_DESC_NUM;
+-	spin_unlock_irqrestore(&priv->lock, flags);
+-
+-	if (ch->dma.desc_base[ch->dma.desc].ctl & LTQ_DMA_OWN)
+-		netif_tx_stop_queue(txq);
+-
+-	return NETDEV_TX_OK;
+-}
+-
+-static int
+-ltq_etop_change_mtu(struct net_device *dev, int new_mtu)
+-{
+-	int ret = eth_change_mtu(dev, new_mtu);
+-
+-	if (!ret) {
+-		struct ltq_etop_priv *priv = netdev_priv(dev);
+-		unsigned long flags;
+-
+-		spin_lock_irqsave(&priv->lock, flags);
+-		ltq_etop_w32((ETOP_PLEN_UNDER << 16) | new_mtu,
+-			LTQ_ETOP_IGPLEN);
+-		spin_unlock_irqrestore(&priv->lock, flags);
+-	}
+-	return ret;
+-}
+-
+-static int
+-ltq_etop_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	/* TODO: mii-toll reports "No MII transceiver present!." ?!*/
+-	return phy_mii_ioctl(priv->phydev, rq, cmd);
+-}
+-
+-static int
+-ltq_etop_set_mac_address(struct net_device *dev, void *p)
+-{
+-	int ret = eth_mac_addr(dev, p);
+-
+-	if (!ret) {
+-		struct ltq_etop_priv *priv = netdev_priv(dev);
+-		unsigned long flags;
+-
+-		/* store the mac for the unicast filter */
+-		spin_lock_irqsave(&priv->lock, flags);
+-		ltq_etop_w32(*((u32 *)dev->dev_addr), LTQ_ETOP_MAC_DA0);
+-		ltq_etop_w32(*((u16 *)&dev->dev_addr[4]) << 16,
+-			LTQ_ETOP_MAC_DA1);
+-		spin_unlock_irqrestore(&priv->lock, flags);
+-	}
+-	return ret;
+-}
+-
+-static void
+-ltq_etop_set_multicast_list(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	unsigned long flags;
+-
+-	/* ensure that the unicast filter is not enabled in promiscious mode */
+-	spin_lock_irqsave(&priv->lock, flags);
+-	if ((dev->flags & IFF_PROMISC) || (dev->flags & IFF_ALLMULTI))
+-		ltq_etop_w32_mask(ETOP_FTCU, 0, LTQ_ETOP_ENETS0);
+-	else
+-		ltq_etop_w32_mask(0, ETOP_FTCU, LTQ_ETOP_ENETS0);
+-	spin_unlock_irqrestore(&priv->lock, flags);
+-}
+-
+-static u16
+-ltq_etop_select_queue(struct net_device *dev, struct sk_buff *skb)
+-{
+-	/* we are currently only using the first queue */
+-	return 0;
+-}
+-
+-static int
+-ltq_etop_init(struct net_device *dev)
+-{
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-	struct sockaddr mac;
+-	int err;
+-	bool random_mac = false;
+-
+-	ether_setup(dev);
+-	dev->watchdog_timeo = 10 * HZ;
+-	err = ltq_etop_hw_init(dev);
+-	if (err)
+-		goto err_hw;
+-	ltq_etop_change_mtu(dev, 1500);
+-
+-	memcpy(&mac.sa_data, &priv->mac, ETH_ALEN);
+-	if (!is_valid_ether_addr(mac.sa_data)) {
+-		pr_warn("etop: invalid MAC, using random\n");
+-		random_ether_addr(mac.sa_data);
+-		random_mac = true;
+-	}
+-
+-	err = ltq_etop_set_mac_address(dev, &mac);
+-	if (err)
+-		goto err_netdev;
+-
+-	/* Set addr_assign_type here, ltq_etop_set_mac_address would reset it. */
+-	if (random_mac)
+-		dev->addr_assign_type |= NET_ADDR_RANDOM;
+-
+-	ltq_etop_set_multicast_list(dev);
+-	err = ltq_etop_mdio_init(dev);
+-	if (err)
+-		goto err_netdev;
+-	return 0;
+-
+-err_netdev:
+-	unregister_netdev(dev);
+-	free_netdev(dev);
+-err_hw:
+-	ltq_etop_hw_exit(dev);
+-	return err;
+-}
+-
+-static void
+-ltq_etop_tx_timeout(struct net_device *dev)
+-{
+-	int err;
+-
+-	ltq_etop_hw_exit(dev);
+-	err = ltq_etop_hw_init(dev);
+-	if (err)
+-		goto err_hw;
+-	dev->trans_start = jiffies;
+-	netif_wake_queue(dev);
+-	return;
+-
+-err_hw:
+-	ltq_etop_hw_exit(dev);
+-	netdev_err(dev, "failed to restart etop after TX timeout\n");
+-}
+-
+-static const struct net_device_ops ltq_eth_netdev_ops = {
+-	.ndo_open = ltq_etop_open,
+-	.ndo_stop = ltq_etop_stop,
+-	.ndo_start_xmit = ltq_etop_tx,
+-	.ndo_change_mtu = ltq_etop_change_mtu,
+-	.ndo_do_ioctl = ltq_etop_ioctl,
+-	.ndo_set_mac_address = ltq_etop_set_mac_address,
+-	.ndo_validate_addr = eth_validate_addr,
+-	.ndo_set_rx_mode = ltq_etop_set_multicast_list,
+-	.ndo_select_queue = ltq_etop_select_queue,
+-	.ndo_init = ltq_etop_init,
+-	.ndo_tx_timeout = ltq_etop_tx_timeout,
+-};
+-
+-static int __init
+-ltq_etop_probe(struct platform_device *pdev)
+-{
+-	struct device_node *node = pdev->dev.of_node;
+-	struct net_device *dev;
+-	struct ltq_etop_priv *priv;
+-	struct resource *res;
+-	struct clk *clk;
+-	struct resource irqres[2];
+-	int err;
+-	int i;
+-
+-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+-	if (!res) {
+-		dev_err(&pdev->dev, "failed to get etop resource\n");
+-		err = -ENOENT;
+-		goto err_out;
+-	}
+-
+-	res = devm_request_mem_region(&pdev->dev, res->start,
+-		resource_size(res), dev_name(&pdev->dev));
+-	if (!res) {
+-		dev_err(&pdev->dev, "failed to request etop resource\n");
+-		err = -EBUSY;
+-		goto err_out;
+-	}
+-
+-	ltq_etop_membase = devm_ioremap_nocache(&pdev->dev,
+-		res->start, resource_size(res));
+-	if (!ltq_etop_membase) {
+-		dev_err(&pdev->dev, "failed to remap etop engine %d\n",
+-			pdev->id);
+-		err = -ENOMEM;
+-		goto err_out;
+-	}
+-
+-	err = of_irq_to_resource_table(node, irqres, 2);
+-	if (err != 2) {
+-		dev_err(&pdev->dev, "not enough irqs defined\n");
+-		err = -EINVAL;
+-		goto err_out;
+-	}
+-
+-	clk = clk_get(&pdev->dev, NULL);
+-	if (IS_ERR(clk)) {
+-		dev_err(&pdev->dev, "Failed to get clock\n");
+-		err = PTR_ERR(clk);
+-		goto err_out;
+-	}
+-
+-	dev = alloc_etherdev_mq(sizeof(struct ltq_etop_priv), 4);
+-	if (!dev) {
+-		err = -ENOMEM;
+-		goto err_out;
+-	}
+-	strcpy(dev->name, "eth%d");
+-	dev->netdev_ops = &ltq_eth_netdev_ops;
+-	dev->ethtool_ops = &ltq_etop_ethtool_ops;
+-	priv = netdev_priv(dev);
+-	priv->res = res;
+-	priv->pdev = pdev;
+-	priv->netdev = dev;
+-	spin_lock_init(&priv->lock);
+-	priv->tx_irq = irqres[0].start;
+-	priv->rx_irq = irqres[1].start;
+-	priv->mii_mode = of_get_phy_mode(node);
+-	priv->mac = of_get_mac_address(node);
+-	priv->clk = clk;
+-	if (priv->mii_mode < 0)
+-		priv->mii_mode = PHY_INTERFACE_MODE_MII;
+-
+-	for (i = 0; i < MAX_DMA_CHAN; i++) {
+-		if (IS_TX(i))
+-			netif_napi_add(dev, &priv->ch[i].napi,
+-				ltq_etop_poll_tx, 8);
+-		else if (IS_RX(i))
+-			netif_napi_add(dev, &priv->ch[i].napi,
+-				ltq_etop_poll_rx, 32);
+-		priv->ch[i].netdev = dev;
+-	}
+-
+-	err = register_netdev(dev);
+-	if (err)
+-		goto err_free;
+-
+-	platform_set_drvdata(pdev, dev);
+-	return 0;
+-
+-err_free:
+-	kfree(dev);
+-err_out:
+-	return err;
+-}
+-
+-static int __devexit
+-ltq_etop_remove(struct platform_device *pdev)
+-{
+-	struct net_device *dev = platform_get_drvdata(pdev);
+-	struct ltq_etop_priv *priv = netdev_priv(dev);
+-
+-	if (dev) {
+-		netif_tx_stop_all_queues(dev);
+-		ltq_etop_hw_exit(dev);
+-		ltq_etop_mdio_cleanup(dev);
+-		clk_put(priv->clk);
+-		unregister_netdev(dev);
+-	}
+-	return 0;
+-}
+-
+-static const struct of_device_id ltq_etop_match[] = {
+-	{ .compatible = "lantiq,etop-xway" },
+-	{},
+-};
+-MODULE_DEVICE_TABLE(of, ltq_etop_match);
+-
+-static struct platform_driver ltq_mii_driver = {
+-	.remove = __devexit_p(ltq_etop_remove),
+-	.driver = {
+-		.name = "etop-xway",
+-		.owner = THIS_MODULE,
+-		.of_match_table = ltq_etop_match,
+-	},
+-};
+-
+-int __init
+-init_ltq_etop(void)
+-{
+-	int ret = platform_driver_probe(&ltq_mii_driver, ltq_etop_probe);
+-
+-	if (ret)
+-		pr_err("ltq_etop: Error registering platform driver!");
+-	return ret;
+-}
+-
+-static void __exit
+-exit_ltq_etop(void)
+-{
+-	platform_driver_unregister(&ltq_mii_driver);
+-}
+-
+-module_init(init_ltq_etop);
+-module_exit(exit_ltq_etop);
+-
+-MODULE_AUTHOR("John Crispin <blogic@openwrt.org>");
+-MODULE_DESCRIPTION("Lantiq SoC ETOP");
+-MODULE_LICENSE("GPL");

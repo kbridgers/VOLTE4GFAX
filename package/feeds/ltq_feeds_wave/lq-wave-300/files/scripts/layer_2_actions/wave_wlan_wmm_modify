@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+print2log DBG "running wave_wlan_wmm_modify: args: $*"	
+
+apIndex=$1
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+# Bring interface down
+ifconfig $wlan down
+
+$ETC_PATH/mtlk_set_driver_params.sh reconfigure $apIndex 'wlan_ap_wmm|wlan_sta_wmm|wlan_bd_sta_wmm'
+
+# Bring interface up
+#ifconfig $wlan up
+
+# Driver limitation: reset security after doing ifconfig down
+$ETC_PATH/mtlk_init_hostapd.sh reload $apIndex
+
+print2log DBG "wave_wlan_wmm_modify done"	
+

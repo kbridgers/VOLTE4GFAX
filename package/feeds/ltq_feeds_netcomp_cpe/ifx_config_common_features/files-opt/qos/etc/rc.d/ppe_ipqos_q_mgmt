@@ -1,0 +1,173 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+#source /tmp/system_status
+. /tmp/system_status
+
+
+# Check required command line parameters are available
+
+QQ_INST=$1
+max_q=$3
+
+defvcc=`/usr/sbin/status_oper GET IPQoS_Config def_vcc`
+# read the rc.conf and add tc rules
+
+	# read each parameters
+	eval QQ_CPEID='$'qq_${QQ_INST}_cipeId
+	eval QQ_PCPEID='$'qq_${QQ_INST}_pcpeId
+	eval QQ_ENABLE='$'qq_${QQ_INST}_enable
+	eval QQ_IFTYPE='$'qq_${QQ_INST}_ifType
+	eval QQ_QIF='$'qq_${QQ_INST}_qIf
+	eval QQ_QLEN='$'qq_${QQ_INST}_qLen
+	eval QQ_QWT='$'qq_${QQ_INST}_qWt
+	eval QQ_QPRIO='$'qq_${QQ_INST}_qPrio
+	eval QQ_DROPTYPE='$'qq_${QQ_INST}_dropType
+	eval QQ_SBS='$'qq_${QQ_INST}_sbs
+
+	QQ_QPRIO=`expr $QQ_QPRIO - 1`
+
+cat /flash/rc.conf | grep wan_main_defConn | sed -n 's,wan_main_defConn="WAN,,;1p' > /tmp/test
+defwan_inst=`cat /tmp/test |  sed -n 's,",,;1p'` 
+eval wanmode='$'wan_${defwan_inst}_wanMode
+
+case "$wanmode" in
+
+	0)
+
+	#queue config for WAN ATM part
+		#change to /proc/eth as queue commands has to be executed there
+		cd /proc/eth
+	
+		if [ $2 -eq 3 ]; then
+			#Only for Init
+			# add a queue, PPE driver will add a queue with lowest priority by default.
+			# change the priority using PPE driver command to the priority set by uset (MAPI)
+			act="add"
+			echo add queue:$QQ_INST priority:$QQ_QPRIO >> /tmp/ipqos_log
+			echo pvc $defvcc add > prio
+
+			# assign priority to queues
+   			echo pvc $defvcc prio $QQ_QPRIO queue $QQ_INST > prio
+	
+		fi
+
+		if [ $2 -eq 0 ]; then
+	
+		# delete a queue, PPE driver always deletes the lowest priority queue q7 is the lowest priority by default
+		# Algo for Delete:
+		# 1. Delete all queues (n) after the instance that has to be deleted and re-ordered. This is done to retain
+		#    Priorities of queues already assigned to other queues >n
+		# 2. Add max-1 number of queues starting from n
+		# 3. assign new priorities to these queue reading from RC.CONF (QQ_INST and QQ_Prio)
+		#    If QQ_INST = n has to be deleted,
+		#	for( i=n; i<=max; i++)
+		#	{
+		#		echo pvc $vcc del > prio
+		#	}
+		#	for( i=n; i<=max-1; i++)
+		#	{
+		#		add Q
+		#		prio Pi Qi //Pi = QQ_Prio-1, Qi = QQ_INST
+		#	}
+		#
+	
+			# n is the instance that has to be deleted
+			n=$QQ_INST
+			#max configured queues is given by MAPI 
+			max_q=$3
+			echo "instance=$n maxq=$max_q" >> /tmp/ipqos_log
+			#newmax_q=7
+			#newmax_q=`expr $max_q - 1`
+			act="del"
+			#1.  delete all queues after instance "n"
+			echo deleting queues after instance $n >> /tmp/ipqos_log
+			while [ $n -lt $max_q ]
+			do
+				echo pvc $defvcc del > prio
+				n=`expr $n + 1`
+			done
+		#end of Delete operatio
+		fi
+
+		if [ $2 -eq 1 ]; then
+			# add a queue, PPE driver will add a queue with lowest priority by default.
+
+			#2. Add max queues starting from n
+
+			n=$QQ_INST
+			max_q=$3
+			echo "instance=$n maxq=$max_q prio=$QQ_QPRIO " >> /tmp/ipqos_log
+			#newmax_q=`expr $max_q - 1`
+			
+			while [ $n -lt $max_q ]
+			do
+				echo add enabled queues >> /tmp/ipqos_log
+				echo pvc $defvcc add > prio
+				n=`expr $n + 1`
+			done
+
+			#3. assign priorities to all queues starting fromn by reading RC.CONF
+			n=$QQ_INST
+		
+			#newmax_q=`expr $max_q - 1`
+			echo assigning priorities to added queues >> /tmp/ipqos_log	
+			while [ $n -lt $max_q ]
+			do
+				eval qq_enable='$'qq_${n}_enable
+			
+				if [ "$qq_enable" -eq  "1" ];then
+				
+					# add priority to queue only if queue is enabled.
+					eval pri='$'qq_${n}_qPrio
+				
+					#priorities in the webpge are given from 1-8 in webpage;
+					#driver accepts priorities from 0-7
+
+					pri=`expr $pri - 1`
+					echo "LOOP:instance=$n maxq=$max_q prio=$pri " >> /tmp/ipqos_log
+					echo add pri to queue >> /tmp/ipqos_log
+					echo pvc $defvcc prio $pri queue $n > prio
+				fi
+				n=`expr $n + 1`
+
+			done			
+		fi		       
+
+		if [ $2 -eq 2 ]; then
+			#Modify operation;
+			#take the priority of queue instance and assign priority reading from RC.CONF
+                        echo modify operation - reassigning priorities to queues >> /tmp/ipqos_log
+			echo "instance=$QQ_INST maxq=$3 PRIO=$QQ_QPRIO " >> /tmp/ipqos_log
+
+			# assign priority to queues
+   			echo pvc $defvcc prio $QQ_QPRIO queue $QQ_INST > prio
+
+		fi
+		#go back to prev directory
+		cd -
+	;;
+	1)
+		#TBD:
+		#wan mode = WAN ETH
+		#configure Tantos queue
+
+		if [ $2 -eq 1 ]; then
+			# ADD queues
+		echo "nothing to do for WANETH" >> /tmp/ipqos_log		
+		fi
+	;;
+esac
+

@@ -1,0 +1,96 @@
+#!/bin/sh
+
+#if [ -r /etc/rc.conf ]; then
+#         . /etc/rc.conf 2> /dev/null
+#fi
+#
+#start() {
+#
+#if [ $FIREWALL_ENABLE -a $FIREWALL_ENABLE = "1" ]; then
+#	/usr/sbin/naptcfg --FW 1
+#else
+#	/usr/sbin/naptcfg --FW 0
+#fi
+#
+#if [ $ENABLE_HACKER_ATTACK_PROTECT -a $ENABLE_HACKER_ATTACK_PROTECT = "1" ]; then
+#	/usr/sbin/naptcfg --DoS 1
+#else
+#	/usr/sbin/naptcfg --DoS 0
+#fi
+#
+#if [ $ALLOW_PING_THE_GW -a $ALLOW_PING_THE_GW = "1" ]; then
+#	/usr/sbin/naptcfg --WPing 1
+#else
+#	/usr/sbin/naptcfg --WPing 0
+#fi
+#
+#if [ $DISCARD_PING_FROM_WAN_SIDE -a $DISCARD_PING_FROM_WAN_SIDE = "1" ]; then
+#	/usr/sbin/naptcfg --Ping 1
+#else
+#	/usr/sbin/naptcfg --Ping 0
+#fi
+#
+#if [ $MAC_control -a $MAC_control = "1" ]; then
+#	/usr/sbin/naptcfg --MACFilter 1
+#else
+#	/usr/sbin/naptcfg --MACFilter 0
+#fi
+#
+#if [ $PF_STATUS -a $PF_STATUS = "1" ]; then
+#	/usr/sbin/naptcfg --PacketFilter 1
+#else
+#	/usr/sbin/naptcfg --PacketFilter 0
+#fi
+#
+#}
+#
+#stop(){
+#	/usr/sbin/naptcfg --FW 0
+#}
+#
+#restart() {
+#	stop
+#	start
+#}
+
+#case "$1" in
+#	start)
+#		start
+#		;;
+#	stop)
+#		stop
+#		;;
+#	restart)
+#		restart
+#		;;
+#	*)
+#		start
+#		;;
+#esac
+
+
+case "$1" in
+	start)
+#	echo "firewall start"
+		#start
+		. /etc/rc.d/rc.firewall_start
+		;;
+	stop)
+#	echo "firewall stop"
+#		/etc/rc.d/rc.firewall_stop
+		#stop
+		/usr/sbin/naptcfg --FW 0
+		;;
+	restart)
+	echo "firewall restart"
+		#restart
+#		/etc/rc.d/rc.firewall_stop
+		/usr/sbin/naptcfg --FW 0
+		. /etc/rc.d/rc.firewall_start
+		;;
+	*)
+#	echo "firewall start"
+		#start
+		. /etc/rc.d/rc.firewall_start
+		;;
+esac

@@ -1,0 +1,209 @@
+#!/bin/sh
+#create_ppp_cfg wan_idx ppp_type
+#//165001:henryhsu:20050606:Config nasx to -multicast when pppoe bring up.
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+eval g_wan_phy_mode='$'wanphy_phymode
+eval g_wan_tc_mode='$'wanphy_tc
+
+eval wanl2If='$'wanppp_${1}_l2ifName
+i=0
+while [ $i -lt $adsl_vcchannel_Count ]; do
+	eval vcl2If='$'VCChannel_${i}_l2ifName
+	if [ "A$vcl2If" = "A$wanl2If" ]; then
+		eval encap='$'VCChannel_${i}_encap
+		eval qos_mode='$'VCChannel_${i}_qos
+		eval maxpcr='$'VCChannel_${i}_maxpcr
+		eval minpcr='$'VCChannel_${i}_minpcr
+		eval cdv='$'VCChannel_${i}_cdv
+		eval mbs='$'VCChannel_${i}_mbs
+		eval scr='$'VCChannel_${i}_scr
+		eval VCC_SETTING='$'VCChannel_${i}_vcc
+		eval VCC_SETTING='$encap\_'$VCC_SETTING'_$qos_mode'
+		if [ "$max_pcr" != "0" ]; then
+			eval VCC_SETTING=$VCC_SETTING',max_pcr='$maxpcr
+		fi
+		if [ "$min_pcr" != "0" ]; then
+			eval VCC_SETTING=$VCC_SETTING',min_pcr='$minpcr
+		fi
+		if [ "$scr" != "0" ]; then
+			eval VCC_SETTING=$VCC_SETTING',scr='$scr
+		fi
+		if [ "$mbs" != "0" ]; then
+			eval VCC_SETTING=$VCC_SETTING',mbs='$mbs
+		fi
+		if [ "$cdv" != "0" ]; then
+			eval VCC_SETTING=$VCC_SETTING',cdv='$cdv
+		fi
+		break
+	fi
+	i=$(( $i + 1 ))
+done
+
+#	ENC=`echo $2 | cut -f1 -d "_"`
+	ENC=${VCC_SETTING%%_*}
+#	VPI=`echo $2 | cut -f2 -d "_" | cut -f1 -d "/"`
+	VPI=${VCC_SETTING#*_}
+	VPI=${VPI%%\/*}
+#	VCI=`echo $2 | cut -f2 -d "_" | cut -f2 -d "/"`
+	VCI=${VCC_SETTING#*_}
+	VCI=${VCI#*\/}
+	QOS=$VCI
+	VCI=${VCI%%_*}
+#	QOS=`echo $2 | cut -f3- -d "_"`
+	QOS=${QOS#*_}
+#if [ "`echo $QOS | cut -b 2`" = "," ]; then
+#	QOSNAME=`echo $QOS | cut -f1 -d','`
+#	QOS=`/usr/sbin/get_atmqos_name $QOSNAME`",aal5:"`echo $QOS | cut -f2- -d','`
+#else
+#	QOS=`/usr/sbin/get_atmqos_name $QOS`
+#fi
+	case "$QOS" in
+		?,*) 
+		QOSNAME=${QOS%%,*}
+		QOSNAME=`/usr/sbin/get_atmqos_name $QOSNAME`
+		qos2=${QOS#*,}
+		if [ "$2" = "OE" ]; then
+			QOSNAME="$QOSNAME"",aal5:"$qos2
+		else
+			QOSNAME="$QOSNAME"",aal5:"max_pcr=0,min_pcr=0
+		fi
+		;;
+		*)
+		QOSNAME=`/usr/sbin/get_atmqos_name $QOS` ;;
+	esac
+
+	if [ "$2" = "OE" ]; then
+		CFG="/etc/ppp/peers/pppoe$1"
+		echo "linkname pppoe-$1" > $CFG
+	else
+		CFG="/etc/ppp/peers/pppoatm$1"
+		echo "linkname pppoatm-$1" > $CFG
+	fi
+
+	eval PPP_USER='$'wanppp_${1}_user
+	eval PPP_PASS='$'wanppp_${1}_passwd
+	eval PPP_MTU='$'wanppp_${1}_maxMTU
+	eval PPP_DEMAND='$'wanppp_${1}_connTrigger
+	eval PPP_IDLE='$'wanppp_${1}_idleDiscTime
+	eval PPP_IFACE='$'wanppp_${1}_ifppp
+#	PPP_IFACE_IDX=`echo $PPP_IFACE | tr -d "p"`
+#Now get this value from the user 'wanppp_{index}_echoPeriod
+#	echo "lcp-echo-interval 30" >> $CFG
+#Now get this value from the user 'wanppp_{index}_echoRetry
+#	echo "lcp-echo-failure 2" >> $CFG
+#This value is the number in ppp{number} in wanppp_{index}_ifppp
+#	echo "unit $1" >> $CFG
+	PPP_IFACE_IDX=${PPP_IFACE##ppp}
+	echo "lcp-echo-interval 30" >> $CFG # hard code no. of interval seconds for every connection request
+	echo "lcp-echo-failure 4" >> $CFG # hard code no. of attempts before failure
+	echo "unit $PPP_IFACE_IDX" >> $CFG
+	echo "maxfail 0" >> $CFG
+	echo "usepeerdns" >> $CFG
+    echo "noipdefault" >> $CFG 
+	eval ppp_connType='$'wanppp_${1}_connType
+	if [ "$ppp_connType" != "1" ]; then
+		echo "nodefaultroute" >> $CFG
+	fi
+	echo "user $PPP_USER" >> $CFG
+        if [ -f /usr/sbin/ltq_crypt ]; then
+             /usr/sbin/ltq_crypt -dO $PPP_PASS >> $CFG
+        else 
+	  echo "password $PPP_PASS" >> $CFG
+        fi
+	echo "mtu $PPP_MTU" >> $CFG
+	eval PPP_MRU='$'wanppp_${1}_maxMRU
+	if [ -z "$PPP_MRU" ]; then
+		echo "mru $PPP_MTU" >> $CFG
+	else
+		echo "mru $PPP_MRU" >> $CFG
+	fi
+	echo "holdoff 4" >> $CFG
+#These filed valies to be interpreted from conTrigger
+	if [ "$PPP_DEMAND" = "1" ]; then
+		echo "demand" >> $CFG
+		echo "idle $PPP_IDLE" >> $CFG
+	elif [ "$PPP_DEMAND" = "0" ]; then
+		echo "persist" >> $CFG
+	  # echo "holdoff 4" >> $CFG
+	elif [ "$PPP_DEMAND" = "2" ]; then
+		echo "nopersist" >> $CFG
+	fi
+#	eval enc_type='$'wanppp_${1}_encrProto
+#	if [ "$enc_type" = "0" ]; then
+#		echo "nomppe" >> $CFG
+#	fi
+	# eval compr_proto='$'wanppp_${1}_comprProto
+	#if [ "$compr_proto" = "0" ]; then
+	#	echo "noccp" >> $CFG
+	# fi
+	# eval auth_proto='$'wanppp_${1}_authProto
+	# if [ "$auth_proto" = "2" ]; then # PAP
+	# 	echo "refuse-chap" >> $CFG
+	#	echo "refuse-mschap" >> $CFG
+	# elif [ "$auth_proto" = "0" ]; then # CHAP
+	#	echo "refuse-pap" >> $CFG
+	#	echo "refuse-mschap" >> $CFG
+	# elif [ "$auth_proto" = "1" ]; then # MS-CHAP
+	#	echo "refuse-chap" >> $CFG
+	#	echo "refuse-pap" >> $CFG
+	# fi
+
+	eval wan_mode='$'wanppp_${1}_wanMode
+	if [ "$wan_mode" = "0" -o "$wan_mode" = "3" -o "$wan_mode" = "4" ]; then # ATM/PTM
+		# This should not be used - instead use the nas iface index value
+		if [ "$g_wan_phy_mode" = "0" -o "$g_wan_phy_mode" = "3" ]; then # ADSL and PTM
+			if [ "$g_wan_tc_mode" = "1" ]; then
+				eval wan_iface='$'wanppp_${1}_iface
+				if [ "$wan_iface" = "ptm0.0" ]; then
+					wan_iface="ptm0"
+				fi
+			fi
+		else
+			eval wan_iface='$'wanppp_${1}_iface
+		fi
+	elif [ "$wan_mode" = "1" -o "$wan_mode" = "2" ]; then
+		eval wan_iface='$'wanppp_${1}_iface
+		eval wan_vid='$'wan_${1}_vlanId
+	fi
+
+	if [ "$2" = "OE" ]; then
+		echo "plugin /usr/lib/pppd/2.4.4/rp-pppoe.so" >> $CFG
+		eval service_name='$'wanppp_${1}_serviceName
+		eval acs_name='$'wanppp_${1}_ACName
+		if [ -n "$service_name" ]; then
+			echo "rp_pppoe_service $service_name" >> $CFG
+		fi
+		if [ -n "$acs_name" ]; then
+			echo "rp_pppoe_ac $acs_name" >> $CFG
+		fi
+		echo "$wan_iface" >> $CFG
+	#165001:henryhsu:20050606
+	#suprasad:20111129 Simultanious IP & PPP problem in Multiwan
+	#	ifconfig $wan_iface -multicast
+	#165001
+	else
+		echo "plugin /usr/lib/pppd/2.4.4/pppoatm.so" >> $CFG
+		if [ "$ENC" = "1" ]; then
+			echo "vc-encaps" >> $CFG
+		else
+			echo "llc-encaps" >> $CFG
+		fi
+		echo "0.$VPI.$VCI" >> $CFG
+		echo "qos $QOSNAME" >> $CFG
+	fi
+#	echo "debug" >> $CFG
+

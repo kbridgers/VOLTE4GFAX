@@ -1,0 +1,28 @@
+#!/bin/sh
+
+#510251: sumedh for configuration of DoS attacks
+
+case "$1" in
+	start)
+#	echo "firewall start"
+		#start
+		. /etc/rc.d/rc.firewall_dos_start
+		;;
+	stop)
+#	echo "firewall stop"
+#		/etc/rc.d/rc.firewall_stop
+		#stop
+		. /usr/sbin/naptcfg --Dosenable 0
+		;;
+	restart)
+		#restart
+#		/etc/rc.d/rc.firewall_stop
+		/usr/sbin/naptcfg --Dosenable 0
+		. /etc/rc.d/rc.firewall_dos_start
+		;;
+	*)
+#	echo "firewall start"
+		#start
+		. /etc/rc.d/rc.firewall_dos_start
+		;;
+esac

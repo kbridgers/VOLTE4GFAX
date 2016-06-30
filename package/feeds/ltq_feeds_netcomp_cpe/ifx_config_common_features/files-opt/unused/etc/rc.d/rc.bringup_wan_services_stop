@@ -1,0 +1,192 @@
+#!/bin/sh
+# 000001:tc.chen 2005/06/07 add 802.1p and ip ptos support. rewrite all of the qos scirpts
+# 508181:tc.chen 2005/08/18 add routing support for sip
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+#WAN="`/etc/rc.d/get_wan_if $1`"
+. /etc/rc.d/get_wan_if $1
+WAN=$WAN_IFNAME
+
+eval link_type='$'wan_${1}_linkType
+eval addr_type='$'wanip_${1}_addrType
+eval nat_enable='$'wan_${1}_NATEnable
+
+if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "7" -o "$link_type" = "8" ]; then # EoATM or IPoATM or WANETH
+	if [ "$addr_type" = "1" ]; then # DHCP 
+		wan_type="DHCPC"
+	elif [ "$addr_type" = "2" ]; then # STATIC
+		wan_type="FIXED"
+	elif [ "$addr_type" = "0" ]; then # Bridge Mode
+		wan_type="BRIDGE"
+	fi
+elif [ "$link_type" = "3" ]; then # PPPoA
+	wan_type="PPPOA"
+elif [ "$link_type" = "4" ]; then # PPPoE
+	wan_type="PPPOE"
+elif [ "$link_type" = "5" ]; then # CLIP
+	wan_type="FIXED"
+else
+	wan_type="UNKNOWN"
+fi
+
+eval PPPOE_DEMAND='$'wan_${1}_connTrigger
+eval PPPOA_DEMAND='$'wan_${1}_connTrigger
+
+if [ "`/usr/sbin/status_oper GET bringup_wan${1}_services status`" = "start" ]; then 
+
+	# PPA config
+  if [ "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A5_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D5_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A4_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_A4_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D4_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_D4_MOD" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_E5_BUILTIN" = "11" -o "1$CONFIG_PACKAGE_KMOD_LTQCPE_PPA_E5_MOD" = "11" ]; then
+                . /etc/rc.d/ppa_config.sh delwan $WAN_IFNAME
+        fi
+
+	if [ "$wan_type" = "PPPOE" -a "$PPPOE_DEMAND" = "1" ] || [ "$wan_type" = "PPPOA" -a "$PPPOA_DEMAND" = "1" ]; then
+		do_nothing=1	
+	else
+		/usr/sbin/status_oper SET "WAN${1}_DNS_SERVER" DNS1 0
+		if [ "$CONFIG_PACKAGE_KMOD_IPV6" = "1"  -a  "$ipv6_status" = "1" ]; then
+                	/usr/sbin/status_oper SET "Wan${1}_IF_IPv6_Dns" DNSv61 0 DNSv62 0
+		fi
+	fi
+
+	# Stop DNS Relay Daemon
+	if  [ "$CONFIG_FEATURE_DNS_RELAY" = "1" -a "$wan_type" != "BRIDGE" ]; then
+			. /etc/rc.d/init.d/dns_relay stop $1
+	fi
+
+	# Stop Dnsmasq (DNSv6 Relay) Deamon
+	if [ "$CONFIG_PACKAGE_KMOD_IPV6" = "1"  -a  "$ipv6_status" = "1" ]; then
+			. /etc/rc.d/bringup_dnsmasq stop $1
+	fi
+	# Stop DDNS
+	if  [ "$CONFIG_FEATURE_DDNS" = "1" ]; then
+		ddns_intf_idx="`echo $ddns_if | sed -n 's,WAN,,;1p'`"
+		if [ "$ddns_intf_idx" = "$1" ]; then
+			if [ "$ddns_enable" = "YES" ]; then
+				. /etc/rc.d/init.d/ddns stop $1
+			fi
+		fi
+	fi
+
+	if [ "$CONFIG_FEATURE_IFX_VOIP" = "1" ]; then
+		# Stop the VOIP Application on this WAN interface
+		. /etc/rc.d/rc.bringup_voip_stop $1
+	fi
+
+	# handle the interface specific rip enable or disable
+	# Now handled from WAN API within
+	# . /etc/rc.d/init.d/ripd restart
+
+	# Stop NTP Client
+	if  [ "$CONFIG_PACKAGE_NTPCLIENT" = "1" -a "$ntp_fEnable" = "1" ]; then
+		if [ -r /etc/rc.d/init.d/ntpc ]; then
+			. /etc/rc.d/init.d/ntpc stop $1 > /dev/null 2>&1
+		fi
+	fi
+
+	i=0
+	while [ $i -lt $lan_main_Count ]
+	do
+		eval wanConnName='$'wan_${1}_connName
+		eval dhcp_mode='$'lan_main_${i}_dhcpMode
+		if [ "$dhcp_mode" = "relay" ]; then
+			if [ "$dhcp_relay_if" = "$wanConnName" ]; then
+				killall -TERM udhcpr
+			fi
+		fi
+		i=$(( $i + 1 ))
+	done
+
+	# Stop QoS
+	if  [ "$CONFIG_FEATURE_QOS" = "1" -a "$QOS_ENABLE" = "1" ]; then
+# 000001:tc.chen	if [ "$QOS_ENABLE" = 1 -a "$DIFFSERV_DUT_VOIP" = "1" ]; then
+			. /etc/rc.d/init.d/qos stop_wan $1
+		fi
+# 000001:tc.chen	fi
+
+	# Disable Firewall
+	if [ -n "$WAN" -a -f /usr/sbin/naptcfg -a "$nat_enable" = "1" ]; then
+		eval link_type='$'wan_${1}_linkType
+		if [ "$link_type" = "1" -o "$link_type" = "2" -o "$link_type" = "5" ]; then
+			WAN_IP="`/usr/sbin/status_oper GET "Wan${1}_IF_Info" IP`"
+			/usr/sbin/naptcfg --DELWANIP $WAN_IP > /dev/null
+		else
+			WAN_IP="`/usr/sbin/status_oper GET "WAN${1}_PPP_INFO" LOCAL_IP`"
+			/usr/sbin/naptcfg --DELWANIP $WAN_IP > /dev/null
+		fi
+	fi
+
+	# Disable Network Address Translation (NAT)
+	if  [ ! "$CONFIG_FEATURE_IFX_VOIP" = "1" -a "$CONFIG_FEATURE_NAPT" = "1" -a "$CONFIG_FEATURE_ALGS" = "1" ]; then
+			iptables -t nat -D PREROUTING -i $WAN -p udp --dport $ALG_SIP_PORT -j DNAT --to $ALG_SIP_CLIENT
+			iptables -t nat -D PREROUTING -i $WAN -p udp --sport $ALG_SIP_PORT -j DNAT --to $ALG_SIP_CLIENT
+	fi
+
+    # IGMP Proxy/Snooping
+    wan_intf_idx="`echo $IGMP_WAN_INTF | sed -n 's,WAN,,;1p'`"
+    #if [ "$IGMP_ENABLE" = "1" -a "$wan_intf_idx" = "$1" ]; then
+    #	. /etc/rc.d/init.d/igmp stop
+    #fi
+
+
+	/usr/sbin/status_oper SET bringup_wan${1}_services status stop
+	/usr/sbin/status_oper SET Wan${1}_IF_Info STATUS DISCONNECTING
+
+	#Sumedh-board dependent
+	if [ "$CONFIG_FEATURE_IFX_CHINA_MKT_1" != "1" ]; then 
+		# Stop the Internet LED - iff none of the WAN Connections have any Valid IP Address
+		# Internet LED - start
+		wanindex=`/usr/sbin/status_oper GET wan_con_index windex`
+		for i in $wanindex
+		do
+		if [ "$i" = "$1" ]; then
+			continue
+		else
+			new_wanidx="${new_wanidx}${i} " # ' ' at the end !!
+		fi
+		done
+		/usr/sbin/status_oper SET wan_con_index windex "$new_wanidx"
+		if [ -z "$new_wanidx" ]; then
+			if [ "$CONFIG_FEATURE_LED" = "1" ]; then
+				echo none > /sys/class/leds/internet_led/trigger
+				echo 0 > /sys/class/leds/internet_led/brightness
+			fi	
+			if [ "$CONFIG_FEATURE_LED_INTERNET_RED" = "1" ]; then
+				echo none > /sys/class/leds/internet_red_led/trigger
+				echo 0 > /sys/class/leds/internet_red_led/brightness	
+			fi	
+
+		fi
+		# Internet LED - end
+	fi
+
+    /etc/rc.d/init.d/ipsec_bringdown_tunnels $wan_conn
+
+        eval wan_6rd='$'wan_${1}_tunnel
+
+        if [ "$ipv6_status" = "1" -a  "$wan_6rd" = "1" -a "$wan_sixrdwanidx" = "$1" ]; then
+                if [ "$wan_type" = "DHCPC" -o "$wan_type" = "FIXED" ]; then
+                        /etc/rc.d/6rdtunnel.sh stop $1
+                elif [ "$wan_type" = "PPPOE" ]; then
+                        /etc/rc.d/6rdtunnel.sh stop $1
+                        if [ "$wan_sixrd_mode" = "0" ]; then
+                                kill -9 $(cat /var/run/udhcpc%d.pid) 2>/dev/null
+                        fi
+                fi
+        fi
+
+fi
+#}
+

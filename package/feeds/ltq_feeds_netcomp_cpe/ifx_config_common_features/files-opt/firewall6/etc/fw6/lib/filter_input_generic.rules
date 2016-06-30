@@ -1,0 +1,26 @@
+#  Chain: Filter INPUT
+#  Default policy is DROP
+-P INPUT DROP
+#  User defined chain lan_input filters incoming traffic from LAN side hosts to CPE
+#  User defined chain wan_input filters incoming traffic from WAN side hosts to CPE
+
+#FILTER LAN SIDE TRAFFICS
+#  Allow alredy established connections 
+-A lan_input  -m state --state ESTABLISHED,RELATED -j ACCEPT
+#  Allow  tcp traffics (dns(53), dhcp6s(547)) destined to CPE from LAN side. 
+-A lan_input -p tcp -m multiport --dports 53,547 -j ACCEPT 
+#  Allow  udp traffics (dns(53), dhcp6s(547)) destined to CPE from LAN side. 
+-A lan_input -p udp -m multiport --dports 53,547 -j ACCEPT 
+#FILTER WAN SIDE TRAFFICS
+#  Allow alredy established connections 
+-A wan_input  -m state --state ESTABLISHED,RELATED -j ACCEPT
+#  Allow  dhcp6c traffics to wan input
+-A wan_input  -s fe80::/10 -p tcp --sport 547 --dport 546 -j ACCEPT
+-A wan_input  -s fe80::/10 -p udp --sport 547 --dport 546 -j ACCEPT
+# Allow tr69 traffics
+-A wan_input  -p udp  --dport 8000 -j ACCEPT
+-A wan_input  -p tcp  --dport 8000 -j ACCEPT
+# Allow Ripng updates
+-A wan_input  -p udp  --dport 521 -j ACCEPT
+-A lan_input  -p udp  --dport 521 -j ACCEPT
+

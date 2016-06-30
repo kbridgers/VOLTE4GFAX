@@ -1,0 +1,2 @@
+#!/bin/sh
+/etc/ppp/dhcp-ipv6 stop $1

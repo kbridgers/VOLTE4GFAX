@@ -1,0 +1,2044 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+		# To Read Remark VID & VPRIO From Tmp. It is tempurary.
+		if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		fi
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+                CONFIGLOADED="1"
+fi
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+
+IPTABLES="iptables"
+IP6TABLES="ip6tables"
+EBTABLES="ebtables"
+
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+QOS_INTF_WAN_ALL=4
+QOS_INTF_WAN=15
+
+# define QOS type 
+# NOTE: thease values should match with the values in the enum
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1 
+QOS_TYPE_802_1P=2 
+
+QOS_1P_MASK=0x20000000
+QOS_VLANID_MASK=0x40000000
+QOS_1QSELECT_CLEAR=0x9FFFFFFF
+
+#Manamohan,Added on 20,April 2012
+QOS_802_1P_MASK=0x1c000
+
+# Read the index passed as command line parameter passed as this script
+i=$1
+j=$2
+
+
+
+#Get the qId of the classifier
+eval cl_qId='$'qcl_${i}_qId
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		;;
+esac
+
+#########################################################################
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+            #	if [ "$target" == "ARX3" ]; then
+            mode=1; 
+            ;;
+			1)
+				#wan mode is PTM
+            mode=1; 
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+       mode=1; 
+		;;
+	2)
+		#wan mode is MII1
+     	case "$target" in
+         "ARX3")
+                  mode=0;
+		            ;;
+         "VRX3")
+                  mode=0;
+		            ;;
+         "GRX2")
+                  mode=0;
+		            ;;
+         "GRX3")
+                  mode=0;
+		            ;;
+         "RT2")
+                  mode=0;
+		            ;;
+         "VRX2")
+                  mode=1;
+                  ;;
+
+         "ARX1")
+                  mode=1;
+                  ;;
+          esac
+          ;;
+	3)
+		#wan mode is PTM
+		mode=1;
+		;;
+esac
+###################################################################################################
+
+
+#echo "============value of mode is $mode"
+
+
+
+n=0
+while [ $n -lt $qos_queue_Count ]
+do
+	eval qCpeId='$'qq_${n}_cpeId
+	if [ $qCpeId -eq $cl_qId ]; then
+		eval queue_prio='$'qq_${n}_qPrio
+		vconfig_skb_prio=`expr -$queue_prio + 8`
+		eval qIfType='$'qq_${n}_qIfType	
+		#if [ $qIfType -eq $qIfTypeActive ]; then
+			# read each parameters from rc.conf
+			eval QOS_CPEID='$'qcl_${i}_cpeId
+			eval QOS_ORDER='$'qcl_${i}_order
+
+			if [ $2 -eq 1 ]; then
+				if [ $QOS_ORDER -gt $1 ]; then
+					QOS_ORDER=$(( $1 + 1 )) 
+				fi
+			fi
+
+			eval QOS_ACCEL_DISABLE='$'qcl_${i}_disableAccel
+			eval QM_ACCEL_DISABLE=$qm_AccelMngr
+			QOS_ACCEL_DISABLE=$(($QOS_ACCEL_DISABLE&$QM_ACCEL_DISABLE))
+			eval QOS_TYPE='$'qcl_${i}_type
+			#eval QOS_IFTYPE='$'qcl_${i}_ifType
+			eval QOS_INTFTYPE='$'qcl_${i}_ifType
+			eval QOS_IFTYPE='$'qcl_${i}_classifType
+			eval QOS_SPECIF='$'qcl_${i}_specIf
+			eval QOS_QID='$'qcl_${i}_qId
+			eval QOS_IFNAME='$'qcl_${i}_ifname
+			eval QOS_ENABLE='$'qcl_${i}_enable
+			eval QOS_RATELMT='$'qcl_${i}_rateLmt
+			eval QOS_RATECTRENBL='$'qcl_${i}_rateCtrlEnbl
+			eval QOS_L3PROTO='$'qcl_${i}_l3proto
+
+
+			NF_MARK=$QOS_QID
+
+			if [ $QOS_ENABLE -eq 1 -a $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+				#LQ Change Fill NF_MARK
+				# TBD: Calculate queue classifier mapped index
+				queuecfg -w $QOS_QID/$QOS_CPEID
+				QQ_QCL_MAPPED_IDX=$?
+				if [ $QQ_QCL_MAPPED_IDX -gt 0 ]; then
+					QQ_QCL_MAPPED_IDX=$(($QQ_QCL_MAPPED_IDX<<10))
+					NF_MARK=$(($QQ_QCL_MAPPED_IDX|$QOS_QID))
+				fi
+            if [ $qm_tcpackprio -eq 1 ]; then
+	            . /etc/rc.d/ipqos_common 0 0 
+            fi
+
+
+			fi
+
+			eval QOS_PROTO='$'qcl_${i}_proto
+			eval QOS_PROTOEXCL='$'qcl_${i}_protoExcl
+
+			eval QOS_DSTIP='$'qcl_${i}_dstIP
+			eval QOS_DSTIPMASK='$'qcl_${i}_dstIPMask
+			eval QOS_DSTIPEXCL='$'qcl_${i}_dstIPExcl
+
+			eval QOS_SRCIP='$'qcl_${i}_srcIP
+			eval QOS_SRCIPMASK='$'qcl_${i}_srcIPMask
+			eval QOS_SRCIPEXCL='$'qcl_${i}_srcIPExcl
+	
+			eval QOS_DSTPORT='$'qcl_${i}_dstPort
+			eval QOS_DSTPORTEND='$'qcl_${i}_dstPortEnd
+			eval QOS_DSTPORTEXCL='$'qcl_${i}_dstPortExcl
+
+			eval QOS_SRCPORT='$'qcl_${i}_srcPort
+			eval QOS_SRCPORTEND='$'qcl_${i}_srcPortEnd
+			eval QOS_SRCPORTEXCL='$'qcl_${i}_srcPortExcl
+
+			eval QOS_SRCMAC='$'qcl_${i}_srcMac
+			eval QOS_SRCMACMASK='$'qcl_${i}_srcMacMask
+			eval QOS_SRCMACEXCL='$'qcl_${i}_srcMacExcl
+
+			eval QOS_DSTMAC='$'qcl_${i}_dstMac
+			eval QOS_DSTMACMASK='$'qcl_${i}_dstMacMask
+			eval QOS_DSTMACEXCL='$'qcl_${i}_dstMacExcl
+			
+			eval QOS_INDSCP='$'qcl_${i}_inDscp
+			eval QOS_INDSCPEXCL='$'qcl_${i}_inDscpExcl
+			eval QOS_DSCPMARK='$'qcl_${i}_dscpMark
+
+			eval QOS_INVLANID='$'qcl_${i}_vlanId
+			eval QOS_INVLANIDEXCL='$'qcl_${i}_vlanIdExcl
+			eval QOS_INVLANIDMARK='$'qcl_${i}_vlanMark
+
+			eval QOS_IN802_1P='$'qcl_${i}_inPBits
+			eval QOS_IN802_1PEXCL='$'qcl_${i}_inPBitsExcl
+			eval QOS_802_1PMARK='$'qcl_${i}_PBitsMark
+
+			eval QOS_VLANIP='$'qcl_${i}_vlanId
+			eval QOS_VLANIDEXCL='$'qcl_${i}_vlanIdExcl
+			eval QOS_FWPOLICY='$'qcl_${i}_fwPolicy
+
+			# 802-1P remarking for ATM/PTM modes in SW.
+			# Change the Egress map of the vconfig interface as per the 802-1P remarking value specified through Web.
+			# Argument-1 for ipqos_common indicates 'vconfig changes for 8021P remarking'
+		        # Argument-2 for ipqos_common indicates 'add/delete the vconfig egress map for 8021P remarking'	
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM ] || [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ] || [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then 
+					if [ $qm_P8021enable -eq 1 ] && [ $QOS_802_1PMARK != -1 ]; then
+						. /etc/rc.d/ipqos_common 1 0
+					fi
+				fi
+			fi
+			if [ "$target" = "VRX2" ] && [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 ]; then
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ] || [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then 
+					if [ $qm_P8021enable -eq 1 ] && [ $QOS_802_1PMARK != -1 ]; then
+						. /etc/rc.d/ipqos_common 1 0
+					fi
+				fi
+			fi
+
+         		if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ]; then
+            			chain_selection=0
+         		else
+         	 		chain_selection=1
+         		fi
+
+			# if classification is in switch and accel_disable is not enabled on classifier and also if DSCP remarking is not enabled
+			# add dummy rules in IPQOS_LAN_ING chain. This is required to prevent order discontinuity in LAN_ING chain
+		   	if [ $mode -eq 0 -a $QOS_DSCPMARK == "-1" -a $QOS_ACCEL_DISABLE -eq 0 ]; then
+					
+				# iptables action to perform is always insert
+				act="I"
+	
+        			# Prepare LAN and OUTPUT rule chain name
+        			eval LAN_CHAIN_NAME="LAN_$QOS_CPEID"
+					
+				# For MFC classification
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+			
+
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $LAN_CHAIN_NAME"
+							$IPTABLES_RULE
+						fi
+
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IP6TABLES_RULE="$IP6TABLES -t mangle -N $LAN_CHAIN_NAME"
+							$IP6TABLES_RULE
+						fi
+							
+						EBTABLES_RULE="$EBTABLES -t filter -N $LAN_CHAIN_NAME"
+        					$EBTABLES_RULE
+	
+						# Default target is return
+	
+						EBTABLES_RULE="$EBTABLES -t filter -P $LAN_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+
+	        				#insert a skip rule ,if classification entry is in disabled state
+	        				if [ $QOS_ENABLE -eq 1 ]; then
+							
+							# following lines are for if the classifier is enabled
+							# Insert a rule in the IPQOS_LAN_ING chain at the location of order and jump to LAN_CHAIN_NAME chain
+							if [ $QOS_L3PROTO -eq 1 ];then
+									
+								IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+								$IPTABLES_RULE
+							fi
+
+							if [ $QOS_L3PROTO -eq 2 ];then
+								IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+								$IP6TABLES_RULE
+							fi
+							
+							EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+        						$EBTABLES_RULE
+						fi
+					# end of LAN_ING
+					fi
+				fi
+				# For DSCP classification
+				if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+	
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						# Prepare IPQOS_LAN_DSCP chain name
+						eval IPQOS_LAN_DSCP_CHAIN_NAME="IPQOS_LAN_DSCP_$QOS_CPEID"
+
+						#create the IPQOS_DSCP chain with name 'IPQOS_LAN_DSCP_CHAIN_NAME'
+#						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $IPQOS_LAN_DSCP_CHAIN_NAME"
+							$IPTABLES_RULE
+#						fi
+#						if [ $QOS_L3PROTO -eq 2 ];then
+#							IP6TABLES_RULE="$IP6TABLES -t mangle -N $IPQOS_LAN_DSCP_CHAIN_NAME"
+#							$IP6TABLES_RULE
+#						fi
+						EBTABLES_RULE="$EBTABLES -t filter -N $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$EBTABLES_RULE
+						EBTABLES_RULE="$EBTABLES -t filter -P $IPQOS_LAN_DSCP_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+
+						#insert a skip rule ,if classification entry is in disabled state
+						if [ $QOS_ENABLE -eq 1 ]; then
+							# following lines are for if the classifier is enabled
+							# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+								$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+#								$IP6TABLES_RULE
+#							fi
+							EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+							$EBTABLES_RULE
+
+						fi
+					fi
+				fi
+
+			fi
+
+
+            #if [ "$target" != "GRX2" -a "$target" != "RT2" -a $chain_selection -eq 1 -o $QOS_RATECTRENBL -eq 1 -o $QOS_DSCPMARK != "-1" ]; then
+		   	if [ $mode -eq 1 -o $QOS_RATECTRENBL -eq 1 -o $QOS_DSCPMARK != "-1" -o $QOS_ACCEL_DISABLE -eq 1 ]; then
+				# For MFC classification
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+					in_1p=0
+					in_vid=0
+					
+					if [ ! -z $QOS_DSTIP ] || [ $QOS_PROTO != -1 ] || [ ! -z $QOS_SRCIP ] || [ $QOS_DSTPORT != -1 ] || [ $QOS_SRCPORT != -1 ] || [ $QOS_INDSCP != -1 ]; then	
+						if [ $QOS_L3PROTO -eq 1 ]; then
+							QOS_RULE_L2="-p ipv4"
+						else
+							QOS_RULE_L2V6="-p ipv6"
+						fi	
+					fi		
+					if [ $QOS_IN802_1P != -1 ] || [ $QOS_INVLANID != -1 ]; then
+						QOS_RULE_1Q="-p 8021Q"
+					fi
+
+					#check and add protocol
+					if [ $QOS_PROTO != -1 ]; then
+						QOS_RULE="-p"
+						QOS_RULE_V6="-protocol"
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-protocol"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-protocol"
+						if [ $QOS_PROTOEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_V6="$QOS_RULE_V6 !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+						fi
+						QOS_RULE="$QOS_RULE $QOS_PROTO"
+						QOS_RULE_V6="$QOS_RULE_V6 $QOS_PROTO"
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_PROTO"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_PROTO"
+						QOS_RULE_LOCAL="$QOS_RULE"
+					fi
+
+					#check and add destination ip
+					if [ ! -z $QOS_DSTIP ]; then
+						QOS_RULE="$QOS_RULE -d"
+						QOS_RULE_V6="$QOS_RULE_V6 -destination"
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-destination"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-destination"
+						if [ $QOS_DSTIPEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_V6="$QOS_RULE_V6 !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+						fi
+						QOS_RULE="$QOS_RULE $QOS_DSTIP"
+						QOS_RULE_V6="$QOS_RULE_V6 $QOS_DSTIP"
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTIP"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_DSTIP"
+						if [ ! -z $QOS_DSTIPMASK ]; then
+							QOS_RULE="$QOS_RULE/$QOS_DSTIPMASK"
+							QOS_RULE_L2="$QOS_RULE_L2/$QOS_DSTIPMASK"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6/$QOS_DSTIPMASK"
+						fi
+						QOS_RULE_LOCAL="$QOS_RULE"
+					fi
+
+					#Check and add source ip address
+					if [ ! -z $QOS_SRCIP ]; then
+						QOS_RULE="$QOS_RULE -s"
+						QOS_RULE_V6="$QOS_RULE_V6 -source"
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-source"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-source"
+						if [ $QOS_SRCIPEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_V6="$QOS_RULE_V6 !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+						fi
+						QOS_RULE="$QOS_RULE $QOS_SRCIP"
+						QOS_RULE_V6="$QOS_RULE_V6 $QOS_SRCIP"
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCIP"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_SRCIP"
+						if [ ! -z $QOS_SRCIPMASK ]; then
+							QOS_RULE="$QOS_RULE/$QOS_SRCIPMASK"
+							QOS_RULE_V6="$QOS_RULE_V6/$QOS_SRCIPMASK"
+							QOS_RULE_L2="$QOS_RULE_L2/$QOS_SRCIPMASK"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6/$QOS_SRCIPMASK"
+						fi
+						QOS_RULE_LOCAL="$QOS_RULE"
+					fi
+
+					#Check and add dest port
+					if [ $QOS_DSTPORT != -1 ] && [ $QOS_PROTOEXCL -eq 0 ]; then
+						QOS_RULE="$QOS_RULE --dport"
+						QOS_RULE_V6="$QOS_RULE_V6 --destination-port"
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-destination-port"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-destination-port"
+						if [ $QOS_DSTPORTEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_V6="$QOS_RULE_V6 !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+						fi
+						QOS_RULE="$QOS_RULE $QOS_DSTPORT"
+						QOS_RULE_V6="$QOS_RULE_V6 $QOS_DSTPORT"
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTPORT"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_DSTPORT"
+						if [ $QOS_DSTPORTEND != -1 ]; then
+							QOS_RULE="$QOS_RULE:$QOS_DSTPORTEND"
+							QOS_RULE_V6="$QOS_RULE_V6:$QOS_DSTPORTEND"
+							QOS_RULE_L2="$QOS_RULE_L2:$QOS_DSTPORTEND"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6:$QOS_DSTPORTEND"
+						fi
+						QOS_RULE_LOCAL="$QOS_RULE"
+					fi
+
+					#Check and add src port
+					if [ $QOS_SRCPORT != -1 ] && [ $QOS_PROTOEXCL -eq 0 ]; then
+						QOS_RULE="$QOS_RULE --sport"
+						QOS_RULE_V6="$QOS_RULE_V6 --source-port"
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-source-port"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-source-port"
+						if [ $QOS_SRCPORTEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_V6="$QOS_RULE_V6 !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6 !"
+						fi
+						QOS_RULE="$QOS_RULE $QOS_SRCPORT"
+						QOS_RULE_V6="$QOS_RULE_V6 $QOS_SRCPORT"
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCPORT"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 $QOS_SRCPORT"
+						if [ $QOS_SRCPORTEND != -1 ]; then
+							QOS_RULE="$QOS_RULE:$QOS_SRCPORTEND"
+							QOS_RULE_V6="$QOS_RULE_V6:$QOS_SRCPORTEND"
+							QOS_RULE_L2="$QOS_RULE_L2:$QOS_SRCPORTEND"
+							QOS_RULE_L2V6="$QOS_RULE_L2V6:$QOS_SRCPORTEND"
+						fi
+						QOS_RULE_LOCAL="$QOS_RULE"
+					fi
+
+					#Check and add source mac
+					if [ ! -z $QOS_SRCMAC ]; then
+						src_mac=1
+						QOS_RULE="$QOS_RULE -m mac --mac-source"
+						QOS_RULE_V6="$QOS_RULE_V6 -m mac --mac-source"
+						QOS_RULE_L2="$QOS_RULE_L2 -s"
+				#		QOS_RULE_mac="-s"
+						if [ $QOS_SRCMACEXCL -ne 0 ]; then
+							QOS_RULE="$QOS_RULE !"
+							QOS_RULE_V6="$QOS_RULE_V6 !"
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+						fi
+						QOS_RULE="$QOS_RULE $QOS_SRCMAC"
+						QOS_RULE_V6="$QOS_RULE_V6 $QOS_SRCMAC"
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_SRCMAC"
+						if [ ! -z $QOS_SRCMACMASK ]; then
+							QOS_RULE="$QOS_RULE/$QOS_SRCMACMASK"
+							QOS_RULE_L2="$QOS_RULE_L2/$QOS_SRCMACMASK"
+						fi
+					fi
+				
+					#Check and add source mac
+					if [ ! -z $QOS_DSTMAC ]; then
+						dst_mac=1
+				#		QOS_RULE_1Q="$QOS_RULE_1Q -d"
+						QOS_RULE_L2="$QOS_RULE_L2 -d"
+						if [ $QOS_DSTMACEXCL -ne 0 ]; then
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+						fi
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_DSTMAC"
+						if [ ! -z $QOS_DSTMACMASK ]; then
+							QOS_RULE_L2="$QOS_RULE_L2/$QOS_DSTMACMASK"
+						fi	
+					fi
+					#Check and add DSCP match
+					if [ $QOS_INDSCP != -1 ]; then
+						QOS_RULE="$QOS_RULE -m dscp --dscp $QOS_INDSCP"
+						QOS_RULE_V6="$QOS_RULE_V6 -m dscp --dscp $QOS_INDSCP"
+						# Mapping DSCP to TOS
+						QOS_TOS_MAP=$(($QOS_INDSCP<<2))
+						QOS_TOS_MAP=$(echo $QOS_TOS_MAP | awk '{printf "%x", $1}')
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-tos $QOS_TOS_MAP"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip6-tclass $QOS_TOS_MAP"
+						QOS_RULE_LOCAL="$QOS_RULE"
+       					fi
+
+					#Check and add 802.1P match
+					if [ $QOS_IN802_1P != -1 ]; then
+						# Shift Incoming 1P value so that it matches the designated 1P bit positions in NFMARK
+						# This logic only used for Routed case i.e for Iptables
+						Incom_802_1p=$(($QOS_IN802_1P<<14))
+						in_1p=1
+						#Framing QOS Rule for Bridge scenario i.e for Ebtables
+						QOS_RULE_1P="-p 8021Q --vlan-prio"
+						if [ $QOS_IN802_1PEXCL -ne 0 ]; then
+							QOS_RULE_1P="$QOS_RULE_1Q !"
+						fi
+						QOS_RULE_1P="$QOS_RULE_1P $QOS_IN802_1P"
+       					fi
+					#Check and add VLAN ID match
+					if [ $QOS_INVLANID != -1 ]; then
+						# Shift Incoming VlanId value so that it matches the designated VlanId bit positions in NFMARK
+						# This logic only used for Routed case i.e for Iptables
+						if [ $QOS_INVLANIDEXCL -eq 0 ]; then
+							Incom_VID=$(($QOS_INVLANID<<17))
+							in_vid=1
+						fi
+						# Framing QOS Rule for Bridge scenario i.e for Ebtables
+						QOS_RULE_VID="-p 8021Q --vlan-id"
+						if [ $QOS_INVLANIDEXCL -ne 0 ]; then
+							QOS_RULE_VID="$QOS_RULE_VID !"
+						fi
+						QOS_RULE_VID="$QOS_RULE_VID $QOS_INVLANID"
+					fi				
+					# Check if this session has been marked to be removed from acceleration
+					if [ $QOS_ACCEL_DISABLE != 0 -a  $qm_AccelMngr -eq 1 ]; then
+						echo "Disabling acceleration for this classifier"
+						#If the user has set this classifier instance to be non-accelerated
+						#set bit 13 in NFMARK header to 1
+						#NF_MARK |=1<<13
+						NF_MARK=$(($NF_MARK|1<<13))
+						#echo "$NF_MARK is the nfmark after masking the 13th bit"
+					fi
+
+					#Ingress Interface Classification 
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+						QOS_RULE="$QOS_RULE -i $QOS_SPECIF"	
+						QOS_RULE_L2="$QOS_RULE_L2 -i $QOS_SPECIF"
+						QOS_RULE_LOCAL="$QOS_RULE"	
+					fi
+
+					#Ingress Interface Classification 
+					if [ $QOS_INTFTYPE -eq $QOS_INTF_LAN ]; then
+						QOS_RULE="$QOS_RULE -m physdev --physdev-in eth0"	
+						QOS_RULE_LOCAL="$QOS_RULE"	
+					fi
+				
+					# iptables action to perform is always insert
+					act="I"
+	
+        				# Prepare LAN and OUTPUT rule chain name
+        				eval LAN_CHAIN_NAME="LAN_$QOS_CPEID"
+        				# eval WAN_CHAIN_NAME="WAN_$QOS_CPEID" # VENU
+        				eval OUTPUT_CHAIN_NAME="OUTPUT_$QOS_CPEID"
+					
+				
+					X_MARK=$(($NF_MARK<<10))
+					# Form the iptables rules for the classification
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+
+				
+						# Interface is LAN. Add rules to chain IPQOS_LAN_ING
+						# for every new classification entry, add a new chain, insert the chain name at  order number
+						# in IPQOS_LAN_ING.
+						# Create the LAN rule chain with name 'LAN_CHAIN_NAME' for storing classifier rules
+						# Create equivalent rules for both Ebtables & Iptables for Bridged/Routed traffic resp.
+
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $LAN_CHAIN_NAME"
+							$IPTABLES_RULE
+						fi
+
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IP6TABLES_RULE="$IP6TABLES -t mangle -N $LAN_CHAIN_NAME"
+							$IP6TABLES_RULE
+						fi
+							
+						EBTABLES_RULE="$EBTABLES -t filter -N $LAN_CHAIN_NAME"
+        					$EBTABLES_RULE
+
+						# Default target is return
+
+						EBTABLES_RULE="$EBTABLES -t filter -P $LAN_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+
+	        				#insert a skip rule ,if classification entry is in disabled state
+	        				if [ $QOS_ENABLE -ne 1 ]; then
+							
+							# Add a rule to simply return
+							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -I $LAN_CHAIN_NAME 1  -j RETURN"
+								$IPTABLES_RULE
+	
+								# Insert the rule to jump to lan chain rule in IPQOS_LAN_ING at given order
+								IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+								$IPTABLES_RULE
+							fi
+							
+							if [ $QOS_L3PROTO -eq 2 ];then
+								IP6TABLES_RULE="$IP6TABLES -t mangle -I $LAN_CHAIN_NAME 1  -j RETURN"
+								$IP6TABLES_RULE
+								
+								# Insert the rule to jump to lan chain rule in IPQOS_LAN_ING at given order
+								IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+								$IP6TABLES_RULE
+								
+							fi
+							
+							EBTABLES_RULE="$EBTABLES -t filter -I $LAN_CHAIN_NAME 1  -j RETURN"
+        						$EBTABLES_RULE
+							EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+                					$EBTABLES_RULE
+	
+						else
+							# following lines are for if the classifier is enabled
+							# Insert a rule in the IPQOS_LAN_ING chain at the location of order and jump to LAN_CHAIN_NAME chain
+							if [ $QOS_L3PROTO -eq 1 ];then
+								
+								IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+								$IPTABLES_RULE
+							fi
+
+							if [ $QOS_L3PROTO -eq 2 ];then
+								IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+								$IP6TABLES_RULE
+							fi
+							
+							EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+        						$EBTABLES_RULE
+							
+							# first flush the LAN rule chain, for make the chain empty
+							# TBD: Currently not required since we always delete and add. Will be required in replace scenario
+							# IPTABLES_RULE="iptables -t mangle -F $LAN_CHAIN_NAME"
+							# $IPTABLES_RULE
+		
+							# Add a rule to Classify packets that had Vlan-ID or 802.1P priority bits set for Routed case.
+							# For Bridge case the rules for VlanID & 802.1P are already available in QOS_RULE_L2
+							
+							if [ $in_1p -eq 1 ] && [ $in_vid -eq 1 ]; then
+								vid_1p_mark=$(($Incom_802_1p|$Incom_VID))
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_1p_mark/$vid_1p_mark -j MARK --or-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_1p_mark/$vid_1p_mark -j MARK --or-mark $X_MARK"
+									$IP6TABLES_RULE
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+
+							fi
+							if [ $in_1p -eq 1 ] && [ $in_vid -ne 1 ]; then
+								# Check the value of Incoming 802.1P specified by user against the 802.1P value available in NF_MARK 
+								mark_1p=$Incom_802_1p
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $mark_1p/$QOS_802_1P_MASK -j MARK --or-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $mark_1p/$QOS_802_1P_MASK -j MARK --or-mark $X_MARK"
+									$IP6TABLES_RULE
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi
+							if [ $in_vid -eq 1 ] && [ $in_1p -ne 1 ]; then
+								# Check the value of Incoming VlanId specified by user against the VlanId value available in NF_MARK 
+								vid_mark=$Incom_VID
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_mark/$vid_mark -j MARK --or-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_mark/$vid_mark -j MARK --or-mark $X_MARK"
+									$IP6TABLES_RULE
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi
+							if [ $in_vid -ne 1 ] && [ $in_1p -ne 1 ]; then
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi
+
+							# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+							
+							if [ "$QOS_RULE_L2" = "" -a "$QOS_RULE_L2V6" = ""]; then
+								if [ $in_1p -eq 1 ] && [ $in_vid -eq 0 ]; then
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 0 ]; then
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_VID -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 1 ]; then
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_VID -j mark --set-mark $X_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 0 ] && [ $in_1p -eq 0 ]; then
+									echo " # "
+								fi
+							else
+								if [ $in_1p -eq 1 ] && [ $in_vid -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_VID -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 1 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_VID -j mark --set-mark $X_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 0 ] && [ $in_1p -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+								fi
+							fi # End of QOS_RULE_L2 loop
+
+							# Check outgoing DSCP is specified. if given, mark the outgoing DSCP
+							if [ $QOS_DSCPMARK != "-1" ]; then
+								# If packet mark is configured QId, then mark the outgoing DSCP
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+									$IP6TABLES_RULE
+								fi
+                        					#if [ "$target" == "GRX2" -o "$target" == "RT2" -o $chain_selection -eq 0 ]; then
+		   	            				if [ $mode -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+                              							IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j MARK --and-mark 0xFFFFFC3F"
+							     		   	$IPTABLES_RULE
+                                 						IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/0xFFFFFC3F -j ACCEPT"
+							     		   	$IPTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+                                 						IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j MARK --and-mark 0xFFFFFC3F"
+							     		   	$IP6TABLES_RULE
+                                 						IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/0xFFFFFC3F -j ACCEPT"
+							     		   	$IP6TABLES_RULE
+									fi
+                       						fi
+								# Deriving TOS value from DSCP value
+								QOS_TOSMARK=$((QOS_DSCPMARK<<2))
+							
+								EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $QOS_QID/$QOS_QID -j tos --set-tos $QOS_TOSMARK"
+								$EBTABLES_RULE
+							fi
+	
+							# Packet hits all the rules in this chain. So add a rule to accept the packet.
+							# This will block the packet to travel through other chains
+							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+								$IPTABLES_RULE
+							fi
+							if [ $QOS_L3PROTO -eq 2 ];then
+								IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+								$IP6TABLES_RULE
+							fi
+							EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $QOS_QID/$QOS_QID -j IPQOS_QUEUE_MAP"
+							$EBTABLES_RULE
+						fi # End of QOS Enable loop
+
+						# Add dummy rule to output chain
+						# First create the output chain
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -N $OUTPUT_CHAIN_NAME -t mangle"
+        						$IPTABLES_RULE
+							# add a return rule with no matches to the output chain
+							IPTABLES_RULE="$IPTABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+        						$IPTABLES_RULE
+							# add a rule to jump to output chain in IPQOS_OUTPUT chain at configured order.
+							IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+							$IPTABLES_RULE
+						fi
+				#		if [ $QOS_L3PROTO -eq 2 ];then
+				#			IP6TABLES_RULE="$IP6TABLES -N $OUTPUT_CHAIN_NAME -t mangle"
+        			#			$IP6TABLES_RULE
+				#			# add a return rule with no matches to the output chain
+				#			IP6TABLES_RULE="$IP6TABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+        			#			$IP6TABLES_RULE
+				#			# add a rule to jump to output chain in IPQOS_OUTPUT chain at configured order.
+				#			IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+				#			$IP6TABLES_RULE
+				#		fi
+					fi # End of QOS INTF loop
+
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL ]; then
+						# if the traffic is local out, add following rules
+        					#create a local output chain with name stored in variable OUTPUT_CHAIN_NAME
+						if [ $QOS_L3PROTO -eq 1 ];then
+        						IPTABLES_RULE="$IPTABLES -N $OUTPUT_CHAIN_NAME -t mangle"
+        						$IPTABLES_RULE
+						fi
+				#		if [ $QOS_L3PROTO -eq 2 ];then
+        			#			IP6TABLES_RULE="$IP6TABLES -N $OUTPUT_CHAIN_NAME -t mangle"
+        			#			$IP6TABLES_RULE
+				#		fi
+
+        					#insert a skip rule in the output chain, if classification entry is in disabled state
+        					if [ $QOS_ENABLE -ne 1 ]; then
+							# Just add a rule with target as RETURN
+							
+							if [ $QOS_L3PROTO -eq 1 ];then
+	        						IPTABLES_RULE="$IPTABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+        							$IPTABLES_RULE
+								# Insert a rule in IPQOS_OUTPUT to jump to output chain in configured order
+								IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+                						$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+	        		#				IP6TABLES_RULE="$IP6TABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+        			#				$IP6TABLES_RULE
+				#				# Insert a rule in IPQOS_OUTPUT to jump to output chain in configured order
+				#				IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+                		#				$IP6TABLES_RULE
+				#			fi
+        					else
+							# Classifier is enabled.
+	        					# Insert a rule in the IPQOS_OUTPUT chain at the location of order and jump to output chain
+							if [ $QOS_L3PROTO -eq 1 ];then
+	        						IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+        							$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+	        		#				IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+        			#				$IP6TABLES_RULE
+				#			fi
+	
+	        					# Add rules to output chain
+							# First flush the output chain to make sure that chain is empty
+							#iptables -t mangle -F $OUTPUT_CHAIN_NAME
+	
+							if [ $in_1p -eq 1 ]; then
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $Incom_802_1p/$QOS_802_1P_MASK -j MARK --set-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $Incom_802_1p/$QOS_802_1P_MASK -j MARK --set-mark $NF_MARK"
+				#					$IP6TABLES_RULE
+				#				fi
+							fi
+							if [ $in_vid -eq 1 ]; then
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $Incom_VID/$Incom_VID -j MARK --set-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $Incom_VID/$Incom_VID -j MARK --set-mark $NF_MARK"
+				#					$IP6TABLES_RULE
+				#				fi
+							fi
+							# Add a rule to match the configured classification in the output chain. mark the packet with QId
+							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+								$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+				#				IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+				#				$IP6TABLES_RULE
+				#			fi
+
+							# if outgoing DSCP is given, give the DSCP mark to the packet
+							if [ $QOS_DSCPMARK != "-1" ]; then
+								# match the packet for the QId configured
+								if [ $QOS_L3PROTO -eq 1 ];then
+		        						IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+        	        						$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+		        	#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+        	        	#					$IP6TABLES_RULE
+				#				fi
+							fi
+
+							# Packet hits all the rules in this chain. So add a rule to accept the packet.
+                					# This will block the packet to travel through other chains
+							if [ $QOS_L3PROTO -eq 1 ];then
+                						IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+                						$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+                		#				IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+                		#				$IP6TABLES_RULE
+				#			fi
+						fi # End QOS ENABLE loop
+
+        					# Add dummy rule to LAN chain
+						# Create the lan chain
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $LAN_CHAIN_NAME"
+        						$IPTABLES_RULE
+							IPTABLES_RULE="$IPTABLES -t mangle -I $LAN_CHAIN_NAME 1  -j RETURN"
+        						$IPTABLES_RULE
+        						IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+        						$IPTABLES_RULE
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IP6TABLES_RULE="$IP6TABLES -t mangle -N $LAN_CHAIN_NAME"
+        						$IP6TABLES_RULE
+							IP6TABLES_RULE="$IP6TABLES -t mangle -I $LAN_CHAIN_NAME 1  -j RETURN"
+        						$IP6TABLES_RULE
+        						IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+        						$IP6TABLES_RULE
+						fi
+						
+						EBTABLES_RULE="$EBTABLES -t filter -N $LAN_CHAIN_NAME"
+        					$EBTABLES_RULE
+						# Default target is return
+						EBTABLES_RULE="$EBTABLES -t filter -P $LAN_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+						# Add a rule with target RETURN in the lan chain
+						EBTABLES_RULE="$EBTABLES -t filter -I $LAN_CHAIN_NAME 1  -j RETURN"
+        					$EBTABLES_RULE
+						# insert a rule to jump to lan chain in IPQOS_LAN_ING at configured order.
+						EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+        					$EBTABLES_RULE
+					fi # End of QOS INTF LOOP
+
+					if [ $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						# Handle traffic coming from both lan anf local
+		
+						# first consider the LAN traffic
+        	
+						#create the chain LAN_CHAIN_NAME
+						if [ $QOS_L3PROTO -eq 1 ];then
+	        					IPTABLES_RULE="$IPTABLES -t mangle -N $LAN_CHAIN_NAME"
+	        					$IPTABLES_RULE
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+	        					IP6TABLES_RULE="$IP6TABLES -t mangle -N $LAN_CHAIN_NAME"
+	        					$IP6TABLES_RULE
+						fi
+						EBTABLES_RULE="$EBTABLES -t filter -N $LAN_CHAIN_NAME"
+        					$EBTABLES_RULE
+			
+						# Default target is return
+						EBTABLES_RULE="$EBTABLES -t filter -P $LAN_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+
+	       					#insert a skip rule ,if classification entry is in disabled state
+        					if [ $QOS_ENABLE -ne 1 ]; then
+							# Add a rule with target RETURN
+							if [ $QOS_L3PROTO -eq 1 ];then
+	        						IPTABLES_RULE="$IPTABLES -t mangle -I $LAN_CHAIN_NAME 1 -j RETURN"
+        							$IPTABLES_RULE
+								IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+                						$IPTABLES_RULE
+							fi
+							if [ $QOS_L3PROTO -eq 2 ];then
+	        						IP6TABLES_RULE="$IP6TABLES -t mangle -I $LAN_CHAIN_NAME 1 -j RETURN"
+        							$IP6TABLES_RULE
+								IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+                						$IP6TABLES_RULE
+							fi
+
+							EBTABLES_RULE="$EBTABLES -t filter -I $LAN_CHAIN_NAME 1 -j RETURN"
+        						$EBTABLES_RULE
+							# Insert a rule to jump to lan chain in IPQOS_LAN_ING in configured oeder
+							EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+                					$EBTABLES_RULE
+        					else
+							# Classifier is enabled
+	        					# Insert a rule in the IPQOS_LAN_ING chain at the location of order and jump to LAN_CHAIN_NAME chain
+							if [ $QOS_L3PROTO -eq 1 ];then
+        							IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+	        						$IPTABLES_RULE
+							fi
+							if [ $QOS_L3PROTO -eq 2 ];then
+        							IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+	        						$IP6TABLES_RULE
+							fi
+							EBTABLES_RULE="$EBTABLES -t filter -$act IPQOS_LAN_ING $QOS_ORDER -j $LAN_CHAIN_NAME"
+	        					$EBTABLES_RULE
+							# Flush the lan chain to make sure that chain is empty
+							#iptables -t mangle -F $LAN_CHAIN_NAME
+					
+							if [ $in_1p -eq 1 ] && [ $in_vid -eq 1 ]; then
+								vid_1p_mark=$(($Incom_802_1p|$Incom_VID))
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_1p_mark/$vid_1p_mark -j MARK --or-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_1p_mark/$vid_1p_mark -j MARK --or-mark $X_MARK"
+									$IP6TABLES_RULE
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi
+							if [ $in_1p -eq 1 ] && [ $in_vid -ne 1 ]; then
+								# Check the value of Incoming 802.1P specified by user against the 802.1P value available in NF_MARK 
+								mark_1p=$Incom_802_1p
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $mark_1p/$QOS_802_1P_MASK -j MARK --or-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $mark_1p/$QOS_802_1P_MASK -j MARK --or-mark $X_MARK"
+									$IP6TABLES_RULE
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi	
+							if [ $in_vid -eq 1 ] && [ $in_1p -ne 1 ]; then
+								# Check the value of Incoming VlanId specified by user against the VlanId value available in NF_MARK 
+								vid_mark=$Incom_VID
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_mark/$vid_mark -j MARK --or-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $vid_mark/$vid_mark -j MARK --or-mark $X_MARK"
+									$IP6TABLES_RULE
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $X_MARK/$X_MARK $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi
+							if [ $in_vid -ne 1 ] && [ $in_1p -ne 1 ]; then
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+									IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME $QOS_RULE -j MARK --or-mark $NF_MARK"
+									$IP6TABLES_RULE
+								fi
+							fi
+
+							if [ "$QOS_RULE_L2" = "" -a "$QOS_RULE_L2V6" = "" ]; then
+								if [ $in_1p -eq 1 ] && [ $in_vid -eq 0 ]; then
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 0 ]; then
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_VID -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 1 ]; then
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_VID -j mark --set-mark $X_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 0 ] && [ $in_1p -eq 0 ]; then
+									echo " # "
+								fi
+							else
+								if [ $in_1p -eq 1 ] && [ $in_vid -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_VID -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 1 ] && [ $in_1p -eq 1 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $X_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_VID -j mark --set-mark $X_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+									EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $X_MARK $QOS_RULE_1P -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+									$EBTABLES_RULE
+								fi
+								if [ $in_vid -eq 0 ] && [ $in_1p -eq 0 ]; then
+									if [ $QOS_L3PROTO -eq 1 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+									if [ $QOS_L3PROTO -eq 2 ];then
+										EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+										$EBTABLES_RULE
+									fi
+								fi
+							fi
+		
+							# Add the classifier rule configured in the lan chain. Mark the packet with configured QId
+	
+							# Mark DSCP if outgoing DSCP is configured
+							if [ $QOS_DSCPMARK != "-1" ]; then
+								# Mark the packet, if it matches the mark QId
+								if [ $QOS_L3PROTO -eq 1 ];then
+		       							IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+        								$IPTABLES_RULE
+								fi
+								if [ $QOS_L3PROTO -eq 2 ];then
+		       							IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+        								$IP6TABLES_RULE
+								fi
+								QOS_TOSMARK=$((QOS_DSCPMARK<<2))
+							
+								EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $QOS_QID/$QOS_QID -j tos --set-tos $QOS_TOSMARK"
+                        					$EBTABLES_RULE
+							fi
+	
+							# Packet hits all the rules in this chain. So add a rule to accept the packet.
+                					# This will block the packet to travel through other chains
+							if [ $QOS_L3PROTO -eq 1 ];then
+                						IPTABLES_RULE="$IPTABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+                						$IPTABLES_RULE
+							fi
+							if [ $QOS_L3PROTO -eq 1 ];then
+                						IP6TABLES_RULE="$IP6TABLES -t mangle -A $LAN_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+                						$IP6TABLES_RULE
+							fi
+							EBTABLES_RULE="$EBTABLES -t filter -A $LAN_CHAIN_NAME --mark $QOS_QID -j IPQOS_QUEUE_MAP"
+                					$EBTABLES_RULE
+						fi # End of QOS ENABLE loop
+
+						# Second consider the local traffic
+	
+        					#create the chain OUTPUT_CHAIN_NAME
+						if [ $QOS_L3PROTO -eq 1 ];then
+        						IPTABLES_RULE="$IPTABLES -N $OUTPUT_CHAIN_NAME -t mangle"
+        						$IPTABLES_RULE
+						fi
+				#		if [ $QOS_L3PROTO -eq 2 ];then
+        			#			IP6TABLES_RULE="$IP6TABLES -N $OUTPUT_CHAIN_NAME -t mangle"
+        			#			$IP6TABLES_RULE
+				#		fi
+
+        					#insert a skip rule ,if classification entry is in disabled state
+        					if [ $QOS_ENABLE -ne 1 ]; then
+							if [ $QOS_L3PROTO -eq 1 ];then
+	        						IPTABLES_RULE="$IPTABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+	        						$IPTABLES_RULE
+								# insert a rule to jump to putput chain in IPQOS_OUTPUT at configured order
+								IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+                						$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+	        		#				IP6TABLES_RULE="$IP6TABLES -t mangle -I $OUTPUT_CHAIN_NAME 1 -j RETURN"
+	        		#				$IP6TABLES_RULE
+				#				# insert a rule to jump to putput chain in IPQOS_OUTPUT at configured order
+				#				IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+                		#				$IP6TABLES_RULE
+				#			fi
+        					else
+							# Classifier is enabled
+
+	        					# Insert a rule in the OUTPUT chain at the location of order and jump to OUTPUT_CHAIN chain
+							if [ $QOS_L3PROTO -eq 1 ];then
+	        						IPTABLES_RULE="$IPTABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+	        						$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+	        		#				IP6TABLES_RULE="$IP6TABLES -t mangle -$act IPQOS_OUTPUT $QOS_ORDER -j $OUTPUT_CHAIN_NAME"
+	        		#				$IP6TABLES_RULE
+				#			fi
+	
+							# flush the output chain to make sure that chain is empty
+							#iptables -t mangle -F $OUTPUT_CHAIN_NAME
+		
+							if [ $in_1p -eq 1 ] && [ $in_vid -eq 1 ]; then
+								vid_1p_mark=$(($Incom_802_1p|$Incom_VID))
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $vid_1p_mark/$vid_1p_mark -j MARK --set-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $X_MARK $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $vid_1p_mark/$vid_1p_mark -j MARK --set-mark $X_MARK"
+				#					$IP6TABLES_RULE
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $X_MARK $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+				#					$IP6TABLES_RULE
+				#				fi
+
+							fi
+							if [ $in_1p -eq 1 ] && [ $in_vid -ne 1 ]; then
+							# Check the value of Incoming 802.1P specified by user against the 802.1P value available in NF_MARK 
+								mark_1p=$Incom_802_1p
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $mark_1p/$QOS_802_1P_MASK -j MARK --set-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $X_MARK $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $mark_1p/$QOS_802_1P_MASK -j MARK --set-mark $X_MARK"
+				#					$IP6TABLES_RULE
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $X_MARK $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+				#					$IP6TABLES_RULE
+				#				fi
+							fi
+							if [ $in_vid -eq 1 ] && [ $in_1p -ne 1 ]; then
+								# Check the value of Incoming VlanId specified by user against the VlanId value available in NF_MARK 
+								vid_mark=$Incom_VID
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $vid_mark/$vid_mark -j MARK --set-mark $X_MARK"
+									$IPTABLES_RULE
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $X_MARK $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $vid_mark/$vid_mark -j MARK --set-mark $X_MARK"
+				#					$IP6TABLES_RULE
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $X_MARK $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+				#					$IP6TABLES_RULE
+				#				fi
+							fi
+							if [ $in_vid -ne 1 ] && [ $in_1p -ne 1 ]; then
+								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+									$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+				#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME $QOS_RULE_LOCAL -j MARK --set-mark $NF_MARK"
+				#					$IP6TABLES_RULE
+				#				fi
+							fi	
+                				
+							# Mark the DSCP if configured
+							if [ $QOS_DSCPMARK != "-1" ]; then
+								if [ $QOS_L3PROTO -eq 1 ];then
+	        							IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+        	        						$IPTABLES_RULE
+								fi
+				#				if [ $QOS_L3PROTO -eq 2 ];then
+	        		#					IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+        	        	#					$IP6TABLES_RULE
+				#				fi
+							fi
+	
+							# Packet hits all the rules in this chain. So add a rule to accept the packet.
+                					# This will block the packet to travel through other chains
+							if [ $QOS_L3PROTO -eq 1 ];then
+                						IPTABLES_RULE="$IPTABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+                						$IPTABLES_RULE
+							fi
+				#			if [ $QOS_L3PROTO -eq 2 ];then
+                		#				IP6TABLES_RULE="$IP6TABLES -t mangle -A $OUTPUT_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+                		#				$IP6TABLES_RULE
+				#			fi
+						fi # End of QOS ENABLE LOOP
+
+					fi # End of QOS INTF ALL LOOP
+
+				fi # End of QOS MFC LOOP
+
+				# For DSCP classification
+				if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+					#Check and add DSCP match
+					if [ $QOS_INDSCP != -1 ]; then
+						QOS_RULE="-m dscp --dscp $QOS_INDSCP"
+						QOS_RULE_V6="-m dscp --dscp $QOS_INDSCP"
+						QOS_RULE_L2="-p ipv4"
+						QOS_RULE_L2V6="-p ipv6"
+						QOS_TOS_MAP=$(($QOS_INDSCP<<2))
+						QOS_TOS_MAP=$(echo $QOS_TOS_MAP | awk '{printf "%x", $1}')
+						QOS_RULE_L2="$QOS_RULE_L2 --ip-tos $QOS_TOS_MAP"
+						QOS_RULE_L2V6="$QOS_RULE_L2V6 --ip-tos $QOS_TOS_MAP"
+					fi
+					# Check if this session has been marked to be removed from acceleration
+					#if [ $QOS_ACCEL_DISABLE != 0 ]; then
+					if [ $QOS_ACCEL_DISABLE != 0 -a  $qm_AccelMngr -eq 1 ]; then
+						echo "Disabling acceleration for this classifier"
+						#If the user has set this classifier instance to be non-accelerated
+						#set bit 13 in NFMARK header to 1
+						#NF_MARK |=1<<13
+						NF_MARK=$(($NF_MARK|1<<13))
+						#echo "$NF_MARK is the nfmark after masking the 13th bit"
+					fi
+	
+					#Ingress Interface Classification 
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC ]; then
+						QOS_RULE="$QOS_RULE -i $QOS_SPECIF"	
+						QOS_RULE_V6="$QOS_RULE_V6 -i $QOS_SPECIF"	
+						QOS_RULE_L2="$QOS_RULE_L2 -i $QOS_SPECIF"	
+					fi
+	
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						# Prepare IPQOS_LAN_DSCP chain name
+						eval IPQOS_LAN_DSCP_CHAIN_NAME="IPQOS_LAN_DSCP_$QOS_CPEID"
+
+						#create the IPQOS_DSCP chain with name 'IPQOS_LAN_DSCP_CHAIN_NAME'
+#						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $IPQOS_LAN_DSCP_CHAIN_NAME"
+							$IPTABLES_RULE
+#						fi
+#						if [ $QOS_L3PROTO -eq 2 ];then
+#							IP6TABLES_RULE="$IP6TABLES -t mangle -N $IPQOS_LAN_DSCP_CHAIN_NAME"
+#							$IP6TABLES_RULE
+#						fi
+						EBTABLES_RULE="$EBTABLES -t filter -N $IPQOS_LAN_DSCP_CHAIN_NAME"
+						$EBTABLES_RULE
+						EBTABLES_RULE="$EBTABLES -t filter -P $IPQOS_LAN_DSCP_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+
+						#insert a skip rule ,if classification entry is in disabled state
+						if [ $QOS_ENABLE -ne 1 ]; then
+							# Add a rule to simply return
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -I $IPQOS_LAN_DSCP_CHAIN_NAME 1  -j RETURN"
+								$IPTABLES_RULE
+								# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+								$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -I $IPQOS_LAN_DSCP_CHAIN_NAME 1  -j RETURN"
+#								$IP6TABLES_RULE
+#								# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+#								$IP6TABLES_RULE
+#							fi
+							EBTABLES_RULE="$EBTABLES -t filter -I $IPQOS_LAN_DSCP_CHAIN_NAME 1  -j RETURN"
+							$EBTABLES_RULE
+							# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+							EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+							$EBTABLES_RULE
+						else
+							# following lines are for if the classifier is enabled
+							# Insert the rule to jump to lan chain rule in IPQOS_LAN_DSCP_ALL
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+								$IPTABLES_RULE
+								# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+								IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME $QOS_RULE -j MARK --or-mark $NF_MARK"
+								$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+#								$IP6TABLES_RULE
+#								# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME $QOS_RULE -j MARK --set-mark $NF_MARK"
+#								$IP6TABLES_RULE
+#							fi
+							EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_LAN_DSCP_ALL -j $IPQOS_LAN_DSCP_CHAIN_NAME"
+							$EBTABLES_RULE
+	
+							# first flush the LANDSCP rule chain, for make the chain empty
+							#TBD: Currently not required since we always delete and add. Will be required in replace scenario
+							#IPTABLES_RULE="iptables -t mangle -F $IPQOS_LAN_DSCP_CHAIN_NAME"
+							#$IPTABLES_RULE
+
+							# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_LAN_DSCP_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+								$EBTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_LAN_DSCP_CHAIN_NAME $QOS_RULE_L2V6 -j mark --set-mark $NF_MARK --mark-target CONTINUE"
+#								$EBTABLES_RULE
+#							fi
+
+							# Check outgoing DSCP is specified. if given, mark the outgoing DSCP
+							if [ $QOS_DSCPMARK != "-1" ]; then
+								# if packet mark is configured QId, then mark the outgoing DSCP
+#								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+									$IPTABLES_RULE
+#								fi
+#								if [ $QOS_L3PROTO -eq 2 ];then
+#									IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK -j DSCP --set-dscp $QOS_DSCPMARK"
+#									$IP6TABLES_RULE
+#								fi
+
+								#if [ "$target" == "GRX2" -o "$target" == "RT2" -o $chain_selection -eq 0 ]; then
+								if [ $mode -eq 0 ]; then
+#									if [ $QOS_L3PROTO -eq 1 ];then
+										IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j MARK --and-mark 0xFFFFFC3F"
+							     			$IPTABLES_RULE
+										IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK/0xFFFFFC3F -j ACCEPT"
+							     			$IPTABLES_RULE
+#									fi
+#									if [ $QOS_L3PROTO -eq 2 ];then
+#                          							IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK -j MARK --and-mark 0xFFFFFC3F"
+#							     			$IP6TABLES_RULE
+#                             							IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK/0xFFFFFC3F -j ACCEPT"
+#							     			$IP6TABLES_RULE
+#									fi
+                     						fi
+								QOS_TOSMARK=$((QOS_DSCPMARK<<2))
+								
+								#VENU Need to check whether to use $QOS_QID/$QOS_QID or NF_MARK 
+								EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_LAN_DSCP_CHAIN_NAME --mark $NF_MARK -j tos --set-tos $QOS_TOSMARK"
+								$EBTABLES_RULE
+							fi
+							# Packet hits all the rules in this chain. So add a rule to accept the packet.
+							# This will block the packet to travel through other chains
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+								$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_DSCP_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+#								$IP6TABLES_RULE
+#							fi
+							EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_LAN_DSCP_CHAIN_NAME --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+							$EBTABLES_RULE
+						fi
+					fi # End of INTF LOOP
+
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+        					# Prepare IPQOS_OUTPUT_DSCP chain name
+        					eval IPQOS_OUTPUT_DSCP_CHAIN_NAME="IPQOS_OUTPUT_DSCP_$QOS_CPEID"
+	
+        					#create the IPQOS_DSCP chain with name 'IPQOS_OUTPUT_DSCP_CHAIN_NAME'
+#						if [ $QOS_L3PROTO -eq 1 ];then
+        						IPTABLES_RULE="$IPTABLES -t mangle -N $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+        						$IPTABLES_RULE
+#						fi
+#						if [ $QOS_L3PROTO -eq 2 ];then
+#       						IP6TABLES_RULE="$IP6TABLES -t mangle -N $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#        						$IP6TABLES_RULE
+#						fi
+	
+        					#insert a skip rule ,if classification entry is in disabled state
+        					if [ $QOS_ENABLE -ne 1 ]; then
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								# Add a rule to simply return
+	        						IPTABLES_RULE="$IPTABLES -t mangle -I $IPQOS_OUTPUT_DSCP_CHAIN_NAME 1  -j RETURN"
+        							$IPTABLES_RULE
+								# Insert the rule to jump to lan chain rule in IPQOS_OUTPUT_DSCP_ALL
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_OUTPUT_DSCP_ALL -j $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+                						$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								# Add a rule to simply return
+#	        						IP6TABLES_RULE="$IP6TABLES -t mangle -I $IPQOS_OUTPUT_DSCP_CHAIN_NAME 1  -j RETURN"
+#       							$IP6TABLES_RULE
+#								# Insert the rule to jump to lan chain rule in IPQOS_OUTPUT_DSCP_ALL
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_OUTPUT_DSCP_ALL -j $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#               						$IP6TABLES_RULE
+#							fi
+						else
+							# following lines are for if the classifier is enabled
+
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								# Insert the rule to jump to lan chain rule in IPQOS_OUTPUT_DSCP_ALL
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_OUTPUT_DSCP_ALL -j $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+                						$IPTABLES_RULE
+
+								# first flush the OUTPUTDSCP rule chain, for make the chain empty
+                						#TBD: Currently not required since we always delete and add. Will be required in replace scenario
+								#IPTABLES_RULE="iptables -t mangle -F $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+								#$IPTABLES_RULE
+		
+								# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+        							IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_OUTPUT_DSCP_CHAIN_NAME $QOS_RULE -j MARK --set-mark $QOS_QID"
+	        						$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								# Insert the rule to jump to lan chain rule in IPQOS_OUTPUT_DSCP_ALL
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_OUTPUT_DSCP_ALL -j $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#               						$IP6TABLES_RULE
+#
+#								# first flush the OUTPUTDSCP rule chain, for make the chain empty
+#               						#TBD: Currently not required since we always delete and add. Will be required in replace scenario
+#								#IP6TABLES_RULE="ip6tables -t mangle -F $IPQOS_OUTPUT_DSCP_CHAIN_NAME"
+#								#$IP6TABLES_RULE
+#		
+#								# Add a rule to give configured classification, if classifier matches, remark the packet with given QId
+#       							IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_OUTPUT_DSCP_CHAIN_NAME $QOS_RULE -j MARK --set-mark $QOS_QID"
+#	        						$IP6TABLES_RULE
+#							fi
+	
+							# Check outgoing DSCP is specified. if given, mark the outgoing DSCP
+							if [ $QOS_DSCPMARK != "-1" ]; then
+								# if packet mark is configured QId, then mark the outgoing DSCP
+#								if [ $QOS_L3PROTO -eq 1 ];then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_OUTPUT_DSCP_CHAIN_NAME -m mark --mark $QOS_QID -j DSCP --set-dscp $QOS_DSCPMARK"
+		        						$IPTABLES_RULE
+#								fi
+#								if [ $QOS_L3PROTO -eq 2 ];then
+#									IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_OUTPUT_DSCP_CHAIN_NAME -m mark --mark $QOS_QID -j DSCP --set-dscp $QOS_DSCPMARK"
+#		        						$IP6TABLES_RULE
+#								fi
+							fi
+
+							# Packet hits all the rules in this chain. So add a rule to accept the packet.
+							# This will block the packet to travel through other chains
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_OUTPUT_DSCP_CHAIN_NAME -m mark --mark $QOS_QID -j IPQOS_QUEUE_MAP"
+								$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_OUTPUT_DSCP_CHAIN_NAME -m mark --mark $QOS_QID -j IPQOS_QUEUE_MAP"
+#								$IP6TABLES_RULE
+#							fi
+						fi
+					fi # End of INTF LOOP
+				fi # End of DSCP Type LOOP
+
+				# For 802.1P classification
+				if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+					in_1p=0
+					QOS_RULE_L2=""
+					QOS_RULE_L2V6=""
+					#Check and add 802.1P match
+					if [ $QOS_IN802_1P != -1 ]; then
+						Incom_802_1p=$(($QOS_IN802_1P<<14))
+						in_1p=1
+						QOS_RULE_L2="-p 8021Q --vlan-prio"
+						if [ $QOS_IN802_1PEXCL -ne 0 ]; then
+							QOS_RULE_L2="$QOS_RULE_L2 !"
+						fi
+						QOS_RULE_L2="$QOS_RULE_L2 $QOS_IN802_1P"
+        				fi
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						#Prepare IPQOS_LAN_8021P chain name
+						eval IPQOS_LAN_8021P_CHAIN_NAME="IPQOS_LAN_8021P_$QOS_CPEID"
+
+#						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $IPQOS_LAN_8021P_CHAIN_NAME"
+							$IPTABLES_RULE
+#						fi
+#						if [ $QOS_L3PROTO -eq 2 ];then
+#							IP6TABLES_RULE="$IP6TABLES -t mangle -N $IPQOS_LAN_8021P_CHAIN_NAME"
+#							$IP6TABLES_RULE
+#						fi
+						EBTABLES_RULE="$EBTABLES -t filter -N $IPQOS_LAN_8021P_CHAIN_NAME"
+						$EBTABLES_RULE
+						EBTABLES_RULE="$EBTABLES -t filter -P $IPQOS_LAN_8021P_CHAIN_NAME RETURN"
+						$EBTABLES_RULE
+
+						if [ $QOS_ENABLE -ne 1 ]; then
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -I $IPQOS_LAN_8021P_CHAIN_NAME 1  -j RETURN"
+								$IPTABLES_RULE
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -I $IPQOS_LAN_8021P_CHAIN_NAME 1  -j RETURN"
+#								$IP6TABLES_RULE
+#							fi
+							
+							EBTABLES_RULE="$EBTABLES -t filter -I $IPQOS_LAN_8021P_CHAIN_NAME 1  -j RETURN"
+        						$EBTABLES_RULE
+						else
+			
+#							if [ $QOS_L3PROTO -eq 1 ];then
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_LAN_8021P_ALL -j $IPQOS_LAN_8021P_CHAIN_NAME"
+                						$IPTABLES_RULE
+								if [ $in_1p -eq 1 ]; then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_8021P_CHAIN_NAME -m mark --mark $Incom_802_1p/$QOS_802_1P_MASK -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								else
+									IPTABLES_RULE="$IPTABLES -t mangle -I $IPQOS_LAN_8021P_CHAIN_NAME 1  -j RETURN"
+									$IPTABLES_RULE
+								fi
+#							fi
+#							if [ $QOS_L3PROTO -eq 2 ];then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_LAN_8021P_ALL -j $IPQOS_LAN_8021P_CHAIN_NAME"
+#               						$IP6TABLES_RULE
+#								if [ $in_1p -eq 1 ]; then
+#									IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_8021P_CHAIN_NAME -m mark --mark $Incom_802_1p/$QOS_802_1P_MASK -j MARK --set-mark $NF_MARK"
+#									$IP6TABLES_RULE
+#								else
+#									IP6TABLES_RULE="$IP6TABLES -t mangle -I $IPQOS_LAN_8021P_CHAIN_NAME 1  -j RETURN"
+#									$IPTABLES_RULE
+#								fi
+#							fi
+							EBTABLES_RULE="$EBTABLES -t filter -A IPQOS_LAN_8021P_ALL -j $IPQOS_LAN_8021P_CHAIN_NAME"
+                					$EBTABLES_RULE
+        				
+							EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_LAN_8021P_CHAIN_NAME $QOS_RULE_L2 -j mark --set-mark $QOS_QID"
+	        					$EBTABLES_RULE
+
+						fi
+						EBTABLES_RULE="$EBTABLES -t filter -A $IPQOS_LAN_8021P_CHAIN_NAME --mark $QOS_QID -j IPQOS_QUEUE_MAP"
+						$EBTABLES_RULE
+#						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_LAN_8021P_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+							$IPTABLES_RULE
+#						fi
+#						if [ $QOS_L3PROTO -eq 2 ];then
+#							IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_LAN_8021P_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+#							$IP6TABLES_RULE
+#						fi
+					fi # End of INTF LOOP
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+			
+        					eval IPQOS_OUTPUT_8021P_CHAIN_NAME="IPQOS_OUTPUT_8021P_$QOS_CPEID"
+	
+#						if [ $QOS_L3PROTO -eq 1 ];then
+							IPTABLES_RULE="$IPTABLES -t mangle -N $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+        						$IPTABLES_RULE
+        						if [ $QOS_ENABLE -ne 1 ]; then
+								IPTABLES_RULE="$IPTABLES -t mangle -I $IPQOS_OUTPUT_8021P_CHAIN_NAME 1  -j RETURN"
+        							$IPTABLES_RULE
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_OUTPUT_8021P_ALL -j $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+                						$IPTABLES_RULE
+							else	
+								IPTABLES_RULE="$IPTABLES -t mangle -A IPQOS_OUTPUT_8021P_ALL -j $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+                						$IPTABLES_RULE
+								if [ $in_1p -eq 1 ]; then
+									IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_OUTPUT_8021P_CHAIN_NAME -m mark --mark $Incom_802_1p/$QOS_802_1P_MASK -j MARK --or-mark $NF_MARK"
+									$IPTABLES_RULE
+								else
+									IPTABLES_RULE="$IPTABLES -t mangle -I $IPQOS_OUTPUT_8021P_CHAIN_NAME 1  -j RETURN"
+									$IPTABLES_RULE
+								fi
+	
+							fi
+							IPTABLES_RULE="$IPTABLES -t mangle -A $IPQOS_OUTPUT_8021P_CHAIN_NAME -m mark --mark $NF_MARK/$NF_MARK -j IPQOS_QUEUE_MAP"
+							$IPTABLES_RULE
+#						fi
+#						if [ $QOS_L3PROTO -eq 2 ];then
+#							IP6TABLES_RULE="$IP6TABLES -t mangle -N $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+#       						$IP6TABLES_RULE
+#      							if [ $QOS_ENABLE -ne 1 ]; then
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -I $IPQOS_OUTPUT_8021P_CHAIN_NAME 1  -j RETURN"
+#       							$IP6TABLES_RULE
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_OUTPUT_8021P_ALL -j $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+#               						$IP6TABLES_RULE
+#							else	
+#								IP6TABLES_RULE="$IP6TABLES -t mangle -A IPQOS_OUTPUT_8021P_ALL -j $IPQOS_OUTPUT_8021P_CHAIN_NAME"
+#               						$IP6TABLES_RULE
+#								if [ $in_1p -eq 1 ]; then
+#									IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_OUTPUT_8021P_CHAIN_NAME -m mark --mark $Incom_802_1p/$QOS_802_1P_MASK -j MARK --set-mark $NF_MARK"
+#									$IP6TABLES_RULE
+#								else
+#									IP6TABLES_RULE="$IP6TABLES -t mangle -I $IPQOS_OUTPUT_8021P_CHAIN_NAME 1  -j RETURN"
+#									$IP6TABLES_RULE
+#								fi
+#	
+#							fi
+#							IP6TABLES_RULE="$IP6TABLES -t mangle -A $IPQOS_OUTPUT_8021P_CHAIN_NAME -m mark --mark $NF_MARK -j IPQOS_QUEUE_MAP"
+#							$IP6TABLES_RULE
+#						fi
+
+					fi # End INTF LOOP
+				fi # End of 8021P LOOP
+ 			fi # End of Target not GRX RT loop
+ 
+			# Flow15 switch based classification
+	
+			if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL -o $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL ]; then
+#	if [ "$target" = "GRX2" -o "$target" = "VRX2" -o "$target" = "RT2" -o $chain_selection -eq 0 ]; then
+		         if [ $mode -eq 0 ]; then
+					#conversion from NF_MARK to Q_Prio
+					if [ "$target" = "GRX2" ]; then
+						MOD_MARK=`expr $queue_prio - 1`
+	
+#						case "$NF_MARK" in
+#							11)
+#								#Q_Prio = 8
+#								MOD_MARK=7;
+#								;;
+#							14)
+#								#Q_Prio = 0
+#								MOD_MARK=0;
+#								;;
+#							15)
+#								#Q_Prio = 1
+#								MOD_MARK=0;
+#								;;
+#							16)
+#								#Q_Prio = 2
+#								MOD_MARK=1;
+#								;;
+#							17)
+#								#Q_Prio = 3
+#								MOD_MARK=2;
+#								;;
+#							18)
+#								#Q_Prio = 4
+#								MOD_MARK=3;
+#								;;
+#							19)
+#								#Q_Prio = 5
+#								MOD_MARK=4;
+#								;;
+#							20)
+#								#Q_Prio = 6
+#								MOD_MARK=5;
+#								;;
+#							21)
+#								MOD_MARK=6;
+#								;;
+#							13)
+#								#Q_Prio = 4
+#								MOD_MARK=0;
+#								;;
+#							24)
+#								#Q_Prio = 1 
+#								MOD_MARK=3;
+#								;;
+#							25)
+#								#Q_Prio = 2
+#								MOD_MARK=2;
+#								;;
+#							26)	
+#								#Q_Prio = 3
+#								MOD_MARK=1;
+#								;;
+#
+#						esac
+					fi # End of Target GRX LOOP
+
+					if [ "$target" = "VRX2" ]; then
+					
+						MOD_MARK=`expr $queue_prio - 1`
+#						case "$NF_MARK" in
+#							29)
+#								#Q_Prio = 1
+#								MOD_MARK=3;
+#								;;
+#							20)
+#								#Q_Prio = 2
+#								MOD_MARK=2;
+#								;;
+#							21)
+#								#Q_Prio = 3
+#								MOD_MARK=1;
+#								;;
+#							22)
+#								#Q_Prio = 4
+#								MOD_MARK=0;
+#								;;
+#						esac
+					fi # End of Target VRX LOOP
+
+				   	MOD_MARK=`expr $queue_prio - 1`
+
+					#Form the switch_cli rule
+					switch_cmd="dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_PCE_RULE_WRITE" 
+
+					#All classifiers added from web will be assigned order from 11,
+					#0 => default order; 1 => RTP_UPSTREAM; 2 => RTP_DOWNSTREAM; 3 => SIP_US; 4 => SIP_DS ; 5 => MGMT_DS; 11 + => USER defined
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						nORDER=$(( $QOS_ORDER + 10 ))
+					fi
+
+					if [ $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL -o $QOS_IFTYPE -eq $QOS_INTF_WAN ]; then
+						#Downstream classifiers start from order 30 onwards
+						nORDER=$(( $QOS_ORDER + 30 ))
+					fi
+					switch_cmd="$switch_cmd pattern.nIndex=$nORDER"
+		
+					bEnable=$QOS_ENABLE
+					switch_cmd="$switch_cmd pattern.bEnable=$bEnable"
+				
+					if [ $QOS_INDSCP != -1 ]; then
+						bDSCP_Enable="1"
+						nDSCP=$QOS_INDSCP
+						switch_cmd="$switch_cmd pattern.bDSCP_Enable=$bDSCP_Enable pattern.nDSCP=$nDSCP"
+					fi
+					if [ $QOS_IN802_1P != -1 ]; then
+						bPCP_Enable="1"
+						nPCP=$QOS_IN802_1P
+						switch_cmd="$switch_cmd pattern.bPCP_Enable=$bPCP_Enable pattern.nPCP=$nPCP"
+					fi
+					#Manamohan:Added the support VlanId based classification
+					if [ $QOS_INVLANID != -1 ]; then
+						switch_cmd="$switch_cmd pattern.bVid=1 pattern.nVid=$QOS_INVLANID"
+					fi				
+
+					if [ ! -z $QOS_SRCMAC ]; then
+						bMAC_SrcEnable=1
+						#nMAC_SrcMask=$QOS_SRCMACMASK
+						nMAC_SrcMask=0xff00
+						nMAC_Src=$QOS_SRCMAC
+						switch_cmd="$switch_cmd pattern.bMAC_SrcEnable=$bMAC_SrcEnable pattern.nMAC_Src=$nMAC_Src pattern.nMAC_SrcMask=$nMAC_SrcMask"
+					fi
+					if [ ! -z $QOS_DSTMAC ]; then
+						bMAC_DstEnable=1
+						#Remove the below line when Dst MAC is supported in QoS, this is added since rc.conf has a param and it is left as null
+						#swutility needs default value as 0.
+			
+						nMAC_DstMask=0xff00
+						nMAC_Dst=$QOS_DSTMAC
+						switch_cmd="$switch_cmd pattern.bMAC_DstEnable=$bMAC_DstEnable pattern.nMAC_Dst=$nMAC_Dst pattern.nMAC_DstMask=$nMAC_DstMask"
+					fi
+					if [ $QOS_SRCPORT != -1 ]; then
+						bAppDataMSB_Enable=1
+						nAppDataMSB=$QOS_SRCPORT
+						switch_cmd="$switch_cmd pattern.bAppDataMSB_Enable=$bAppDataMSB_Enable pattern.nAppDataMSB=$nAppDataMSB"
+					fi
+					if [ $QOS_SRCPORTEND != -1 ]; then
+						bAppMaskRangeMSB_Enable=1
+						#SRC_PORTMASK=0xff00
+						#SRC_PORTEND=$QOS_SRCPORTEND
+						SRC_PORTEND=`expr $QOS_SRCPORTEND - $QOS_SRCPORT`
+						switch_cmd="$switch_cmd pattern.bAppMaskRangeMSB_Select=$bAppMaskRangeMSB_Enable pattern.nAppMaskRangeMSB=$SRC_PORTEND"
+					fi
+					if [ $QOS_DSTPORT != -1 ]; then
+						bAppDataLSB_Enable=1
+						nAppDataLSB=$QOS_DSTPORT
+						switch_cmd="$switch_cmd pattern.bAppDataLSB_Enable=$bAppDataLSB_Enable pattern.nAppDataLSB=$nAppDataLSB"
+					fi
+					if [ $QOS_DSTPORTEND != -1 ]; then
+						bAppMaskRangeLSB_Enable=1
+						#DST_PORTMASK=0xff00
+						#DST_PORTEND=$QOS_DSTPORTEND
+						DST_PORTEND=`expr $QOS_DSTPORTEND - $QOS_DSTPORT`
+						switch_cmd="$switch_cmd pattern.bAppMaskRangeLSB_Select=$bAppMaskRangeLSB_Enable pattern.nAppMaskRangeLSB=$DST_PORTEND"
+					fi
+					if [ ! -z $QOS_DSTIP ]; then
+						if [ $QOS_L3PROTO -eq 1 ]; then
+							eDstIP_Select=1
+							nDstIP=$QOS_DSTIP
+							nDstIP_Mask=0xffffff00
+							switch_cmd="$switch_cmd pattern.eDstIP_Select=$eDstIP_Select pattern.nDstIP=$nDstIP pattern.nDstIP_Mask=$nDstIP_Mask"
+						fi
+						if [ $QOS_L3PROTO -eq 2 ]; then
+							eDstIP_Select=2
+							nDstIP=$QOS_DSTIP
+							nDstIP_Mask=0xffffff00
+							switch_cmd="$switch_cmd pattern.eDstIP_Select=$eDstIP_Select pattern.nDstIP=$nDstIP"
+						fi
+	
+					fi
+					if [ ! -z $QOS_SRCIP ]; then
+						if [ $QOS_L3PROTO -eq 1 ]; then
+							eSrcIP_Select=1
+							nSrcIP=$QOS_SRCIP
+							nSrcIP_Mask=0xffffff00
+							switch_cmd="$switch_cmd pattern.eSrcIP_Select=$eSrcIP_Select pattern.nSrcIP=$nSrcIP pattern.nSrcIP_Mask=$nSrcIP_Mask"
+						fi
+						if [ $QOS_L3PROTO -eq 2 ]; then
+							eSrcIP_Select=2
+							nSrcIP=$QOS_SRCIP
+							nSrcIP_Mask=0xffffff00
+							switch_cmd="$switch_cmd pattern.eSrcIP_Select=$eSrcIP_Select pattern.nSrcIP=$nSrcIP"
+						fi
+		
+					fi
+					if [ $QOS_PROTO != -1 ]; then
+						bProtocolEnable=1
+						nProtocol=$QOS_PROTO
+						nProtocolMask=$QOS_PROTO
+						switch_cmd="$switch_cmd pattern.bProtocolEnable=$bProtocolEnable pattern.nProtocol=$nProtocol pattern.nProtocolMask=$nProtocolMask"
+					fi
+	
+					eTrafficClassAction=2
+					nTrafficClassAlternate=$MOD_MARK
+					switch_cmd="$switch_cmd action.eTrafficClassAction=$eTrafficClassAction action.nTrafficClassAlternate=$nTrafficClassAlternate"
+		
+					if [ $QOS_802_1PMARK != -1 ]; then
+						bRemarkPCP=1
+						switch_cmd="$switch_cmd action.bRemarkPCP=$bRemarkPCP"
+					fi
+					
+#					if [ $QOS_DSCPMARK != -1 ]; then
+#						bRemarkDSCP=1
+#						switch_cmd="$switch_cmd action.bRemarkDSCP=$bRemarkDSCP"
+#					fi
+				
+#					if [ $QOS_DSCPMARK != -1 -o $QOS_802_1PMARK != -1 ]; then
+#						bRemarkClass=1
+#						switch_cmd="$switch_cmd action.bRemarkClass=$bRemarkClass"
+#					fi
+				
+					#Add MFC rule
+
+					if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+	
+						switch_cmd="switch_cli $switch_cmd"
+						$switch_cmd >> /tmp/ipqos_tmp.log
+				
+						if [ $QOS_802_1PMARK != -1 ]; then
+							cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_CLASS_PCP_SET nTrafficClass=$nTrafficClassAlternate nPCP=$QOS_802_1PMARK"
+							$cmd
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=6 bPCP_IngressRemarkingEnable=1 bPCP_EgressRemarkingEnable=0
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=5 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=1 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=2 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=4 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+	
+						fi
+					fi # End of switch MFC LOOP
+
+					#ADD DSCP based classifier rule
+					if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+						if [ $QOS_INDSCP != -1 ]; then
+							cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_DSCP_CLASS_SET nDSCP=$QOS_INDSCP nTrafficClass=$nTrafficClassAlternate"
+							$cmd >> /tmp/ipqos_tmp.log
+						fi
+               				fi
+
+					#Check and add 802.1P Remarking rule
+					if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+						if [ $QOS_IN802_1P != -1 ]; then
+							cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=$QOS_IN802_1P nTrafficClass=$nTrafficClassAlternate"
+							$cmd >> /tmp/ipqos_tmp.log
+						fi
+						if [ $QOS_802_1PMARK != -1 ]; then
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=6  bPCP_IngressRemarkingEnable=1 bPCP_EgressRemarkingEnable=0
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=5  bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+							cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_CLASS_PCP_SET nTrafficClass=$nTrafficClassAlternate nPCP=$QOS_802_1PMARK"
+							$cmd >> /tmp/ipqos_tmp.log
+	
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=1 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=2 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+				#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=4 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+	
+						fi
+					fi # End of 8021P LOOP 
+			 	fi # End of GRX VRX RT LOOP for Switch
+			fi # End of IFTYPE loop for switch
+		#fi # Commented for iftype = active qiftype loop
+	fi # End of cpeid = qid loop 
+
+	QOS_RULE=""
+	n=$(( $n + 1 ))
+done # End of while loop
+

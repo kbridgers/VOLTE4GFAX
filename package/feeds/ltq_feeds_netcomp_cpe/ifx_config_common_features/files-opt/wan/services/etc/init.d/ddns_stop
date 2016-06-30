@@ -1,0 +1,7 @@
+#!/bin/sh
+
+#stop() {
+	killall -QUIT ez-ipupdate 
+	/usr/sbin/status_oper SET "ddns" status stop
+#}
+

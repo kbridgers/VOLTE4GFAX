@@ -1,0 +1,20 @@
+diff -Naur wireless/driver/rflib/shared/rdlim.c wireless/driver/rflib/shared/rdlim.c
+--- wireless/driver/rflib/shared/rdlim.c	2012-05-21 16:53:26.000000000 +0300
++++ wireless/driver/rflib/shared/rdlim.c	2012-06-11 14:30:45.000000000 +0300
+@@ -402,6 +402,7 @@
+  { 0x1a30, 0x0700, 0x37, 0x43, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* GPB326_(Gen3mPCI_2G_2x2_hp) */
+  { 0x1a30, 0x0700, 0x3c, 0x41, RDILIM_USE_3TX | RDILIM_USE_3RX, hw_lim_gpb304 },            /* Sagem_ftth_5G */
+  { 0x1a30, 0x0700, 0x3c, 0x42, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* Sagem_ftth_2G */
++ { 0x1a30, 0x0710, 0x3c, 0x43, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* Sagem_(Gen3mPCIe_5G_2x2) */
+  { 0x1a30, 0x0700, 0x3d, 0x41, RDILIM_USE_3TX | RDILIM_USE_3RX, hw_lim_gpb304 },            /* Zyxel_3x3_5G */
+  { 0x1a30, 0x0700, 0x3d, 0x42, RDILIM_USE_3TX | RDILIM_USE_3RX, hw_lim_gpb304 },            /* Zyxel_3x3_2G */
+  { 0x1a30, 0x07c0, 0x40, 0x41, RDILIM_USE_3TX | RDILIM_USE_3RX, hw_lim_gpb304 },            /* AR10_E1_3x3_RFA11 */
+@@ -409,6 +410,8 @@
+  { 0x1a30, 0x07c0, 0x40, 0x43, RDILIM_USE_3TX | RDILIM_USE_3RX, hw_lim_gpb304 },            /* AR10_F1_3x3_RFA21 */
+  { 0x1a30, 0x07c0, 0x40, 0x44, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* AR10_F1_2x2_RFA21 */
+  { 0x1a30, 0x07c0, 0x40, 0x45, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* AR10_F2_2x2 */
++ { 0x1a30, 0x07c0, 0x40, 0x46, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* AR10_F1_2x2_RFA21_BT */
++ { 0x1a30, 0x07c0, 0x40, 0x47, RDILIM_USE_2TX | RDILIM_USE_2RX, hw_lim_gpb304 },            /* AR10_F1_2x2_RFA21_ExtLna */
+  { 0x0000, 0x0000, 0x00, 0x00, 0x00, NULL }
+ };
+ 

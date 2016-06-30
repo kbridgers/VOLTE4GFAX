@@ -1,0 +1,33 @@
+move falcon_gpio_set(..) up to call it when switching direction to output
+
+--- a/arch/mips/lantiq/falcon/gpio.c
++++ b/arch/mips/lantiq/falcon/gpio.c
+@@ -154,13 +154,6 @@ static int falcon_gpio_direction_input(s
+ 	return 0;
+ }
+ 
+-static int falcon_gpio_direction_output(struct gpio_chip *chip, unsigned int offset, int value)
+-{
+-	struct falcon_gpio_port *gpio_port = to_falcon_gpio_port(chip);
+-	gpio_w32(1<<offset, &gpio_port->port->dirset);
+-	return 0;
+-}
+-
+ static void falcon_gpio_set(struct gpio_chip *chip, unsigned int offset, int value)
+ {
+ 	struct falcon_gpio_port *gpio_port = to_falcon_gpio_port(chip);
+@@ -170,6 +163,14 @@ static void falcon_gpio_set(struct gpio_
+ 		gpio_w32(1<<offset, &gpio_port->port->outclr);
+ }
+ 
++static int falcon_gpio_direction_output(struct gpio_chip *chip, unsigned int offset, int value)
++{
++	struct falcon_gpio_port *gpio_port = to_falcon_gpio_port(chip);
++	falcon_gpio_set(chip, offset, value);
++	gpio_w32(1<<offset, &gpio_port->port->dirset);
++	return 0;
++}
++
+ static int falcon_gpio_get(struct gpio_chip *chip, unsigned int offset)
+ {
+ 	struct falcon_gpio_port *gpio_port = to_falcon_gpio_port(chip);

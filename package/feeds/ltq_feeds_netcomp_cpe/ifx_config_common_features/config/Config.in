@@ -1,0 +1,401 @@
+config IFX_MODEL_NAME
+	string 'Platform model name'
+	help
+		Platform model name needs to be defined here
+
+config FEATURE_IFX_DEBUG
+	bool 'Enable Debug'
+	help
+	  Enable debug messages
+
+config FEATURE_IFX_SINGLE_PORT
+	bool 'Enable single port'
+        default n
+	help
+	  To differentiate between single and multi port.
+
+config PACKAGE_IFX_DSL_CPE_API
+	depends on PACKAGE_ifx-dsl-cpe-api-danube
+	depends on PACKAGE_ifx-dsl-cpe-control-danube
+	bool 'DSL CPE API'
+	default y
+	help
+	  Enable DSL CPE Support
+
+config FEATURE_IFX_ADSL_FIRMWARE
+	string 'firmware image'
+	default "AmazonSE_340711.bin"
+	depends on FEATURE_IFX_DSL_CPE_API
+	depends on PACKAGE_ifx-dsl-amazon-se-firmware-adsl-a
+	depends on PACKAGE_ifx-dsl-amazon-se-firmware-adsl-b
+	help
+		ADSL FIRMWARE for Amazon SE
+
+#config FEATURE_IFX_ADSL_FIRMWARE
+#	string 'firmware image'
+#	default "AmazonSE_340711.bin"
+#	depends on FEATURE_IFX_DSL_CPE_API
+#	depends on PACKAGE_ifx-dsl-ar9-firmware-adsl-a 
+#	depends on CONFIG_PACKAGE_ifx-dsl-ar9-firmware-adsl-b
+#	help
+#		ADSL FIRMWARE for AR9
+
+config FEATURE_IFX_ADSL_FIRMWARE_IN_ROOTFS
+	bool 'adsl firmware in rootfs'
+	depends on FEATURE_IFX_DSL_CPE_API
+	help
+		ADSL FIRMWARE in rootfs
+
+config IFX_CONFIG_CPU
+	string 'Config CPU'
+	default "AMAZON_S"
+	help
+		IFX Config CPU
+
+config IFX_CONFIG_CPU_VER
+	string 'Config CPU VER'
+	default "AR9v1.2"
+	help
+		IFX Config CPU Version
+
+config IFX_CONFIG_MEMORY_SIZE
+	int 'Config Memory Size'
+	default 32
+	help
+		IFX Config Memory Size
+
+config IFX_CONFIG_FLASH_SIZE
+	int 'Config Flash Size'
+	default 4
+	help
+		IFX Config Flash Size
+
+config IFX_CONFIG_FUTURE_SET
+	string 'Config Future Set Ver'
+	default "V41"
+	help
+		IFX Config CPU Version
+
+config IFX_UBOOT_RAM_TEXT_BASE
+	hex 'UBOOT Ram Text Base'
+	default 0xA0400000
+	help
+		IFX UBOOT RAM Text Base Size
+
+config IFX_BOOTSTRAP_TEXT_BASE
+	hex 'BOOT Strap Text Base'
+	default 0xB0000000
+	help
+		IFX BOOT STRAP Text Base Size
+
+config IFX_DDR_RAM
+	string 'IFX DDR RAM'
+	default "166"
+	help
+		IFX DDR RAM Size
+
+config IFX_CPU_CLOCK_RATE
+	string 'IFX CPU Clock Rate'
+	default "333"
+	help
+		IFX CPU Clock Rate
+
+config IFX_CONFIG_FLASH_TYPE
+	string 'IFX Config Flash Type'
+	default "NOR"
+	help
+		IFX Config Flash Type
+
+config IFX_CONFIG_CLK_SOURCE
+	string 'IFX Config Clock Source'
+	default "PLLO"
+	help
+		IFX Config Clock Source Type
+
+config IFX_ADDON
+	depends on PACKAGE_kmod-ifx-nfext
+	bool 'IFX addon'
+	default y
+	help
+	  Enable IFX Addon Support
+
+config FULL_PACKAGE
+	depends on PACKAGE_kmod-ifx-nfext
+	bool 'IFX Full Package'
+	default y
+	help
+	  Enable IFX Full Package Support
+
+config PPP_IFX_IDLETIME_EXTENSION
+	depends on PACKAGE_kmod-ifx-nfext
+	tristate 'PPP IFX Idletime Extension'
+	default m
+	help
+	  Enable PPP IFX Idletime extension Support
+
+config NF_TURBONAT
+	depends on PACKAGE_kmod-ifx-nfext
+	bool 'IFX NF Turbonat'
+	default y
+	help
+	  Enable IFX Netfilter Turbonat Support
+
+config DANUBE
+	depends on PACKAGE_kmod-ifx-nfext
+	bool 'IFX Danube'
+	default y
+	help
+	  Enable IFX Danube Support
+
+config AMAZON_SE
+	depends on PACKAGE_kmod-ifx-nfext
+	bool 'IFX Amzaon SE'
+	default y
+	help
+	  Enable IFX Amazon SE Support
+
+config FEATURE_SYSTEM_LOG_BUFFER_SIZE
+	int 'System log Buffer Size'
+	default 8
+	help
+		IFX Config System Log Buffer Size
+
+config FEATURE_SYSTEM_LOG_BUFFER_COUNT
+	int 'System log Buffer Count'
+	default 2
+	help
+		IFX Config System Log Buffer Count
+
+config FEATURE_ADSL_ATM_WAN_SUPPORT
+	bool 'ADSL ATM WAN support'
+	select FEATURE_ADSL_WAN_SUPPORT
+	select FEATURE_ATM_WAN_SUPPORT
+	default n
+	help
+		ATM WAN configuration support
+
+config FEATURE_ADSL_PTM_WAN_SUPPORT
+	bool 'ADSL PTM WAN support'
+	select FEATURE_ADSL_WAN_SUPPORT
+	select FEATURE_PTM_WAN_SUPPORT
+	default n
+	help
+		PTM WAN configuration support
+
+config FEATURE_ADSL_WAN_SUPPORT
+	bool 'ADSL WAN support'
+	help
+		ATM and PTM WAN configuration support
+
+
+config FEATURE_ETH_WAN_MII0_SUPPORT
+	bool 'ETH WAN MII0 support'
+	select FEATURE_ETH_WAN_SUPPORT
+	default n 
+	help
+		ETH WAN configuration support
+
+config FEATURE_ETH_WAN_MII1_SUPPORT
+	bool 'ETH WAN MII1 support'
+	select FEATURE_ETH_WAN_SUPPORT
+	default n
+	help
+		ETH WAN configuration support
+
+config FEATURE_ETH_WAN_SUPPORT
+	bool 'ETH WAN support'
+	help
+		ETH WAN configuration support
+
+config FEATURE_VDSL_PTM_WAN_SUPPORT
+	bool 'VDSL PTM WAN support'
+	select FEATURE_PTM_WAN_SUPPORT
+	default n
+	help
+		PTM WAN configuration support
+
+config FEATURE_VDSL_ATM_WAN_SUPPORT
+	bool 'VDSL ATM WAN support'
+	select FEATURE_ATM_WAN_SUPPORT
+	default n
+	help
+		ATM WAN configuration support
+
+
+config FEATURE_PTM_WAN_SUPPORT
+	bool 'PTM WAN support'
+	help
+		PTM WAN configuration support
+
+config FEATURE_ATM_WAN_SUPPORT
+	bool 'ATM WAN support'
+	help
+		ATM WAN configuration support
+
+
+config FEATURE_CELL_WAN_SUPPORT
+	bool 'USB 3G Wireless WAN support'
+	select PACKAGE_kmod-usb_wwan_serial_modem
+	select PACKAGE_usb-modeswitch
+	select PACKAGE_usb-modeswitch-data
+	select PACKAGE_comgt
+	depends !FEATURE_WWAN_LTE_SUPPORT
+	help
+	  USB 3G / LTE modem based WWAN configuration support
+
+config FEATURE_WWAN_LTE_SUPPORT
+	bool 'USB LTE Wireless WAN Support'
+	select PACKAGE_altair-lte
+	help
+	  USB LTE modem based WWAN configuration support
+
+config FEATURE_WEB_REDIRECTOR
+	bool 'WEB REDIRECTOR support'
+	default n
+	select PACKAGE_arp-scan
+	select PACKAGE_libpcap
+	select BUSYBOX_CONFIG_WGET
+	help
+	  Support for  WEB REDIRECTOR
+
+config FEATURE_WAN_AUTO_DETECT
+	bool 'Wan Auto Detect support'
+	depends !TARGET_ltqcpe_platform_vbg400
+	default y
+	help
+	  Support for Wan Auto Detect
+
+config FEATURE_LED
+	bool 'LED support'
+	default y
+	help
+		Support for LED
+
+config FEATURE_LED_INTERNET_RED
+	bool 'Internet RED LED support'
+	depends on FEATURE_LED
+	default n
+	help
+		Ineternet RED LED support
+
+config FEATURE_LQ_OPTIMIZATION
+	bool 'Optimization mode for packages'
+	select PACKAGE_kmod-ltq_optimization
+	help
+	  Flag to inform packages to create optimized binaries and
+	  copy only required binaries or scripts to the target.
+
+config FEATURE_DHCP_SERVER
+	bool 'DHCP Server'
+	default n
+	help
+	  DHCP Server
+
+config FEATURE_DHCP_BOOTP
+	bool 'bootp support'
+	default n
+	depends FEATURE_DHCP_SERVER
+	help
+	  BOOTP support for DHCP Server
+
+config FEATURE_DHCP_CLIENT
+	bool 'DHCP Client'
+	default n
+	help
+	  DHCP Client
+
+config FEATURE_DHCP_AUTOFILL
+	bool 'DHCP Autofill'
+	default n 
+	help
+	  DHCP Autofill
+
+config FEATURE_SYSTEM_LOG
+	bool 'System log'
+	default n
+	help
+	  System log
+
+config FEATURE_TELNET_SERVER
+	bool 'Telnet Server'
+	default n
+	help
+	  Telnet Server
+
+config FEATURE_TFTP_SERVER
+	bool 'TFTP Server'
+	default n
+	help
+	  TFTP Server
+
+config FEATURE_FTP_SERVER
+	bool 'FTP Server'
+	default n
+	help
+	  TFTP Server
+
+config FEATURE_INETD
+	bool 'Inetd Super Server'
+	default n
+	help
+	  Inetd
+
+config FEATURE_IFX_HOST_ENVIR
+	bool 'Host Environment'
+	default n
+	help
+	  Host environment compilation
+
+config FEATURE_IFX_IPSEC_TERMINATION
+	bool 'IPsec Termination'
+	default n
+	help
+	  Capability for IPsec termination
+
+config FEATURE_LTQ_PARAMETER_ENCRYPTION
+	bool 'Parameter Encryption'
+	default n
+	help
+	  Capability for param encryption
+
+config LTQ_BRIDGE_MODEM
+	bool 'Modem configuration as bridge or router'
+	default n
+	help
+	  Set value to y to have bridge modem related scripts only. For router,
+	  set to n
+
+config LTQ_SWITCH_DEVICE_ID
+        int 'Switch device (internal=0, external=1)'
+        default 1 if ( TARGET_ltqcpe_platform_ar9 || TARGET_ltqcpe_platform_amazon_se || TARGET_ltqcpe_platform_danube )
+        default 0
+        help
+          We use this value to pass the switch type ( dev=0 for internal switch, dev=1 for external switch) as a command line argument to switch_cli
+
+config FEATURE_DSL_BONDING_SUPPORT
+	depends on PACKAGE_ifx-dsl-cpe-api-vrx
+	bool 'DSL Bonding Support'
+	default n
+	help
+	  Enable DSL Bonding Support
+
+config LTQ_LOG_TIMESTAMP
+	bool 'logging the timestamp for profiling'
+	default n
+	help
+		Set value to y for enabling logging timestamp
+
+config FEATURE_PPA_SUPPORT
+	bool 'PPA Support'
+	depends PACKAGE_kmod-ltqcpe_ppa_a5_builtin || PACKAGE_kmod-ltqcpe_ppa_a5_mod || PACKAGE_kmod-ltqcpe_ppa_e5_builtin || PACKAGE_kmod-ltqcpe_ppa_e5_mod || PACKAGE_kmod-ltqcpe_ppa_d5_builtin || PACKAGE_kmod-ltqcpe_ppa_d5_mod || PACKAGE_kmod-ltqcpe_ppa_vrx318_builtin || PACKAGE_kmod-ltqcpe_ppa_vrx318_module
+	default y 
+	help
+		Enabled if PPA support is configured
+
+config FEATURE_ANY_WAN_SUPPORT
+	bool 'Enable Any WAN Support'
+	select PACKAGE_kmod-pecostat
+	select FEATURE_SYSTEM_PERFORMANCE_CHARTS
+	default n
+	help
+		Set value to y for enabling Any WAN Support

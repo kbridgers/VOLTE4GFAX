@@ -1,0 +1,147 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then                                                                                               
+if [ -r /flash/rc.conf ]; then                                                                                      
+. /flash/rc.conf 2> /dev/null                                                                              
+ENVLOADED="1"                                                                                             
+fi                                                                                                                
+fi                                                                                                                        
+if [ ! "$CONFIGLOADED" ]; then                                                                                            
+if [ -r /etc/rc.d/config.sh ]; then                                                                               
+. /etc/rc.d/config.sh 2>/dev/null                                                                                     
+CONFIGLOADED="1"                                                                                          
+fi                                                                                                                
+fi
+
+
+if [ $qm_enable -eq 1 ]; then
+
+	#/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" 
+
+	#find default WAN interface from wan_main_def_conn = WAN1
+	eval defwan_Conn=$wan_main_defConn 
+
+	#find wan instance from defualt WAN interface =1
+
+	cat /flash/rc.conf | grep wan_main_defConn | sed -n 's,wan_main_defConn="WAN,,;1p' > /tmp/test
+	defwan_inst=`cat /tmp/test |  sed -n 's,",,;1p'` 
+
+	#substitue _instance to wan_{instanace}_vcc                                                                                   
+	eval defvcc='$'wan_${defwan_inst}_vcc                                                                                         
+                                                  
+	vcc=`echo $defvcc | sed -n 's,\/,.,;1p'`                                                                                      
+
+	ppe_ipqos=`/usr/sbin/status_oper GET IPQoS_Config ppe_ipqos` 
+	ppa_up_status=1
+
+	# get wan_x_mode from rc.conf.
+	eval wanmode='$'wan_${defwan_inst}_wanMode
+
+	#update defvcc in /tmp/system_status                                             
+	/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+
+	if [ $wanmode -eq "0" ]; then
+		echo configuring PPE queues for ATM WAN mode >> /tmp/ipqos_log
+		eval wanifnas='$'wan_${defwan_inst}_iface
+
+		# if WAN is in bridge; disable PPA
+		brctlintf=`brctl showstp br0 | grep $wanifnas |sed 's#^\(....\)\(.*\)#\1#g'`
+		#echo intfin brdge=$brctlintf
+
+		#eval dropmask=1
+		#loop for max number of queue times to find the drop type
+		#for q in 0 1 2 3 4 5 6 7
+		#do
+			#echo find aggregate drop algo in all queues
+		#	eval dropType='$'qq_${q}_dropType
+		#	eval dropalgo=`expr $dropType \* $dropmask`
+			#echo aggregate drop algo=$dropalgo
+		#done
+
+		# if wan_{inst}_nas != brctlintf
+		# then nas is not in bridge and RED/DT not configured call PPE_IPQOS_INIT
+		ppe_ipqos=1
+		ppa_up_status=1
+		/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "ENABLED" "comment" "Upstream PPA ENABLED: hardware queues in PPE firmware queues active"
+		/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+		if [ "$brctlintf" != "$wanifnas" ] 
+			#&& [ "$dropalgo" != "0" ]
+		then
+			echo QoS Init in WANATM mode >> /tmp/ipqos_log
+
+			/etc/rc.d/ipqos_init &
+
+			/etc/rc.d/ppe_ipqos_init &
+
+		else
+			#call disable PPA
+ 			echo WAN interface is in bridge, so PPA is disabled: Software QoS in Use >> /tmp/ipqos_log
+			ppe_ipqos=0
+			ppa_up_status=0
+			/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "DISABLED" "comment" "IPiQoS disabled upstream PPA:no hardware queues in PTM"
+			/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+			/etc/rc.d/ppa_up_config 2 &
+			# Enter Software QoS, call ipqos_init
+			/etc/rc.d/ipqos_init & 
+		fi
+
+	elif [ $wanmode -eq "1" ]
+	then	
+		echo configuring Tantos queues for WAN ETH mii0 mode >> /tmp/ipqos_log
+		#ppe_ipqos=1
+		#ppa_up_status=1
+		#/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "ENABLED" "comment" "Upstream PPA ENABLED: hardware queues on mii0 queues active"
+		#/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+
+		#/etc/rc.d/ipqos_init &
+		
+		
+		#/etc/rc.d/ppe_ipqos_init &
+		
+		#enable software qos for time being
+		#disable upstream and downstream acceleration
+		/etc/rc.d/ppa_up_config 2 &
+		
+		ppe_ipqos=0
+		ppa_up_status=0
+		/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "DISABLED" "comment" "Upstream PPA DISABLED: Software QoS on Mii0"
+		/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+
+		/etc/rc.d/ipqos_init &
+		
+		
+	
+	elif [ $wanmode -eq "2" ]
+	then	
+		echo configuring software queues for WAN ETH mii1 mode >> /tmp/ipqos_log
+		
+		#disable upstream and downstream acceleration
+		/etc/rc.d/ppa_up_config 2 &
+	
+		ppe_ipqos=0
+		ppa_up_status=0
+		/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "DISABLED" "comment" "IPiQoS disabled upstream PPA:no hardware queues in Mii1"
+		/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+
+		/etc/rc.d/ipqos_init &
+
+	elif [ $wanmode -eq "3" ]
+	then	
+		echo configuring software queues for PTM wan mode >> /tmp/ipqos_log
+			
+		#disable upstream and downstream acceleration
+		/etc/rc.d/ppa_up_config 2 &
+
+		ppe_ipqos=0
+		ppa_up_status=0
+		/usr/sbin/status_oper SET "PPA_STATUS" "ppa_upstream_status" "DISABLED" "comment" "IPiQoS disabled upstream PPA:no hardware queues in PTM"
+		/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" "def_wanMode" "$wanmode" "ppa_up_status" "$ppa_up_status"
+
+		/etc/rc.d/ipqos_init &
+
+
+
+	fi
+
+
+fi
+

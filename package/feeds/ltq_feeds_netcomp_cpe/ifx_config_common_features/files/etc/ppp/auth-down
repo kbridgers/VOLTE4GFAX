@@ -1,0 +1,22 @@
+#!/bin/sh
+# auth-up interface-name tty-device speed local-link-local-address remote-link-local-address ipparam
+
+eval status_ad=`/usr/sbin/status_oper GET autodetect_status status_ad`
+if [ -z $status_ad ] || [ $status_ad -eq 0 ]; then
+
+	if [ -r /etc/rc.conf ]; then
+		. /etc/rc.conf 2> /dev/null
+	fi
+
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+	fi
+
+	wan_idx=`cat /etc/rc.conf | grep "ifppp=\"${1}\"" | cut -d '_' -f 2`
+
+	authFail=`/usr/sbin/status_oper -u GET "WanPPP${wan_idx}_PPP_Info" AUTH_FAIL`
+	authFail=$(( $authFail + 1 ))
+	/usr/sbin/status_oper -u SET "WanPPP${wan_idx}_PPP_Info" AUTH_FAIL $authFail
+else 
+	/usr/sbin/status_oper -u SET "autodetect_status" pppoe_status 1
+fi

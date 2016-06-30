@@ -1,0 +1,738 @@
+--- a/drivers/net/Kconfig
++++ b/drivers/net/Kconfig
+@@ -2080,6 +2080,12 @@ config LANTIQ_ETOP
+ 	help
+ 	  Support for the MII0 inside the Lantiq SoC
+ 
++config LANTIQ_SVIP_ETH
++	default y
++	tristate "Lantiq SoC SVIP Ethernet driver"
++	depends on SOC_SVIP
++	help
++	  Support for the MII0 inside the Lantiq SVIP SoC
+ 
+ source "drivers/net/fs_enet/Kconfig"
+ 
+--- a/drivers/net/Makefile
++++ b/drivers/net/Makefile
+@@ -248,6 +248,7 @@ obj-$(CONFIG_MLX4_CORE) += mlx4/
+ obj-$(CONFIG_ENC28J60) += enc28j60.o
+ obj-$(CONFIG_ETHOC) += ethoc.o
+ obj-$(CONFIG_LANTIQ_ETOP) += lantiq_etop.o
++obj-$(CONFIG_LANTIQ_SVIP_ETH) += svip_eth.o
+ 
+ obj-$(CONFIG_XTENSA_XT2000_SONIC) += xtsonic.o
+ 
+--- /dev/null
++++ b/drivers/net/svip_eth.c
+@@ -0,0 +1,710 @@
++/******************************************************************************
++
++                               Copyright (c) 2012
++                            Lantiq Deutschland GmbH
++
++  For licensing information, see the file 'LICENSE' in the root folder of
++  this software module.
++
++******************************************************************************/
++
++#include <linux/version.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/interrupt.h>
++#include <linux/uaccess.h>
++#include <linux/in.h>
++#include <linux/netdevice.h>
++#include <linux/inetdevice.h>
++#include <linux/etherdevice.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
++#include <linux/skbuff.h>
++#include <linux/mm.h>
++#include <linux/platform_device.h>
++#include <linux/ethtool.h>
++#include <linux/init.h>
++#include <linux/delay.h>
++#include <asm/checksum.h>
++
++#if 1 /** TODO: MOVE TO APPROPRIATE PLACE */
++
++#define ETHERNET_PACKET_DMA_BUFFER_SIZE		0x600
++#define REV_MII_MODE 			2
++
++#endif
++
++#define DRV_NAME "ifxmips_mii0"
++
++#include <lantiq_soc.h>
++#include <svip_dma.h>
++
++#ifdef CONFIG_DEBUG_MINI_BOOT
++#define IKOS_MINI_BOOT
++#endif
++
++/* debugging */
++#undef INCAIP2_SW_DUMP
++
++#define INCAIP2_SW_EMSG(fmt,args...) printk("%s: " fmt, __FUNCTION__ , ##args)
++
++#define INCAIP2_SW_CHIP_NO 1
++#define INCAIP2_SW_CHIP_ID 0
++#define INCAIP2_SW_DEVICE_NO 1
++
++#ifdef INCAIP2_SW_DEBUG_MSG
++#define INCAIP2_SW_DMSG(fmt,args...) printk("%s: " fmt, __FUNCTION__ , ##args)
++#else
++#define INCAIP2_SW_DMSG(fmt,args...)
++#endif
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++#define SVIP_IP_HDR(ethhdr) ip_hdr(ethhdr)
++#else
++#define SVIP_IP_HDR(ethhdr) (ethhdr)->nh.iph
++#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
++
++
++/************************** Module Parameters *****************************/
++static char *mode = "bridge";
++module_param(mode, charp, 0000);
++MODULE_PARM_DESC(mode, "<description>");
++
++#ifdef HAVE_TX_TIMEOUT
++static int timeout = 10*HZ;
++module_param(timeout, int, 0);
++MODULE_PARM_DESC(timeout, "Transmission watchdog timeout in seconds>");
++#endif
++
++static u32 *paddr_eth0;
++static u32 *paddr_eth0_0;
++
++#ifdef IKOS_MINI_BOOT
++#ifdef CONFIG_INCAIP2
++extern s32 incaip2_sw_to_mbx(struct sk_buff* skb);
++#endif
++extern s32 svip_sw_to_mbx(struct sk_buff* skb);
++#endif
++extern void enable_ch_tx_complete_irq (struct dma_channel_info *ch);
++extern void disable_ch_tx_complete_irq(struct dma_channel_info *ch);
++
++extern int open_chan_2(struct dma_channel_info *ch);
++extern int close_chan_2(struct dma_channel_info *ch);
++
++struct svip_mii_priv {
++	struct net_device_stats stats;
++	struct dma_device_info *dma_device;
++	struct sk_buff *skb;
++};
++
++static struct net_device *svip_mii0_dev;
++static unsigned char mac_addr[MAX_ADDR_LEN];
++static unsigned char my_ethaddr[MAX_ADDR_LEN];
++
++/**
++ * Initialize MAC address.
++ * This function copies the ethernet address from kernel command line.
++ *
++ * \param   line     Pointer to parameter
++ * \return  0        OK
++ * \ingroup Internal
++ */
++static int __init svip_eth_ethaddr_setup(char *line)
++{
++	char *ep;
++	int i;
++
++	memset(my_ethaddr, 0, MAX_ADDR_LEN);
++	/* there should really be routines to do this stuff */
++	for (i = 0; i < 6; i++)
++	{
++		my_ethaddr[i] = line ? simple_strtoul(line, &ep, 16) : 0;
++		if (line)
++			line = (*ep) ? ep+1 : ep;
++	}
++	INCAIP2_SW_DMSG("mac address %2x-%2x-%2x-%2x-%2x-%2x \n"
++			,my_ethaddr[0]
++			,my_ethaddr[1]
++			,my_ethaddr[2]
++			,my_ethaddr[3]
++			,my_ethaddr[4]
++			,my_ethaddr[5]);
++	return 0;
++}
++__setup("ethaddr=", svip_eth_ethaddr_setup);
++
++
++/**
++ * Open RX DMA channels.
++ * This function opens all DMA rx channels.
++ *
++ * \param   dma_dev     pointer to DMA device information
++ * \ingroup Internal
++ */
++static void svip_eth_open_rx_dma(struct dma_device_info *dma_dev)
++{
++	int i;
++
++	for(i=0; i<dma_dev->num_rx_chan; i++)
++	{
++		dma_dev->rx_chan[i]->open(dma_dev->rx_chan[i]);
++	}
++}
++
++
++/**
++ * Open TX DMA channels.
++ * This function opens all DMA tx channels.
++ *
++ * \param   dev      pointer to net device structure that comprises
++ *                   DMA device information pointed to by it's priv field.
++ * \ingroup Internal
++ */
++static void svip_eth_open_tx_dma(struct dma_device_info *dma_dev)
++{
++	int i;
++
++	for (i=0; i<dma_dev->num_tx_chan; i++)
++	{
++		dma_dev->tx_chan[i]->open(dma_dev->tx_chan[i]);
++	}
++}
++
++
++#ifdef CONFIG_NET_HW_FLOWCONTROL
++/**
++ * Enable receiving DMA.
++ * This function enables the receiving DMA channel.
++ *
++ * \param   dev      pointer to net device structure that comprises
++ *                   DMA device information pointed to by it's priv field.
++ * \ingroup Internal
++ */
++void svip_eth_xon(struct net_device *dev)
++{
++	struct switch_priv *sw_dev = (struct switch_priv *)dev->priv;
++	struct dma_device_info* dma_dev =
++		(struct dma_device_info *)sw_dev->dma_device;
++	unsigned long flag;
++
++	local_irq_save(flag);
++
++	INCAIP2_SW_DMSG("wakeup\n");
++	svip_eth_open_rx_dma(dma_dev);
++
++	local_irq_restore(flag);
++}
++#endif /* CONFIG_NET_HW_FLOWCONTROL */
++
++
++/**
++ * Open network device.
++ * This functions opens the network device and starts the interface queue.
++ *
++ * \param   dev  Device structure for Ethernet device
++ * \return  0    OK, device opened
++ * \return  -1   Error, registering DMA device
++ * \ingroup API
++ */
++int svip_mii_open(struct net_device *dev)
++{
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	struct dma_device_info *dma_dev = priv->dma_device;
++
++	svip_eth_open_rx_dma(dma_dev);
++	svip_eth_open_tx_dma(dma_dev);
++
++	netif_start_queue(dev);
++	return 0;
++}
++
++
++/**
++ * Close network device.
++ * This functions closes the network device, which will also stop the interface
++ * queue.
++ *
++ * \param   dev  Device structure for Ethernet device
++ * \return  0    OK, device closed (cannot fail)
++ * \ingroup API
++ */
++int svip_mii_release(struct net_device *dev)
++{
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	struct dma_device_info *dma_dev = priv->dma_device;
++	int i;
++
++	for (i = 0; i < dma_dev->max_rx_chan_num; i++)
++		dma_dev->rx_chan[i]->close(dma_dev->rx_chan[i]);
++	netif_stop_queue(dev);
++	return 0;
++}
++
++
++/**
++ * Read data from DMA device.
++ * This function reads data from the DMA device. The function is called by
++ * the switch/DMA pseudo interrupt handler dma_intr_handler on occurence of
++ * a DMA receive interrupt.
++ *
++ * \param   dev      Pointer to network device structure
++ * \param   dma_dev  Pointer to dma device structure
++ * \return  OK       In case of successful data reception from dma
++ *          -EIO     Incorrect opt pointer provided by device
++ * \ingroup Internal
++ */
++int svip_mii_hw_receive(struct net_device *dev, struct dma_device_info *dma_dev)
++{
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	unsigned char *buf = NULL;
++	struct sk_buff *skb = NULL;
++	int len = 0;
++
++	len = dma_device_read(dma_dev, &buf, (void **)&skb);
++
++	if (len >= ETHERNET_PACKET_DMA_BUFFER_SIZE) {
++		printk(KERN_INFO DRV_NAME ": packet too large %d\n", len);
++		goto mii_hw_receive_err_exit;
++	}
++
++	if (skb == NULL) {
++		printk(KERN_INFO DRV_NAME ": cannot restore pointer\n");
++		goto mii_hw_receive_err_exit;
++	}
++
++	if (len > (skb->end - skb->tail)) {
++		printk(KERN_INFO DRV_NAME ": BUG, len:%d end:%p tail:%p\n",
++				 len, skb->end, skb->tail);
++		goto mii_hw_receive_err_exit;
++	}
++
++	skb_put(skb, len);
++	skb->dev = dev;
++	skb->protocol = eth_type_trans(skb, dev);
++	netif_rx(skb);
++
++	priv->stats.rx_packets++;
++	priv->stats.rx_bytes += len;
++	return 0;
++
++mii_hw_receive_err_exit:
++	if (len == 0) {
++		if (skb)
++			dev_kfree_skb_any(skb);
++		priv->stats.rx_errors++;
++		priv->stats.rx_dropped++;
++		return -EIO;
++	} else {
++		return len;
++	}
++}
++
++
++/**
++ * Write data to Ethernet switch.
++ * This function writes the data comprised in skb structure via DMA to the
++ * Ethernet Switch. It is installed as the switch driver's hard_start_xmit
++ * method.
++ *
++ * \param   skb  Pointer to socket buffer structure that contains the data
++ *               to be sent
++ * \param   dev  Pointer to network device structure which is used for
++ *               data transmission
++ * \return  1    Transmission error
++ * \return  0    OK, successful data transmission
++ * \ingroup API
++ */
++static int svip_mii_hw_tx(char *buf, int len, struct net_device *dev)
++{
++	int ret = 0;
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	struct dma_device_info *dma_dev = priv->dma_device;
++	ret = dma_device_write(dma_dev, buf, len, priv->skb);
++	return ret;
++}
++
++/* Select the DMA channel numbers, refer dma_setup_init function */
++static int svip_select_tx_chan (struct sk_buff *skb, struct net_device *dev)
++{
++	 struct iphdr *iph;
++	 struct in_device *in_dev;
++	 struct in_ifaddr *ifa1, *ifa2;
++
++	 iph = SVIP_IP_HDR(skb);
++	 if (iph->protocol != IPPROTO_UDP)
++	 {
++		 /* all non-UDP packets go through channel 0 */
++		 return 0;
++	 }
++
++	 if (!paddr_eth0)
++	 {
++		 /* find pointers to IP addresses of eth0 */
++		 if ((in_dev=in_dev_get(dev)) != NULL)
++		 {
++			 ifa1 = in_dev->ifa_list;
++			 if (ifa1 != NULL)
++				 ifa2 = ifa1->ifa_next;
++			 if (ifa1 != NULL && ifa2 != NULL)
++			 {
++				 if (ifa1->ifa_address != 0)
++				 {
++					 paddr_eth0 = &ifa1->ifa_address;
++				 }
++				 if (ifa2->ifa_address != 0)
++				 {
++					 paddr_eth0_0 = &ifa2->ifa_address;
++				 }
++			 }
++			 in_dev_put(in_dev);
++		 }
++	 }
++	 else
++	 {
++		 if (iph->saddr == *paddr_eth0_0)
++		 {
++			 return 1;
++		 }
++		 else
++			 return 0;
++	 }
++	 return 0;
++}
++
++static int svip_mii_tx(struct sk_buff *skb, struct net_device *dev)
++{
++	int len;
++	char *data;
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	struct dma_device_info *dma_dev = priv->dma_device;
++
++	len = skb->len < ETH_ZLEN ? ETH_ZLEN : skb->len;
++	data = skb->data;
++	priv->skb = skb;
++	dev->trans_start = jiffies;
++	/* select the TX channel */
++	dma_dev->current_tx_chan = svip_select_tx_chan (skb, dev);
++
++	wmb();
++
++	if (svip_mii_hw_tx(data, len, dev) != len) {
++		dev_kfree_skb_any(skb);
++		priv->stats.tx_errors++;
++		priv->stats.tx_dropped++;
++	} else {
++		priv->stats.tx_packets++;
++		priv->stats.tx_bytes += len;
++	}
++
++	return 0;
++}
++
++
++/**
++ * Transmission timeout callback.
++ * This functions is called when a trasmission timeout occurs. It will wake up
++ * the interface queue again.
++ *
++ * \param   dev Device structure for Ethernet device
++ * \ingroup API
++ */
++void svip_mii_tx_timeout(struct net_device *dev)
++{
++	int i;
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	struct dma_device_info *dma_dev = priv->dma_device;
++
++	if (printk_ratelimit())
++		printk(KERN_INFO DRV_NAME ": tx timeout\n");
++	priv->stats.tx_errors++;
++	for (i = 0; i < dma_dev->num_tx_chan; i++)
++	{
++		close_chan_2(dma_dev->tx_chan[i]);
++		open_chan_2(dma_dev->tx_chan[i]);
++	}
++	netif_wake_queue(dev);
++	return;
++}
++
++
++/**
++ * Get device statistics.
++ * This functions returns the device statistics, stored in the device structure.
++ *
++ * \param   dev   Device structure for Ethernet device
++ * \return  stats Pointer to statistics structure
++ * \ingroup API
++ */
++static struct net_device_stats *svip_get_stats(struct net_device *dev)
++{
++	struct svip_mii_priv *priv = netdev_priv(dev);
++	return &priv->stats;
++}
++
++
++/**
++ * Pseudo Interrupt handler for DMA.
++ * This function processes DMA interrupts notified to the switch device driver.
++ * The function is installed at the DMA core as interrupt handler for the
++ * switch dma device.
++ * It handles the following DMA interrupts:
++ * passes received data to the upper layer in case of rx interrupt,
++ * In case of a dma receive interrupt the received data is passed to the upper layer.
++ * In case of a transmit buffer full interrupt the transmit queue is stopped.
++ * In case of a transmission complete interrupt the transmit queue is restarted.
++ *
++ * \param   dma_dev pointer to dma device structure
++ * \param   status  type of interrupt being notified (RCV_INT: dma receive
++ *                  interrupt, TX_BUF_FULL_INT: transmit buffer full interrupt,
++ *                  TRANSMIT_CPT_INT: transmission complete interrupt)
++ * \return  OK      In case of successful data reception from dma
++ * \ingroup Internal
++ */
++int dma_intr_handler(struct dma_device_info *dma_dev, int status)
++{
++	int i;
++
++	switch (status) {
++	case RCV_INT:
++		svip_mii_hw_receive(svip_mii0_dev, dma_dev);
++		break;
++
++	case TX_BUF_FULL_INT:
++		netif_stop_queue(svip_mii0_dev);
++		if (printk_ratelimit())
++			printk(KERN_INFO DRV_NAME ": tx buffer full\n");
++		for (i = 0; i < dma_dev->max_tx_chan_num; i++)
++		{
++			if ((dma_dev->tx_chan[i])->control == LTQ_DMA_CH_ON)
++				enable_ch_tx_complete_irq(dma_dev->tx_chan[i]);
++		}
++		break;
++
++	case TRANSMIT_CPT_INT:
++		if (netif_queue_stopped(svip_mii0_dev))
++		{
++			if (printk_ratelimit())
++				printk(KERN_INFO DRV_NAME ": tx complete\n");
++			for (i = 0; i < dma_dev->max_tx_chan_num; i++)
++			{
++				if ((dma_dev->tx_chan[i])->control == LTQ_DMA_CH_ON)
++					disable_ch_tx_complete_irq(dma_dev->tx_chan[i]);
++			}
++			netif_wake_queue(svip_mii0_dev);
++		}
++		break;
++	}
++
++	return 0;
++}
++
++
++/**
++ * Allocates buffer sufficient for Ethernet Frame.
++ * This function is installed as DMA callback function to be called on DMA
++ * receive interrupt.
++ *
++ * \param   len          Unused
++ * \param   *byte_offset Pointer to byte offset
++ * \param   **opt        pointer to skb structure
++ * \return  NULL         In case of buffer allocation fails
++ *          buffer       Pointer to allocated memory
++ * \ingroup Internal
++ */
++unsigned char *svip_etop_dma_buffer_alloc(int len, int *byte_offset, void **opt)
++{
++	unsigned char *buffer = NULL;
++	struct sk_buff *skb = NULL;
++
++	skb = dev_alloc_skb(ETHERNET_PACKET_DMA_BUFFER_SIZE);
++	if (skb == NULL)
++		return NULL;
++
++	buffer = (unsigned char *)(skb->data);
++	skb_reserve(skb, 2);
++	*(int *)opt = (int)skb;
++	*byte_offset = 2;
++
++	return buffer;
++}
++
++
++/**
++ * Free DMA buffer.
++ * This function frees a buffer, which can be either a data buffer or an
++ * skb structure.
++ *
++ * \param   *dataptr Pointer to data buffer
++ * \param   *opt     Pointer to skb structure
++ * \return  0        OK
++ * \ingroup Internal
++ */
++void svip_etop_dma_buffer_free(unsigned char *dataptr, void *opt)
++{
++	struct sk_buff *skb = NULL;
++
++	if (opt == NULL) {
++		kfree(dataptr);
++	} else {
++		skb = (struct sk_buff *)opt;
++		dev_kfree_skb_any(skb);
++	}
++}
++
++static int svip_mii_dev_init(struct net_device *dev);
++
++static const struct net_device_ops svip_eth_netdev_ops = {
++	.ndo_init = svip_mii_dev_init,
++	.ndo_open = svip_mii_open,
++	.ndo_stop = svip_mii_release,
++	.ndo_start_xmit = svip_mii_tx,
++	.ndo_get_stats = svip_get_stats,
++	.ndo_tx_timeout = svip_mii_tx_timeout,
++};
++
++//#include <linux/device.h>
++
++/**
++ * Initialize switch driver.
++ * This functions initializes the switch driver structures and registers the
++ * Ethernet device.
++ *
++ * \param   dev    Device structure for Ethernet device
++ * \return  0      OK
++ * \return  ENOMEM No memory for structures available
++ * \return  -1     Error during DMA init or Ethernet address configuration.
++ * \ingroup API
++ */
++static int svip_mii_dev_init(struct net_device *dev)
++{
++	int i;
++	struct svip_mii_priv *priv = netdev_priv(dev);
++
++
++	ether_setup(dev);
++	printk(KERN_INFO DRV_NAME ": %s is up\n", dev->name);
++	dev->watchdog_timeo = 10 * HZ;
++	memset(priv, 0, sizeof(*priv));
++	priv->dma_device = dma_device_reserve("SW");
++	if (!priv->dma_device) {
++		BUG();
++		return -ENODEV;
++	}
++	priv->dma_device->buffer_alloc = svip_etop_dma_buffer_alloc;
++	priv->dma_device->buffer_free = svip_etop_dma_buffer_free;
++	priv->dma_device->intr_handler = dma_intr_handler;
++	priv->dma_device->num_tx_chan = 2;
++	priv->dma_device->num_rx_chan = 3;
++
++	for (i = 0; i < priv->dma_device->max_rx_chan_num; i++)
++		priv->dma_device->rx_chan[i]->packet_size =
++			ETHERNET_PACKET_DMA_BUFFER_SIZE;
++
++	for (i = 0; i < priv->dma_device->max_tx_chan_num; i++) {
++		if (i != 0)
++		priv->dma_device->tx_chan[i]->tx_weight=DEFAULT_SW_CHANNEL_WEIGHT;
++		else
++			priv->dma_device->tx_chan[i]->tx_weight=2;
++		priv->dma_device->tx_chan[i]->packet_size =
++			ETHERNET_PACKET_DMA_BUFFER_SIZE;
++	}
++
++	dma_device_register(priv->dma_device);
++
++	printk(KERN_INFO DRV_NAME ": using mac=");
++
++	for (i = 0; i < 6; i++) {
++		dev->dev_addr[i] = mac_addr[i];
++		printk("%02X%c", dev->dev_addr[i], (i == 5) ? ('\n') : (':'));
++	}
++
++	return 0;
++}
++
++static void svip_mii_chip_init(int mode)
++{
++}
++
++static int svip_mii_probe(struct platform_device *dev)
++{
++	int result = 0;
++	unsigned char *mac = (unsigned char *)dev->dev.platform_data;
++	svip_mii0_dev = alloc_etherdev(sizeof(struct svip_mii_priv));
++	svip_mii0_dev->netdev_ops = &svip_eth_netdev_ops;
++	memcpy(mac_addr, mac, 6);
++	strcpy(svip_mii0_dev->name, "eth%d");
++	svip_mii_chip_init(REV_MII_MODE);
++	result = register_netdev(svip_mii0_dev);
++	if (result) {
++		printk(KERN_INFO DRV_NAME
++				 ": error %i registering device \"%s\"\n",
++				 result, svip_mii0_dev->name);
++		goto out;
++	}
++	printk(KERN_INFO DRV_NAME ": driver loaded!\n");
++
++out:
++	return result;
++}
++
++static int svip_mii_remove(struct platform_device *dev)
++{
++	struct svip_mii_priv *priv = netdev_priv(svip_mii0_dev);
++
++	printk(KERN_INFO DRV_NAME ": cleanup\n");
++
++	dma_device_unregister(priv->dma_device);
++	dma_device_release(priv->dma_device);
++	kfree(priv->dma_device);
++	unregister_netdev(svip_mii0_dev);
++	free_netdev(svip_mii0_dev);
++	return 0;
++}
++
++
++static struct platform_driver svip_mii_driver = {
++	.probe = svip_mii_probe,
++	.remove = svip_mii_remove,
++	.driver = {
++		.name = DRV_NAME,
++		.owner = THIS_MODULE,
++	},
++};
++
++
++/**
++ * Initialize switch driver as module.
++ * This functions initializes the switch driver structures and registers the
++ * Ethernet device for module usage.
++ *
++ * \return  0      OK
++ * \return  ENODEV An error occured during initialization
++ * \ingroup API
++ */
++int __init svip_mii_init(void)
++{
++	int ret = platform_driver_register(&svip_mii_driver);
++	if (ret)
++		printk(KERN_INFO DRV_NAME
++				 ": Error registering platfom driver!\n");
++	return ret;
++}
++
++
++/**
++ * Remove driver module.
++ * This functions removes the driver and unregisters all devices.
++ *
++ * \ingroup API
++ */
++static void __exit svip_mii_cleanup(void)
++{
++	platform_driver_unregister(&svip_mii_driver);
++}
++
++module_init(svip_mii_init);
++module_exit(svip_mii_cleanup);
++
++MODULE_LICENSE("GPL");

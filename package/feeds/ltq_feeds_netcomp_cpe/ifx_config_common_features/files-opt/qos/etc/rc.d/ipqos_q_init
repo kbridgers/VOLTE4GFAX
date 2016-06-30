@@ -1,0 +1,1613 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                . /etc/rc.conf 2> /dev/null
+                if [ -r /tmp/system_status ]; then
+                        . /tmp/system_status 2> /dev/null
+                fi
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+#		. /etc/rc.d/model_config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+		CONFIGLOADED="1"
+fi
+
+#if [ -r /etc/rc.d/model_config.sh ]; then
+#        . /etc/rc.d/model_config.sh 2>/dev/null
+#fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+# Define interface types
+	# NOTE: These values should match with the values in the enum 
+        QOS_INTF_LAN=0
+        QOS_INTF_LOCAL=7
+        QOS_INTF_ALL=13
+	QOS_INTF_WAN_ATM=9
+	QOS_INTF_WAN_PTM=10
+	QOS_INTF_WAN_ETH_0=11
+	QOS_INTF_WAN_ETH_1=12
+        QOS_INTF_LAN_SPECIFIC=14
+        QOS_INTF_LAN_ETH=1
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=80
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="1100"
+                DEF_DOWNSTREAM_RATE="14000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="2000kbit"
+                RATE_UNIT=kbit
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ]; then
+                	DEF_UPSTREAM_RATE="1048576"
+	                DEF_DOWNSTREAM_RATE="1048576"
+		else
+       		        DEF_UPSTREAM_RATE="102400"
+                	DEF_DOWNSTREAM_RATE="102400"
+                fi
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+               	DEF_UPSTREAM_RATE="1048576"
+	        DEF_DOWNSTREAM_RATE="1048576"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="1048300kbit"
+                RATE_UNIT=kbit
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+                DEF_UPSTREAM_RATE="60000"
+                DEF_DOWNSTREAM_RATE="100000"
+                BANDWIDTH_RATIO=100
+                RATE_FOR_DOWNSTREAM_OTHERS="99800kbit"
+                RATE_UNIT=kbit
+		;;
+esac
+
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+            #	if [ "$target" == "ARX3" ]; then
+            mode=1; 
+            ;;
+			1)
+				#wan mode is PTM
+            mode=1; 
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+       mode=1; 
+		;;
+	2)
+		#wan mode is MII1
+     	case "$target" in
+         "ARX3")
+                  mode=0;
+		            ;;
+         "VRX3")
+                  mode=0;
+		            ;;
+         "GRX2")
+                  mode=0;
+		            ;;
+         "GRX3")
+                  mode=0;
+		            ;;
+         "RT2")
+                  mode=0;
+		            ;;
+         "VRX2")
+                  mode=0;
+                  ;;
+
+         "ARX1")
+                  mode=1;
+                  ;;
+          esac
+          ;;
+	3)
+		#wan mode is PTM
+		mode=1;
+		;;
+esac
+
+
+ACTUAL_UPSTREAM_RATE=$DEF_UPSTREAM_RATE
+ACTUAL_DOWNSTREAM_RATE=$DEF_DOWNSTREAM_RATE
+
+
+# read queue rates from file /tmp/ipqos_rates
+if [ -f /tmp/ipqos_rates ]; then
+	. /tmp/ipqos_rates
+	if [ ! -z $IPQOS_UP_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_UPSTREAM_RATE=$IPQOS_UP_RATE
+		#fi
+	fi
+	if [ ! -z $IPQOS_DOWN_RATE ]; then
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -o  $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+			ACTUAL_DOWNSTREAM_RATE=$IPQOS_DOWN_RATE
+		#fi
+	fi
+fi
+
+MAX_UPSTREAM_RATE_TMP=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+MAX_DOWNSTREAM_RATE_TMP=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`
+#/bin/sed -i -e "s,^up_link_rate=.*,up_link_rate=\"$MAX_UPSTREAM_RATE_TMP\",g" /tmp/system_status
+#/bin/sed -i -e "s,^down_link_rate=.*,down_link_rate=\"$MAX_DOWNSTREAM_RATE_TMP\",g" /tmp/system_status
+###/usr/sbin/status_oper -u -f /tmp/system_status SET "qos_bk" "up_link_rate" "$MAX_UPSTREAM_RATE_TMP" "down_link_rate" "$MAX_DOWNSTREAM_RATE_TMP"
+#if [ $qm_portRateLimEnab -ne 1 ]; then
+#/bin/sed -i -e "s,^qm_upPortRateLim=.*,qm_upPortRateLim=\"$MAX_UPSTREAM_RATE_TMP\",g" /ramdisk/flash/rc.conf
+#/etc/rc.d/backup
+#	/usr/sbin/status_oper -u -f /etc/rc.conf SET "qos_queuemgmt" "qm_upPortRateLim" "$MAX_UPSTREAM_RATE_TMP"
+#fi
+MAX_UPSTREAM_RATE=`expr $ACTUAL_UPSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+MAX_DOWNSTREAM_RATE=`expr $ACTUAL_DOWNSTREAM_RATE \* $BANDWIDTH_RATIO / 100`$RATE_UNIT
+
+
+QUEUE_METHOD=`/usr/sbin/status_oper GET qos_bk queue_method`
+#########################################Upstream - Queuing##########################################
+
+if [ $QUEUE_METHOD -eq 1 ]; then
+	echo disable > /proc/eth/class
+	if [ $qm_USenable -eq 1 ] && [ $1 -eq 1 ]; then
+		#Upstream Q Dev varies based on VLAN-Enabled or VLAN-Disabled
+		#TBD: Select imq0 or individual device based on VLAN Enable field.
+		UPSTREAM_Q_DEV=imq0
+
+		# Enable the imq device
+		ifconfig imq0 up
+
+        	#create a root htb queue on UPSTREAM_Q_DEV device
+        	tc qdisc add dev $UPSTREAM_Q_DEV root handle 1: htb
+        	#Attach one class to root queue
+		if [ $qm_portRateLimEnab -eq 1 ]; then
+			PORT_RATE=$qm_upPortRateLim$RATE_UNIT
+		else
+			PORT_RATE=$up_link_rate$RATE_UNIT
+		fi
+			PORT_RATE=$qm_upPortRateLim$RATE_UNIT
+        	tc class add dev $UPSTREAM_Q_DEV parent 1: classid 1:1 htb rate $PORT_RATE
+
+        	# Add rule in the POSTROUTING chain to jump to imq device
+        	# TBD: Should be handled by WAN bring up/down script
+        	#NOTE: Currently having a wildcard support for all WAN interfaces
+        	#iptables -t mangle -A POSTROUTING -o ppp+ -j IMQ --todev 0
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+        	#	iptables -t mangle -A POSTROUTING -o ptm+ -j IMQ --todev 0
+		#fi
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM ]; then
+        	#	iptables -t mangle -A POSTROUTING -o nas+ -j IMQ --todev 0
+		#fi
+		
+		i=0
+		while [ $i -lt $wan_ppp_Count ]
+		do
+			eval wanmode='$'wanppp_${i}_wanMode
+	
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 -a $wanmode -eq 1 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 -a $wanmode -eq 2 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					cmd="iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+					$cmd
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+						$cmd
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 3 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 4 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			i=$(($i + 1))
+		done
+
+		i=0
+		while [ $i -lt $wan_ip_Count ]
+		do
+			eval wanmode='$'wanip_${i}_wanMode
+
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 -a $wanmode -eq 1 ]; then 
+                	   	. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 -a $wanmode -eq 2 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi	
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+						$cmd
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+							$cmd
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi	
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 3 ]; then 
+                	   	. /etc/rc.d/get_wan_if $i "ip"
+                	   	eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 4 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi	
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			i=$(($i + 1))
+		done
+	fi
+	#Down stream Init part
+	if [ $1 -eq 2 ]; then
+		. /etc/rc.d/ipqos_common 3
+		if [ $qm_DSenable -eq 1 ]; then
+		
+			#Upstream Q Dev varies based on VLAN-Enabled or VLAN-Disabled
+			#TBD: Select imq0 or individual device based on VLAN Enable field.
+			#echo " inside q init ds_enable = 1 & arg 1 = 2 before calling ipqos_common "
+			#. /etc/rc.d/ipqos_common 3
+			#echo " afetr calling ipqos_common "
+			DOWNSTREAM_Q_DEV=imq1
+
+			# Enable the downstream  device
+			ifconfig imq1 up
+
+			#create a root htb queue on UPSTREAM_Q_DEV device
+			tc qdisc add dev $DOWNSTREAM_Q_DEV root handle 1: htb
+	        	#Attach one class to root queue
+			if [ $qm_DSportRateLimEnab -eq 1 ]; then
+				PORT_RATE=$qm_downPortRateLim$RATE_UNIT
+			else
+				PORT_RATE=$down_link_rate$RATE_UNIT
+			fi
+				PORT_RATE=$qm_downPortRateLim$RATE_UNIT
+	        	tc class add dev $DOWNSTREAM_Q_DEV parent 1: classid 1:1 htb rate $PORT_RATE
+	
+			#All traffic going to LAN is diverted to IMQ1
+			i=0
+			while [ $i -lt $wan_ppp_Count ]
+			do
+				eval wanmode='$'wanppp_${i}_wanMode
+
+				if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+                   			. /etc/rc.d/get_wan_if $i "ppp"
+                   			eval iface=${WAN_IFNAME}
+					iptables -t mangle -nvL PREROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="iptables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+						$cmd
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL PREROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="ip6tables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+							$cmd
+						fi
+					fi
+        			fi
+				if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 3 ]; then 
+                   			. /etc/rc.d/get_wan_if $i "ppp"
+                   			eval iface=${WAN_IFNAME}
+					iptables -t mangle -nvL PREROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="iptables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+						$cmd
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL PREROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="ip6tables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+							$cmd
+						fi
+					fi
+        			fi
+				if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 4 ]; then 
+                   			. /etc/rc.d/get_wan_if $i "ppp"
+                   			eval iface=${WAN_IFNAME}
+					iptables -t mangle -nvL PREROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="iptables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+						$cmd
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL PREROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="ip6tables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+							$cmd
+						fi
+					fi
+        			fi
+				i=$(($i + 1))
+			done
+
+			i=0
+			while [ $i -lt $wan_ip_Count ]
+			do
+				eval wanmode='$'wanip_${i}_wanMode
+
+				if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+                   			. /etc/rc.d/get_wan_if $i "ip"
+                   			eval iface=${WAN_IFNAME}
+					eval addrtype='$'wanip_${i}_addrType
+					if [ $addrtype -ne 0 ]; then
+						iptables -t mangle -nvL PREROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="iptables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+							$cmd
+						fi
+						if [ "$target" != "ARX1" ]; then
+							ip6tables -t mangle -nvL PREROUTING | grep  ${iface}
+							if [ $? -ne 0 ]; then
+       								cmd="ip6tables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+								$cmd
+							fi
+						fi
+					fi
+					if [ $addrtype -eq 0 ]; then
+						ebtables -t filter -L FORWARD | grep ${iface}
+						if [ $? -ne 0 ]; then
+							ebtables -t filter -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1
+						fi
+					fi
+        			fi
+				if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 3 ]; then 
+                   			. /etc/rc.d/get_wan_if $i "ip"
+                   			eval iface=${WAN_IFNAME}
+					eval addrtype='$'wanip_${i}_addrType
+					if [ $addrtype -ne 0 ]; then
+						iptables -t mangle -nvL PREROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="iptables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+							$cmd
+						fi
+						if [ "$target" != "ARX1" ]; then
+							ip6tables -t mangle -nvL PREROUTING | grep  ${iface}
+							if [ $? -ne 0 ]; then
+       								cmd="ip6tables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+								$cmd
+							fi
+						fi
+						if [ $addrtype -eq 0 ]; then
+							ebtables -t filter -L FORWARD | grep ${iface}
+							if [ $? -ne 0 ]; then
+								ebtables -t filter -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1
+							fi
+						fi
+					fi
+        			fi
+				if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 4 ]; then 
+                   			. /etc/rc.d/get_wan_if $i "ip"
+                   			eval iface=${WAN_IFNAME}
+					eval addrtype='$'wanip_${i}_addrType
+					if [ $addrtype -ne 0 ]; then
+						iptables -t mangle -nvL PREROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="iptables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+							$cmd
+						fi
+						if [ "$target" != "ARX1" ]; then
+							ip6tables -t mangle -nvL PREROUTING | grep  ${iface}
+							if [ $? -ne 0 ]; then
+       								cmd="ip6tables -t mangle -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1"
+								$cmd
+							fi
+						fi
+					fi
+					if [ $addrtype -eq 0 ]; then
+						ebtables -t filter -L FORWARD | grep ${iface}
+						if [ $? -ne 0 ]; then
+							ebtables -t filter -A IPQOS_DS_TARGET -i ${iface} -j IMQ --todev 1
+						fi
+					fi
+        			fi
+			i=$(($i + 1))
+			done
+		fi
+	fi
+
+fi
+
+if [ $QUEUE_METHOD -eq 2 ]; then
+	if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+	PORT=7
+	fi
+	if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 ]; then
+	PORT=1
+	fi
+# MII0 D5 FW QoS
+	if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 ]; then
+	PORT=0
+	fi
+      
+	echo enable > /proc/eth/class
+
+	if [ $1 -eq 1 ]; then
+		
+		#initialize PTM FW queues
+		ppacmd setctrlwfq -p $PORT -c enable
+	
+		ppacmd setctrlrate -p $PORT -c enable
+		if [ $qm_portRateLimEnab -eq 1 ]; then
+			PORT_RATE=$qm_upPortRateLim
+		else
+			PORT_RATE=$up_link_rate
+		fi
+		PORT_RATE=$qm_upPortRateLim
+		C_CMD="ppacmd setrate -p $PORT -r $PORT_RATE"
+		$C_CMD
+
+		QUEUE_TYPE=`/usr/sbin/status_oper GET qos_bk queue_type`
+		if [ $QUEUE_TYPE -eq 0 ]; then
+			ppacmd setwfq -p $PORT -q 0 -w 100
+			ppacmd setwfq -p $PORT -q 1 -w 100
+			ppacmd setwfq -p $PORT -q 2 -w 100
+			ppacmd setwfq -p $PORT -q 3 -w 100
+			ppacmd setwfq -p $PORT -q 4 -w 100
+			ppacmd setwfq -p $PORT -q 5 -w 100
+			ppacmd setwfq -p $PORT -q 6 -w 100
+			ppacmd setwfq -p $PORT -q 7 -w 100
+		else
+			ppacmd setwfq -p $PORT -q 0 -w 0
+			ppacmd setwfq -p $PORT -q 1 -w 0
+			ppacmd setwfq -p $PORT -q 2 -w 0
+			ppacmd setwfq -p $PORT -q 3 -w 0
+			ppacmd setwfq -p $PORT -q 4 -w 0
+			ppacmd setwfq -p $PORT -q 5 -w 0
+			ppacmd setwfq -p $PORT -q 6 -w 0
+			ppacmd setwfq -p $PORT -q 7 -w 0
+		fi
+                if [ "$CONFIG_IFX_CONFIG_CPU" = "XRX288" ]; then
+                	if [ "$wanphy_phymode" = "2" ]; then
+                                        	echo eth0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+
+                                        	echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+                        elif [ "$wanphy_tc" = "1" -a "$wanphy_phymode" = "3" ]; then
+                                   	     echo ptm0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+                        fi
+
+                elif [ "$CONFIG_IFX_CONFIG_CPU" = "AMAZON_S" ]; then
+                        if [ "$wanphy_phymode" = "2" -o  "$wanphy_phymode" = "1" ]; then
+                                        echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+			elif [ "$wanphy_tc" = "1" -a "$wanphy_phymode" = "0" ]; then
+					echo ptm0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+                        fi
+                fi
+
+		#802.1p egress marking Setting egress cos map for mii1/ptm interfaces 
+		i=0
+		while [ $i -lt $wan_ip_Count ]
+		do
+
+			eval wanmode='$'wanip_${i}_wanMode
+			eval wanif='$'wanip_${i}_iface
+
+			if [ $wanmode -eq 2 -o $wanmode -eq 3 ]; then
+				# perform mapping only if wanmode is mii1 or ptm
+	
+				#set egress cos map
+				vconfig set_egress_map $wanif 0 0
+				vconfig set_egress_map $wanif 1 1
+				vconfig set_egress_map $wanif 2 2
+				vconfig set_egress_map $wanif 3 3
+				vconfig set_egress_map $wanif 4 4
+				vconfig set_egress_map $wanif 5 5
+				vconfig set_egress_map $wanif 6 6
+				vconfig set_egress_map $wanif 7 7
+			fi
+			i=`expr $i + 1`
+		done
+			
+		i=0
+		while [ $i -lt $wan_ppp_Count ]
+		do
+
+			eval wanmode='$'wanppp_${i}_wanMode
+			eval wanif='$'wanppp_${i}_iface
+
+			if [ $wanmode -eq 2 -o $wanmode -eq 3 ]; then
+				# perform mapping only if wanmode is mii1 or ptm
+	
+				#set egress cos map
+				vconfig set_egress_map $wanif 0 0
+				vconfig set_egress_map $wanif 1 1
+				vconfig set_egress_map $wanif 2 2
+				vconfig set_egress_map $wanif 3 3
+				vconfig set_egress_map $wanif 4 4
+				vconfig set_egress_map $wanif 5 5
+				vconfig set_egress_map $wanif 6 6
+				vconfig set_egress_map $wanif 7 7
+			fi
+
+		i=`expr $i + 1`
+		done
+	fi
+	
+	if [ $1 -eq 2 ]; then
+		
+		if [ "$target" = "VRX2" -o "$target" = "VRX3" ]; then
+
+		################Mii1, PTM downstream init start #######################
+		#fix downstream QoS not working in VRX288 PTM mode
+		#priority in switch is opposite to that in firmware queues
+        	#echo enable > /proc/eth/class
+		if [ $mode -eq 1 ]; then
+            		echo QID2CLASS  32100000 >/proc/eth/class
+         	fi
+
+	#	if [ "$target" = "VRX2" -o "$target" = "GRX2" ]; then
+			#Manamohan: Default class asssignment for DSCP
+			for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63; do 
+				switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_DSCP_CLASS_SET nDSCP=$i nTrafficClass=3
+			done
+	#	fi
+
+		#Default RED configuration for SP+WFQ
+		switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=0 nRed_Min=0x3ff nRed_Max=0x2f nYellow_Min=0x3ff nYellow_Max=0x3ff nGreen_Min=0x3ff nGreen_Max=0x3ff
+	
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=0 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=5 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=6 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=7 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=8 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=9 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=10 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=11 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=16 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=17 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=18 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=19 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+										
+		#initialize eth wan queues
+		#Port Cfg to classify based on PCP or DSCP
+		switch_cli IFX_ETHSW_QOS_PORT_CFG_SET nPortId=6 eClassMode=3 nTrafficClass=0
+		switch_cli IFX_ETHSW_QOS_PORT_CFG_SET nPortId=5 eClassMode=3 nTrafficClass=0
+		#Downstream QoS Config Start
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=0 eClassMode=3 nTrafficClass=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=1 eClassMode=3 nTrafficClass=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=2 eClassMode=3 nTrafficClass=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=3 eClassMode=3 nTrafficClass=0
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=4 eClassMode=3 nTrafficClass=0
+
+		
+		#Downstream QoS Config Start
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=8 nPortId=2 nTrafficClassId=3
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=9 nPortId=2 nTrafficClassId=2
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=10 nPortId=2 nTrafficClassId=1
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=11 nPortId=2 nTrafficClassId=0
+	
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=0 nPortId=0 nTrafficClassId=3
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=1 nPortId=0 nTrafficClassId=2
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=2 nPortId=0 nTrafficClassId=1
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=3 nPortId=0 nTrafficClassId=0
+	
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=4 nPortId=1 nTrafficClassId=3
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=5 nPortId=1 nTrafficClassId=2
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=6 nPortId=1 nTrafficClassId=1
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=7 nPortId=1 nTrafficClassId=0
+	
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=16 nPortId=4 nTrafficClassId=3
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=17 nPortId=4 nTrafficClassId=2
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=18 nPortId=4 nTrafficClassId=1
+		switch_cli IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=19 nPortId=4 nTrafficClassId=0
+
+		#echo eth0 prio 0 queue 0 prio 1 queue 0 prio 2 queue 0 prio 3 queue 0 prio 4 queue 0 prio 5 queue 0 prio 6 queue 0 prio 7 queue 0 > /proc/eth/prio
+		echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+
+		#Downstream QoS config end
+		
+		#disable flow control on port 6
+		switch_cli IFX_FLOW_REGISTER_SET nRegAddr=0x94b nData=0x1c0
+
+		#Additional regiseter set to achieve SP.
+		switch_cli IFX_FLOW_REGISTER_SET nRegAddr=0x4A nData=0x118
+	
+		#PCP (802.1p) to queue assignment
+		#                               <Index(802.1p)><traffic class>
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=7
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=6
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=5
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=4
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=3
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=2
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=1
+		switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=0
+
+	
+		#If Sched type of queues is SP set queues 0-3;12-15=0xffff
+		if [ $qq_2_schedType -eq 0 ]; then
+			#echo " init queues to 0xffff"	
+			for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
+				switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+			done
+		fi
+		#If Sched type of queues is WFQ set queues 0-3;12-15=0x1800
+		if [ $qq_2_schedType -eq 2 ]; then	
+			#echo " init queues to 0x1800"	
+			for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
+				switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+			done
+		fi
+
+		#################Mii1, PTM down stream init end#########################
+	fi
+fi
+
+
+fi
+if [ $QUEUE_METHOD -eq 3 ]; then
+		echo eth0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+              	echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+
+      echo enable > /proc/eth/class
+
+	#Default RED configuration for SP+WFQ
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_CFG_SET eProfile=0 nRed_Min=0x3ff nRed_Max=0x2f nYellow_Min=0x3ff nYellow_Max=0x3ff nGreen_Min=0x3ff nGreen_Max=0x3ff
+#================================================================================
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+										
+#=================================================================================
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q8 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q7 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q6 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q5 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$WP1_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+										
+	#initialize eth wan queues
+	#Port Cfg to classify based on PCP or DSCP
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=6 eClassMode=3 nTrafficClass=0
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$WAN_PORT eClassMode=3 nTrafficClass=0
+
+	if [ "$target" = "VRX2" -o "$target" = "GRX2" -o "$target" = "ARX3" -o "$target" = "VRX3" -o "$target" = "GRX3" ]; then
+		#Manamohan: Default class asssignment for DSCP
+		for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63; do 
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_DSCP_CLASS_SET nDSCP=$i nTrafficClass=3
+		done
+	fi
+
+
+if [ $qm_USenable -eq 1 ] && [ $1 -eq 1 ]; then
+	#For port 5 queues 20-23 are allocated, utilize queues 28-31 which are PTM queues not used in Eth1 mode.
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q8 nPortId=$WAN_PORT nTrafficClassId=7
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q7 nPortId=$WAN_PORT nTrafficClassId=6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q6 nPortId=$WAN_PORT nTrafficClassId=5
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q5 nPortId=$WAN_PORT nTrafficClassId=4
+
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q4 nPortId=$WAN_PORT nTrafficClassId=3
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q3 nPortId=$WAN_PORT nTrafficClassId=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q2 nPortId=$WAN_PORT nTrafficClassId=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$WP1_Q1 nPortId=$WAN_PORT nTrafficClassId=0
+
+fi
+
+if [ $qm_DSenable -eq 1 ] && [ $1 -eq 2 ]; then
+	#Downstream QoS Config Start
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_1 eClassMode=3 nTrafficClass=0
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_2 eClassMode=3 nTrafficClass=0
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_3 eClassMode=3 nTrafficClass=0
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_4 eClassMode=3 nTrafficClass=0
+#	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=3 eClassMode=3 nTrafficClass=0
+	
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q1 nPortId=$LAN_PORT_1 nTrafficClassId=3
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q2 nPortId=$LAN_PORT_1 nTrafficClassId=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q3 nPortId=$LAN_PORT_1 nTrafficClassId=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q4 nPortId=$LAN_PORT_1 nTrafficClassId=0
+
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q1 nPortId=$LAN_PORT_2 nTrafficClassId=3
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q2 nPortId=$LAN_PORT_2 nTrafficClassId=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q3 nPortId=$LAN_PORT_2 nTrafficClassId=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q4 nPortId=$LAN_PORT_2 nTrafficClassId=0
+	
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q1 nPortId=$LAN_PORT_3 nTrafficClassId=3
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q2 nPortId=$LAN_PORT_3 nTrafficClassId=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q3 nPortId=$LAN_PORT_3 nTrafficClassId=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q4 nPortId=$LAN_PORT_3 nTrafficClassId=0
+	
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q1 nPortId=$LAN_PORT_4 nTrafficClassId=3
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q2 nPortId=$LAN_PORT_4 nTrafficClassId=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q3 nPortId=$LAN_PORT_4 nTrafficClassId=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q4 nPortId=$LAN_PORT_4 nTrafficClassId=0
+
+fi  
+#End of DS config
+
+	#echo eth0 prio 0 queue 0 prio 1 queue 0 prio 2 queue 0 prio 3 queue 0 prio 4 queue 0 prio 5 queue 0 prio 6 queue 0 prio 7 queue 0 > /proc/eth/prio
+
+	#Downstream QoS config end
+	
+	#disable flow control on port 6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0x94b nData=0x1c0
+
+	#Additional regiseter set to achieve SP.
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0x4A nData=0x118
+	
+	#PCP (802.1p) to queue assignment
+	#                               <Index(802.1p)><traffic class>
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=7
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=6
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=5
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=4
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=3
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=0
+
+	
+if [ $qm_DSenable -eq 1 ] && [ $1 -eq 2 ]; then
+	#If Sched type of queues is SP set queues 0-3;12-15=0xffff
+	if [ $qq_2_schedType -eq 0 ]; then
+		#echo " init queues to 0xffff"	
+#for i in $LAN_PORT_Qs; do
+	   if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ]; then
+		   for i in 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23; do
+			   switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+		   done
+      else
+		   for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19; do
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+		   done
+	   fi
+   fi
+	#If Sched type of queues is WFQ set queues 0-3;12-15=0x1800
+	if [ $qq_2_schedType -eq 2 ]; then	
+		#echo " init queues to 0x1800"	
+#for i in $LAN_PORT_Qs; do
+	   if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ]; then
+		   for i in 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23; do
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+		   done
+      else
+		   for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19; do
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+         done
+	   fi
+   fi
+fi
+if [ $qm_USenable -eq 1 ] && [ $1 -eq 1 ]; then
+
+	if [ $qq_2_schedType -eq 0 ]; then
+		#echo " init queues to 0xffff"	
+#for i in $WAN_PORT_Qs; do
+	   if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ]; then
+		   for i in 31 30 29 28 7 6 5 4; do
+			   switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+		   done
+      else
+		   for i in 20 21 22 23 24 25 26 27 28 29 30 31; do
+			   switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+		   done
+      fi
+	fi
+	#If Sched type of queues is WFQ set queues 0-3;12-15=0x1800
+	if [ $qq_2_schedType -eq 2 ]; then	
+		#echo " init queues to 0x1800"	
+#		for i in 20 21 22 23 24 25 26 27 28 29 30 31; do
+#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+#		done
+	   if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ]; then
+		   for i in 31 30 29 28 7 6 5 4; do
+			   switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+		   done
+      else
+		   for i in 20 21 22 23 24 25 26 27 28 29 30 31; do
+			   switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+		   done
+      fi
+	fi
+fi
+
+
+# Setting egress cos map for mii1 interfaces 
+
+i=0
+while [ $i -lt $wan_ip_Count ]
+do
+
+	eval wanmode='$'wanip_${i}_wanMode
+	eval wanif='$'wanip_${i}_iface
+
+	if [ $wanmode -eq 2 ]; then
+		# perform mapping only if wanmode is mii1 or ptm
+
+		#set egress cos map
+		vconfig set_egress_map $wanif 0 0
+		vconfig set_egress_map $wanif 1 1
+		vconfig set_egress_map $wanif 2 2
+		vconfig set_egress_map $wanif 3 3
+		vconfig set_egress_map $wanif 4 4
+		vconfig set_egress_map $wanif 5 5
+		vconfig set_egress_map $wanif 6 6
+		vconfig set_egress_map $wanif 7 7
+
+		#ppacmd delwan -i $wanif
+		#ppacmd addwan -i eth1
+		
+	fi
+	i=`expr $i + 1`
+done
+
+i=0
+while [ $i -lt $wan_ppp_Count ]
+do
+
+	eval wanmode='$'wanppp_${i}_wanMode
+	eval wanif='$'wanppp_${i}_iface
+
+	if [ $wanmode -eq 2 ]; then
+		# perform mapping only if wanmode is mii1 or ptm
+
+		#set egress cos map
+		vconfig set_egress_map $wanif 0 0
+		vconfig set_egress_map $wanif 1 1
+		vconfig set_egress_map $wanif 2 2
+		vconfig set_egress_map $wanif 3 3
+		vconfig set_egress_map $wanif 4 4
+		vconfig set_egress_map $wanif 5 5
+		vconfig set_egress_map $wanif 6 6
+		vconfig set_egress_map $wanif 7 7
+		
+		#ppacmd delwan -i $wanif
+		#ppacmd addwan -i eth1
+	fi
+
+	i=`expr $i + 1`
+done
+
+
+fi
+
+if [ $QUEUE_METHOD -eq 4 ]; then
+
+
+	# P6BC: Basic control register for Port 6 to enable VLAN priority based classification
+	#/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0xC1 nData=0x804
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=6 eClassMode=2 nTrafficClass=0
+
+	#Egress control for strict priority
+
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=0
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=1
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=2
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=3
+	#switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=4
+	#switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=5
+	#switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=6
+	#switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=7
+	if [ $qm_portRateLimEnab -eq 1 ]; then
+		LINK_RATE=$qm_upPortRateLim
+	else
+		LINK_RATE=$up_link_rate
+	fi
+		LINK_RATE=$qm_upPortRateLim
+
+	LINK_RATE=$(echo "$LINK_RATE 1000" | awk '{print $1/$2}')
+
+	#Issue UGW_SW_715:hack to fix improper rate config in switch utility
+	#LINK_RATE=`expr $LINK_RATE + 2`
+	
+	#Set rate for induvidual SP queue to link rate
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=4 nTrafficClass=0 nRate=$LINK_RATE
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=4 nTrafficClass=1 nRate=$LINK_RATE
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=4 nTrafficClass=2 nRate=$LINK_RATE
+	switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_PSB6970_QOS_PORT_SHAPER_STRICT_SET nPort=4 nTrafficClass=3 nRate=$LINK_RATE
+
+
+	#MIICR: To disable Flow control for Port 6 (CPU port)
+	if [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_DANUBE" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_DANUBE" = "1" ]; then
+	/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0xF5 nData=0x677
+	elif [ -n "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" -a "$CONFIG_TARGET_LTQCPE_PLATFORM_AR9" = "1" ];
+	then
+	/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0xF5 nData=0xabb
+	
+	fi
+
+
+	#1PPM: Priority Map register, system wide
+	#/usr/bin/switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_REGISTER_SET nRegAddr=0xE8 nData=0x1B
+
+# Setting egress cos map for mii0 interfaces 
+wan_index=`echo $wan_main_index | tr ',' ' '`	
+for i in $wan_index
+do
+	eval wanmode='$'wan_${i}_wanMode
+	# perform mapping only if wanmode is mii0
+	if [ $wanmode -eq 1 ]; then
+		eval vlan='$'wan_${i}_vlanId
+
+		#echo "IPQOS on vlan interface = eth0.$vlan"
+		#echo "IPQOS on vlan interface = eth0.$vlan" >> /tmp/ipqos_log
+
+		#set egress cos map
+		#vconfig set_egress_map eth0.$vlan 802.1p skb-Prio
+		vconfig set_egress_map eth0.$vlan 0 0
+		vconfig set_egress_map eth0.$vlan 1 1
+		vconfig set_egress_map eth0.$vlan 2 2
+		vconfig set_egress_map eth0.$vlan 3 3
+		vconfig set_egress_map eth0.$vlan 4 3
+		vconfig set_egress_map eth0.$vlan 5 3
+		vconfig set_egress_map eth0.$vlan 6 3
+		vconfig set_egress_map eth0.$vlan 7 3
+	fi
+done
+
+fi
+
+if [ $QUEUE_METHOD -eq 5 ]; then
+	
+	echo enable > /proc/eth/class
+	if [ "$target" = "VRX2" ] && [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ] && [ $qm_USenable -eq 1 ] && [ $1 -eq 1 ]; then
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+		PORT=7
+		fi
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 ]; then
+		PORT=1
+		fi
+# MII0 D5 FW QoS
+		if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 ]; then
+		PORT=0
+		fi
+		#initialize PTM FW queues
+		ppacmd setctrlwfq -p $PORT -c enable
+
+		ppacmd setctrlrate -p $PORT -c enable
+		if [ $qm_portRateLimEnab -eq 1 ]; then
+			PORT_RATE=$qm_upPortRateLim
+		else
+			PORT_RATE=$up_link_rate
+		fi
+			PORT_RATE=$qm_upPortRateLim
+			C_CMD="ppacmd setrate -p $PORT -r $PORT_RATE"
+			$C_CMD
+
+		QUEUE_TYPE=`/usr/sbin/status_oper GET qos_bk queue_type`
+		if [ $QUEUE_TYPE -eq 0 ]; then
+			ppacmd setwfq -p $PORT -q 0 -w 100
+			ppacmd setwfq -p $PORT -q 1 -w 100
+			ppacmd setwfq -p $PORT -q 2 -w 100
+			ppacmd setwfq -p $PORT -q 3 -w 100
+			ppacmd setwfq -p $PORT -q 4 -w 100
+			ppacmd setwfq -p $PORT -q 5 -w 100
+			ppacmd setwfq -p $PORT -q 6 -w 100
+			ppacmd setwfq -p $PORT -q 7 -w 100
+		else
+			ppacmd setwfq -p $PORT -q 0 -w 0
+			ppacmd setwfq -p $PORT -q 1 -w 0
+			ppacmd setwfq -p $PORT -q 2 -w 0
+			ppacmd setwfq -p $PORT -q 3 -w 0
+			ppacmd setwfq -p $PORT -q 4 -w 0
+			ppacmd setwfq -p $PORT -q 5 -w 0
+			ppacmd setwfq -p $PORT -q 6 -w 0
+			ppacmd setwfq -p $PORT -q 7 -w 0
+		fi
+		if [ "$CONFIG_IFX_CONFIG_CPU" = "XRX288" ]; then
+			if [ "$wanphy_phymode" = "2" ]; then
+				echo eth0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+	
+				echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+			elif [ "$wanphy_tc" = "1" -a "$wanphy_phymode" = "3" ]; then
+				echo ptm0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+			fi
+
+		elif [ "$CONFIG_IFX_CONFIG_CPU" = "AMAZON_S" ]; then
+			if [ "$wanphy_phymode" = "2" -o  "$wanphy_phymode" = "1" ]; then
+				echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+			elif [ "$wanphy_tc" = "1" -a "$wanphy_phymode" = "0" ]; then
+				echo ptm0 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+	                fi
+		fi
+
+		#802.1p egress marking Setting egress cos map for mii1/ptm interfaces 
+		i=0
+		while [ $i -lt $wan_ip_Count ]
+		do
+			eval wanmode='$'wanip_${i}_wanMode
+			eval wanif='$'wanip_${i}_iface
+
+			if [ $wanmode -eq 2 -o $wanmode -eq 3 ]; then
+				# perform mapping only if wanmode is mii1 or ptm
+			
+				#set egress cos map
+				vconfig set_egress_map $wanif 0 0
+				vconfig set_egress_map $wanif 1 1
+				vconfig set_egress_map $wanif 2 2
+				vconfig set_egress_map $wanif 3 3
+				vconfig set_egress_map $wanif 4 4
+				vconfig set_egress_map $wanif 5 5
+				vconfig set_egress_map $wanif 6 6
+				vconfig set_egress_map $wanif 7 7
+			fi
+			i=`expr $i + 1`
+		done
+			
+		i=0
+		while [ $i -lt $wan_ppp_Count ]
+		do
+	
+			eval wanmode='$'wanppp_${i}_wanMode
+			eval wanif='$'wanppp_${i}_iface
+	
+			if [ $wanmode -eq 2 -o $wanmode -eq 3 ]; then
+				# perform mapping only if wanmode is mii1 or ptm
+	
+				#set egress cos map
+				vconfig set_egress_map $wanif 0 0
+				vconfig set_egress_map $wanif 1 1
+				vconfig set_egress_map $wanif 2 2
+				vconfig set_egress_map $wanif 3 3
+				vconfig set_egress_map $wanif 4 4
+				vconfig set_egress_map $wanif 5 5
+				vconfig set_egress_map $wanif 6 6
+				vconfig set_egress_map $wanif 7 7
+			fi
+
+			i=`expr $i + 1`
+		done
+	fi # End of VRX2 Upstream loop
+	if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM ] || [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ] && [ $qm_USenable -eq 1 ] && [ $1 -eq 1 ]; then
+		#Upstream Q Dev varies based on VLAN-Enabled or VLAN-Disabled
+		#TBD: Select imq0 or individual device based on VLAN Enable field.
+		UPSTREAM_Q_DEV=imq0
+
+		# Enable the imq device
+		ifconfig imq0 up
+
+        	#create a root htb queue on UPSTREAM_Q_DEV device
+        	tc qdisc add dev $UPSTREAM_Q_DEV root handle 1: htb
+        	#Attach one class to root queue
+		if [ $qm_portRateLimEnab -eq 1 ]; then
+			PORT_RATE=$qm_upPortRateLim$RATE_UNIT
+		else
+			PORT_RATE=$up_link_rate$RATE_UNIT
+		fi
+			PORT_RATE=$qm_upPortRateLim$RATE_UNIT
+        	tc class add dev $UPSTREAM_Q_DEV parent 1: classid 1:1 htb rate $PORT_RATE
+
+        	# Add rule in the POSTROUTING chain to jump to imq device
+        	# TBD: Should be handled by WAN bring up/down script
+        	#NOTE: Currently having a wildcard support for all WAN interfaces
+        	#iptables -t mangle -A POSTROUTING -o ppp+ -j IMQ --todev 0
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM ]; then
+        	#	iptables -t mangle -A POSTROUTING -o ptm+ -j IMQ --todev 0
+		#fi
+		#if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM ]; then
+        	#	iptables -t mangle -A POSTROUTING -o nas+ -j IMQ --todev 0
+		#fi
+		
+		i=0
+		while [ $i -lt $wan_ppp_Count ]
+		do
+			eval wanmode='$'wanppp_${i}_wanMode
+	
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 -a $wanmode -eq 1 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 -a $wanmode -eq 2 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					cmd="iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+					$cmd
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+						$cmd
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 3 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 4 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ppp"
+                   		eval iface=${WAN_IFNAME}
+				iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+				if [ $? -ne 0 ]; then
+       					iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+				fi
+				if [ "$target" != "ARX1" ]; then
+					ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			i=$(($i + 1))
+		done
+
+		i=0
+		while [ $i -lt $wan_ip_Count ]
+		do
+			eval wanmode='$'wanip_${i}_wanMode
+
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_0 -a $wanmode -eq 1 ]; then 
+                	   	. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ETH_1 -a $wanmode -eq 2 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi	
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_ATM -a $wanmode -eq 0 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						cmd="iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+						$cmd
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							cmd="ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0"
+							$cmd
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi	
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 3 ]; then 
+                	   	. /etc/rc.d/get_wan_if $i "ip"
+                	   	eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			if [ $qIfTypeActive -eq $QOS_INTF_WAN_PTM -a $wanmode -eq 4 ]; then 
+                   		. /etc/rc.d/get_wan_if $i "ip"
+                   		eval iface=${WAN_IFNAME}
+				eval addrtype='$'wanip_${i}_addrType
+				if [ $addrtype -ne 0 ]; then
+					iptables -t mangle -nvL POSTROUTING | grep  ${iface}
+					if [ $? -ne 0 ]; then
+       						iptables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+					fi
+					if [ "$target" != "ARX1" ]; then
+						ip6tables -t mangle -nvL POSTROUTING | grep  ${iface}
+						if [ $? -ne 0 ]; then
+       							ip6tables -t mangle -A POSTROUTING -o ${iface} -j IMQ --todev 0
+						fi
+					fi	
+				fi
+				if [ $addrtype -eq 0 ]; then
+					ebtables -t filter -L FORWARD | grep ${iface}
+					if [ $? -ne 0 ]; then
+						ebtables -t filter -I FORWARD 1 -o ${iface} -j IMQ --todev 0
+					fi
+				fi
+        		fi
+			i=$(($i + 1))
+		done
+	fi # End of ARX300 UPstream Loop 
+	if [ $qm_DSenable -eq 1 ] && [ $1 -eq 2 ]; then
+		if [ "$target" = "VRX2" ] || [ "$target" = "ARX3" ] || [ "$target" = "VRX3" ]; then
+			################Mii1, PTM downstream init start #######################
+
+         echo enable > /proc/eth/class
+         echo QID2CLASS  32100000 >/proc/eth/class
+
+			#	if [ "$target" = "VRX2" -o "$target" = "GRX2" ]; then
+			#Manamohan: Default class asssignment for DSCP
+			for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63; do 
+				switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_DSCP_CLASS_SET nDSCP=$i nTrafficClass=3
+			done
+#			fi
+
+			#Default RED configuration for SP+WFQ
+			switch_cli IFX_ETHSW_QOS_WRED_CFG_SET eProfile=0 nRed_Min=0x3ff nRed_Max=0x2f nYellow_Min=0x3ff nYellow_Max=0x3ff nGreen_Min=0x3ff nGreen_Max=0x3ff
+	
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP1_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP2_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP3_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q1 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q2 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q3 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+			switch_cli IFX_ETHSW_QOS_WRED_QUEUE_CFG_SET nQueueId=$LP4_Q4 nRed_Min=0x6 nRed_Max=0x6 nYellow_Min=0x6 nYellow_Max=0x6 nGreen_Min=0x6 nGreen_Max=0x6
+		
+										
+			#initialize eth wan queues
+			#Port Cfg to classify based on PCP or DSCP
+			switch_cli IFX_ETHSW_QOS_PORT_CFG_SET nPortId=6 eClassMode=3 nTrafficClass=0
+			switch_cli IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$WAN_PORT eClassMode=3 nTrafficClass=0
+			#Downstream QoS Config Start
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_1 eClassMode=3 nTrafficClass=0
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_2 eClassMode=3 nTrafficClass=0
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_3 eClassMode=3 nTrafficClass=0
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=$LAN_PORT_4 eClassMode=3 nTrafficClass=0
+#			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_CFG_SET nPortId=3 eClassMode=3 nTrafficClass=0
+	
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q1 nPortId=$LAN_PORT_1 nTrafficClassId=3
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q2 nPortId=$LAN_PORT_1 nTrafficClassId=2
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q3 nPortId=$LAN_PORT_1 nTrafficClassId=1
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP1_Q4 nPortId=$LAN_PORT_1 nTrafficClassId=0
+		
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q1 nPortId=$LAN_PORT_2 nTrafficClassId=3
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q2 nPortId=$LAN_PORT_2 nTrafficClassId=2
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q3 nPortId=$LAN_PORT_2 nTrafficClassId=1
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP2_Q4 nPortId=$LAN_PORT_2 nTrafficClassId=0
+	
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q1 nPortId=$LAN_PORT_3 nTrafficClassId=3
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q2 nPortId=$LAN_PORT_3 nTrafficClassId=2
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q3 nPortId=$LAN_PORT_3 nTrafficClassId=1
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP3_Q4 nPortId=$LAN_PORT_3 nTrafficClassId=0
+	
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q1 nPortId=$LAN_PORT_4 nTrafficClassId=3
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q2 nPortId=$LAN_PORT_4 nTrafficClassId=2
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q3 nPortId=$LAN_PORT_4 nTrafficClassId=1
+			switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_QUEUE_PORT_SET nQueueId=$LP4_Q4 nPortId=$LAN_PORT_4 nTrafficClassId=0
+	
+	
+			#echo eth0 prio 0 queue 0 prio 1 queue 0 prio 2 queue 0 prio 3 queue 0 prio 4 queue 0 prio 5 queue 0 prio 6 queue 0 prio 7 queue 0 > /proc/eth/prio
+			echo eth1 prio 0 queue 7 prio 1 queue 6 prio 2 queue 5 prio 3 queue 4 prio 4 queue 3 prio 5 queue 2 prio 6 queue 1 prio 7 queue 0 > /proc/eth/prio
+	
+			#Downstream QoS config end
+		
+			#disable flow control on port 6
+			switch_cli IFX_FLOW_REGISTER_SET nRegAddr=0x94b nData=0x1c0
+	
+			#Additional regiseter set to achieve SP.
+			switch_cli IFX_FLOW_REGISTER_SET nRegAddr=0x4A nData=0x118
+		
+			#PCP (802.1p) to queue assignment
+			#                               <Index(802.1p)><traffic class>
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=0 nTrafficClass=7
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=1 nTrafficClass=6
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=2 nTrafficClass=5
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=3 nTrafficClass=4
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=4 nTrafficClass=3
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=5 nTrafficClass=2
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=6 nTrafficClass=1
+			switch_cli IFX_ETHSW_QOS_PCP_CLASS_SET nPCP=7 nTrafficClass=0
+
+		
+			#If Sched type of queues is SP set queues 0-3;12-15=0xffff
+			if [ $qq_2_schedType -eq 0 ]; then
+				#echo " init queues to 0xffff"	
+	         if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ]; then
+		         for i in 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23; do
+					   switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+		         done
+            else
+		         for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19; do
+					   switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=0 nWeight=0xffff
+               done
+	         fi
+			fi
+			#If Sched type of queues is WFQ set queues 0-3;12-15=0x1800
+			if [ $qq_2_schedType -eq 2 ]; then	
+				#echo " init queues to 0x1800"	
+	         if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ]; then
+		         for i in 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23; do
+					   switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+		         done
+            else
+		         for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19; do
+					   switch_cli IFX_ETHSW_QOS_SCHEDULER_CFG_SET nQueueId=$i eType=1 nWeight=0x1800
+               done
+	         fi
+
+			fi
+
+		fi #End of VRX2 & ARX3
+	fi #End of Downstream loop
+fi
+#########################################Upstream - Queuing##########################################

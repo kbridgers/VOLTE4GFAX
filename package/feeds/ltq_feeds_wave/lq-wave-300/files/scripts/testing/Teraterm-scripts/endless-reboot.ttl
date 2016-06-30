@@ -1,0 +1,9 @@
+for i 1 10000
+   sendln "root"
+   mpause 1000
+   sendln "admin"
+   mpause 5000
+   sendln "reboot"
+   mpause 180000
+next
+

@@ -1,0 +1,27 @@
+#!/bin/sh
+arp_list=/tmp/host_list
+arp_out=/tmp/host_out
+lan_ip=`ifconfig br0 | sed -n 's/.*dr:\(.*\) Bc.*/\1/p' | sed 's/ //g'`
+#lan_ip=`ifconfig br0 | grep 'inet addr:' | cut -f2 -d: | cut -f1 -d' '`
+/usr/sbin/arp-scan -q -I br0 $lan_ip/24 > $arp_list
+sed -e '1,2d' $arp_list > $arp_out
+mv $arp_out $arp_list 
+sed 'N;$!P;$!D;$d' $arp_list > $arp_out
+mv $arp_out $arp_list
+sed '/^$/d' $arp_list > $arp_out
+mv $arp_out $arp_list
+while read line
+do
+    host_ip=`echo $line | cut -d ' ' -f1`
+    wget -sq http://$host_ip &> /dev/null
+    if [ $? -eq 0 ];then
+			echo "$line  1" >> $arp_out
+	else
+			echo "$line  0" >> $arp_out
+    fi
+done < $arp_list
+if [ -s $arp_out ]; then
+	mv $arp_out $arp_list
+else
+	> $arp_list
+fi

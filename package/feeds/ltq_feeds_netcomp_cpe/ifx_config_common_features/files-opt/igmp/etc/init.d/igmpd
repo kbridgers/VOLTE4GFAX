@@ -1,0 +1,63 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+	 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+	. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+wan_port=-1
+if [ "$CONFIG_IFX_CONFIG_CPU" = "XRX288" ];then
+	wan_port=5
+fi
+if [ "$CONFIG_IFX_CONFIG_CPU" = "XRX3XX" ];then
+	if [ "$CONFIG_PACKAGE_KMOD_LTQCPE_AR10_F2_SUPPORT" = "1" ];then
+		wan_port=1
+	else
+		wan_port=5
+	fi
+fi
+if [ "$CONFIG_IFX_CONFIG_CPU" = "AMAZON_S" ];then
+	wan_port=6
+fi	
+case "$1" in
+	start)
+		/usr/sbin/iptables -A PREROUTING -t nat -d 224.0.0.0/240.0.0.0 -j ACCEPT
+		/usr/sbin/iptables -A INPUT -d 224.0.0.0/240.0.0.0 -j ACCEPT
+		/usr/sbin/iptables -A OUTPUT -d 224.0.0.0/240.0.0.0 -j ACCEPT
+		/usr/sbin/iptables -A FORWARD -d 224.0.0.0/240.0.0.0 -j ACCEPT
+		echo 300 > /proc/sys/net/ipv4/igmp_max_memberships
+		if [ "$mcast_igmp_snooping_status" = "1" ]; then
+			echo 1 > /proc/sys/net/bridge/bridge-igmp-snooping
+		else
+			echo 0 > /proc/sys/net/bridge/bridge-igmp-snooping
+		fi
+		if [ "$mcast_mld_snooping_status" = "1" ]; then
+			echo 1 > /proc/sys/net/bridge/bridge-mld-snooping
+		else
+			echo 0 > /proc/sys/net/bridge/bridge-mld-snooping
+		fi
+		if [ "$mcast_igmp_snooping_status" = "1" -o "$mcast_igmp_proxy_status" = "1" -o "$mcast_mld_snooping_status" = "1" -o "$mcast_mld_proxy_status" = "1" ]; then
+			/usr/sbin/mcastd -b -c /etc/rc.conf -p $wan_port
+			#/usr/sbin/mcastloader 10 &
+		fi
+		;;
+	wan_restart)
+		if [ -f /var/run/mcastd.pid ]; then
+			IGMPD_PID=`cat /var/run/mcastd.pid`
+			kill -1 $IGMPD_PID
+		else
+			if [ "$mcast_igmp_snooping_status" = "1" -o "$mcast_igmp_proxy_status" = "1" -o "$mcast_mld_snooping_status" = "1" -o "$mcast_mld_proxy_status" = "1" ]; then
+				/usr/sbin/mcastd -b -c /etc/rc.conf -p $wan_port
+			fi
+		fi
+		;;
+esac

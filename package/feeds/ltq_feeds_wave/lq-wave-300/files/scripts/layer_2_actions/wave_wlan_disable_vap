@@ -1,0 +1,23 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "running wave_wlan_disable_vap with $*" 
+apIndex=$1
+timestamp "wave_wlan_disable_vap:$apIndex:begin"
+
+# Stop WPC PBC for this interface
+	(. $ETC_PATH/mtlk_wps_pbc.sh should_run $apIndex) && (. $ETC_PATH/mtlk_wps_pbc.sh stop $apIndex)
+# Stop drvhlpr for this interface
+	(. $ETC_PATH/mtlk_drvhlpr.sh stop $apIndex)
+# Stop hostapd
+	(. $ETC_PATH/mtlk_init_hostapd.sh stop $apIndex)
+# Bring down interface and remove from PPA
+	(. $ETC_PATH/mtlk_set_wls_if.sh stop $apIndex)
+	(. $ETC_PATH/mtlk_init_mbss.sh stop $apIndex)
+	
+print2log DBG "wave_wlan_disable_vap done" 
+timestamp "wave_wlan_disable_vap:$apIndex:done"

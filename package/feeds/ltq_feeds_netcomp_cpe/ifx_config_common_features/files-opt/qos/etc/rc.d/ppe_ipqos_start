@@ -1,0 +1,40 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then                                                                                               
+if [ -r /flash/rc.conf ]; then                                                                                      
+. /flash/rc.conf 2> /dev/null                                                                              
+ENVLOADED="1"                                                                                             
+fi                                                                                                                
+fi                                                                                                                        
+if [ ! "$CONFIGLOADED" ]; then                                                                                            
+if [ -r /etc/rc.d/config.sh ]; then                                                                               
+. /etc/rc.d/config.sh 2>/dev/null                                                                                     
+CONFIGLOADED="1"                                                                                          
+fi                                                                                                                
+fi
+
+ppe_ipqos=`/usr/sbin/status_oper GET IPQoS_Config ppe_ipqos` 
+if [ $ppe_ipqos -eq "1" ]; then
+
+	#find default WAN interface from wan_main_def_conn = WAN1
+	eval defwan_Conn=$wan_main_defConn 
+
+	#find wan instance from defualt WAN interface =1
+	cat /flash/rc.conf | grep wan_main_defConn | sed -n 's,wan_main_defConn="WAN,,;1p' > /tmp/test
+	defwan_inst=`cat /tmp/test |  sed -n 's,",,;1p'` 
+	
+	#substitue _instance to wan_{instanace}_vcc                                                                                   
+	eval defvcc='$'wan_${defwan_inst}_vcc                                                                                         
+                                                  
+	vcc=`echo $defvcc | sed -n 's,\/,.,;1p'`                                                                                      
+
+	ppe_ipqos=`/usr/sbin/status_oper GET IPQoS_Config ppe_ipqos` 
+echo PPA is enabled > /tmp/ipqos_log
+
+	#update defvcc in /tmp/system_status                                             
+	/usr/sbin/status_oper SET "IPQoS_Config" "ppe_ipqos" "$ppe_ipqos" "def_vcc" "$vcc" "def_waninst" "$defwan_inst" 
+
+else
+	echo PPA is disabled >>/tmp/PPA is disabled, software QoS will take effect
+fi
+
+		

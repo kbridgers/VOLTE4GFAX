@@ -1,0 +1,37 @@
+menu "Configuration"
+	depends on PACKAGE_ifx-dsl-cpe-mei-danube
+
+	choice
+		prompt "build model"
+		default ifx-dsl-cpe-mei-danube_MODEL_DEFAULT
+		help
+		  Selection of a model (predefined combination of configure options).
+
+	config ifx-dsl-cpe-mei-danube_MODEL_DEFAULT
+		bool "Default"
+		help
+		  Default features included, no debug support.
+
+	config ifx-dsl-cpe-mei-danube_MODEL_DEBUG
+		bool "Debug"
+		help
+		  Defined to enable debug support within the driver.
+	endchoice
+
+	menu "optional build options"
+		depends on PACKAGE_ifx-dsl-cpe-mei-danube
+	config ifx-dsl-cpe-mei-danube_USE_ADDITIONAL_BUILD_OPTIONS
+		depends on PACKAGE_ifx-dsl-cpe-mei-danube
+		bool "Use additional build options"
+		default n
+		help
+		  Provides the possibility to include/exclude single features directly.
+		  This configuration overwrites selections which are done by the "build model" configuration.
+
+	config ifx-dsl-cpe-mei-danube_ADDITIONAL_BUILD_OPTIONS
+		depends on ifx-dsl-cpe-mei-danube_USE_ADDITIONAL_BUILD_OPTIONS
+		string "Additional build options"
+		help
+		  Defines to include/exclude single feature using available configure options.
+	endmenu
+endmenu

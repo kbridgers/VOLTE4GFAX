@@ -1,0 +1,64 @@
+#!/bin/sh
+
+#Ritesh - This script deletes certain firewall rules created to allow voip traffic. CREATED-2/3/06
+# 		opposite of enable_voip
+#
+VOIP_SIGNAL_PORT_UDP="5060"
+VOIP_SIGNAL_PORT_TCP="5060"
+VOIP_DATA_SPORT="5000"
+VOIP_DATA_EPORT="6000"
+VOIP_TCP_CLIENT_SPORT="30000"
+VOIP_TCP_CLIENT_DPORT="30032"
+FAX_SPORT="7600"
+FAX_LISTEN_EPORT="7603"
+FAX_EPORT="7620"
+
+#
+#iptables -D INPUT -p udp --dport ! $VOIP_SIGNAL_PORT_UDP -m state --state RELATED, ESTABLISHED -j ACCEPT
+#iptables -D INPUT -p tcp --dport ! $VOIP_SIGNAL_PORT_TCP -m state --state RELATED, ESTABLISHED -j ACCEPT
+#
+
+#           ---==[ OUTPUT CHAIN RULES ]==---
+#To allow SIP signalling on specified udp port to go *out* from device
+iptables -D OUTPUT -p udp --sport $VOIP_SIGNAL_PORT_UDP -j ACCEPT 2> /dev/null
+
+#To allow RTP/RTCP packets to go *out* from device
+iptables -D OUTPUT -p udp --sport $VOIP_DATA_SPORT:$VOIP_DATA_EPORT -j ACCEPT 2> /dev/null
+#For FAX/T.38
+iptables -D OUTPUT -p udp --sport $FAX_SPORT:$FAX_EPORT -j ACCEP 2> /dev/nullT
+
+#To allow connection between 2 phones connected to FXS of the (same) device.
+iptables -D IFX_FW_ACCEPT_WAN_IF_OUTPUT -o lo -j ACCEPT 2> /dev/null 
+#  	  ------------------------------------
+
+#           ---==[ INTPUT CHAIN RULES ]==---
+#To allow SIP signalling on specified udp port to reach device
+iptables -D IFX_FW_ACCEPT_SERVICES -p udp --dport $VOIP_SIGNAL_PORT_UDP -j ACCEPT 2> /dev/null
+#For FAX/T.38
+iptables -D IFX_FW_ACCEPT_SERVICES -p udp --dport $FAX_SPORT:$FAX_EPORT -j ACCEPT 2> /dev/null
+
+#To allow RTP/RTCP packets to reach from device
+iptables -D IFX_FW_ACCEPT_SERVICES -p udp --dport $VOIP_DATA_SPORT:$VOIP_DATA_EPORT -j ACCEPT 2> /dev/null
+
+#To allow SIP signalling on specified tcp port to reach device
+iptables -D IFX_FW_ACCEPT_SERVICES -p tcp --dport $VOIP_SIGNAL_PORT_TCP -j ACCEPT 2> /dev/null 
+#For FAX/T.38
+iptables -D IFX_FW_ACCEPT_SERVICES -p tcp --dport $FAX_SPORT:$FAX_LISTEN_EPORT -j ACCEPT 2> /dev/null 
+#  	  ------------------------------------
+
+
+#    ---==[ TABLE NAT - PREROUTING CHAIN RULES ]==---
+#To allow SIP signalling on specified udp port
+iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p udp --dport $VOIP_SIGNAL_PORT_UDP -j ACCEPT 2> /dev/null
+# XXX: Don't we need the rule for RTP/RTCP UDP ports as well ? For a phone
+# conv, probably if first few packets get dropped from remote phone, one still
+# has a connection !!? However, Looks like adding it is the right way. Should be done through port
+# trigger though
+iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p udp --dport $VOIP_DATA_SPORT:$VOIP_DATA_EPORT -j ACCEPT 2> /dev/null
+
+#To allow SIP signalling on specified tcp port
+iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p tcp --dport $VOIP_SIGNAL_PORT_TCP -j ACCEPT 2> /dev/null #needs to be verified!
+#For FAX/T.38
+iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p udp --dport $FAX_SPORT:$FAX_EPORT -j ACCEPT 2> /dev/null
+iptables -t nat -D IFX_NAPT_PREROUTING_WAN -p tcp --dport $FAX_SPORT:$FAX_LISTEN_EPORT -j ACCEPT 2> /dev/null
+#  	  ------------------------------------

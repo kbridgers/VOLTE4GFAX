@@ -1,0 +1,76 @@
+#!/bin/sh
+#$1= index
+SED="/bin/sed"
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+# Case 1. when called with 2 args, we expect ptmX.Y to be created (with MAC address) at the end
+# 	$1 : index of vlan channel entry for this PTM channel
+#	$2 : to isolate the case that this is called for VLAN channel configuration on ptmX and not just ptmX bringup
+if [ $# -eq 2 ]; then
+	eval vlanid=$1
+	eval ptm_iface=$2
+	if [ ${ptm_iface} != "ptm0.${vlanid}" ]; then
+		eval ptm_iface='$'vlanch_${1}_l2ifName
+		eval vlanid='$'vlanch_${1}_vlanId
+	fi
+	iface_name=`echo $ptm_iface | sed -n "s,\..*,,;1p"`
+
+
+	# TBD : MAC address for every VLAN interface
+	# OUTPUT="/tmp/cmd_output${1}"
+	# ifconfig eth0 > "$OUTPUT"
+	# MAC_ADDR_BEGIN=`"$SED" -n 's,^.*HWaddr,,;1p' "$OUTPUT"`
+	# WAN_MAC_ADDR=`echo $MAC_ADDR_BEGIN|/usr/sbin/next_macaddr 2`
+
+	# Create VLAN interfaces on ptm0
+	if [ $vlanid -ne -1 ]; then
+
+		/sbin/vconfig add $iface_name $vlanid
+		
+		if [ $vlanid -ne 0 ]; then
+			if [ -n "$CONFIG_FEATURE_DSL_BONDING_SUPPORT" -a "A$CONFIG_FEATURE_DSL_BONDING_SUPPORT" = "A1" ]; then
+				. /etc/rc.d/ltq_switch_functions.sh 2>/dev/null
+				select_wan_mode
+			fi
+
+			# In case of VDSL PTM Bonding, the packet from PPA is sent to switch for FCS Check
+			# during this time, the packet needs to be handled if VLAN tag is present. 
+			# So, add this VLAN as member of the switch port.
+			if [ "$bonding_wan" = "1" -a $vlanid -ne 0 ]; then
+				# create VLAN with id ${vlanid}
+				create_vlanid ${vlanid} $wan_fid
+
+				#WAN VLAN membership
+				# - 1: Tag base Number Egress enabled
+				# port 11 for ptm 
+				config_port_member ${vlanid} 11 1
+			fi
+		fi
+
+		/sbin/ifconfig $iface_name.$vlanid up
+
+		# Add WAN interface to PPA
+		. /etc/rc.d/ppa_config.sh addwan ${ptm_iface}
+	fi
+
+	# TBD : status update needs to happen
+# Case 2. when called with > 2 args, we expect ptmX to be created (with MAC address) at the end
+elif [ $# -ne 2 ]; then
+	if [ $2 -eq 0 ]; then
+		/sbin/ifconfig ${1} ${5} up
+	fi
+fi
+ 
+

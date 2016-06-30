@@ -1,0 +1,34 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+i=1
+RACOON_FILE=/var/racoon2.conf
+rm -f $RACOON_FILE
+# resolver info
+echo "resolver" >> $RACOON_FILE
+echo "  {" >> $RACOON_FILE
+echo "      resolver off; ">> $RACOON_FILE
+echo "  };" >> $RACOON_FILE
+echo "interface" >>  $RACOON_FILE
+echo "  {" >> $RACOON_FILE
+echo "      ike {" >> $RACOON_FILE
+cat /var/ipsec_wan_interface_* >> $RACOON_FILE               
+echo "      };">>$RACOON_FILE
+echo "  spmd {" >> $RACOON_FILE
+echo "      unix /var/run/spmif ;" >> $RACOON_FILE
+echo "  };" >> $RACOON_FILE
+echo "  spmd_password /var/spmd.pwd;" >> $RACOON_FILE
+echo "};" >> $RACOON_FILE
+echo "include \"/var/ipsec_policies_*\";" >> $RACOON_FILE

@@ -1,0 +1,77 @@
+#!/bin/sh
+#if [ $1 = "3" ]; then
+#set -x
+#fi
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+eval PPP_DEMAND='$'wanppp_${1}_connTrigger
+eval PPP_RELAY='$'wanppp_${1}_connType
+
+eval lan_iface='$'lan_main_0_interface
+
+eval wan_mode='$'wanppp_${1}_wanMode
+eval IPV6_STATUS='$'ipv6_status
+
+eval wan_iface='$'wanppp_${1}_iface
+
+#WAN="`/etc/rc.d/get_wan_if $1`"
+. /etc/rc.d/get_wan_if $1 "ppp"
+if [ "$WAN_IFNAME" = "ptm0.0" ]; then
+	WAN_IFNAME="ptm0"
+fi
+WAN=$WAN_IFNAME
+
+. /etc/rc.d/init.d/create_ppp_cfg $1 "OE"
+
+# The create_ppp_cfg creates a config file used by ppp's calloption() function ONLY.
+# Aims to solve the problem of pppd disappearing after 12 hrs of inactivity 
+# (and trying to connect over a valid VPI/VCI)
+OP_FILE="/etc/ppp/options"
+echo "maxfail 0" > $OP_FILE
+if [ "$PPP_DEMAND" = "0" ]; then # Always ON Connection
+	echo "persist" >> $OP_FILE
+fi
+#AMS
+if [ "$IPV6_STATUS" = "1" ]; then 
+	echo "+ipv6" >> $OP_FILE
+fi
+
+/usr/sbin/status_oper SET "WanPPP${1}_PPP_Info" SESSIONID "" REMOTE_IP "" LOCAL_IP ""
+
+# /usr/sbin/pppd call pppoe$1
+/usr/sbin/pppd file $OP_FILE call pppoe$1
+
+if [ "$CONFIG_PACKAGE_RP_PPPOE" = "1" ]; then
+	if [ "$PPP_RELAY" = "4" ]; then
+		/usr/sbin/pppoe-relay -C $lan_iface -S $wan_iface &
+	fi
+fi
+
+# Invoke this to bringup PPP Dial-On-Demand Connections for DNS Query
+if [ "$CONFIG_FEATURE_NAPT" = "1" -a "$PPP_DEMAND" = "1" ]; then
+	sleep 1
+	PTP_IP=`ifconfig $WAN 2> /dev/null`
+	if [ $? -eq 0 ]; then
+		PTP_IP=${PTP_IP%%Mask*}
+		PTP_IP=${PTP_IP##*:}
+		/usr/sbin/status_oper SET "WanPPP${1}_DNS_SERVER" DNS1 $PTP_IP
+		if  [ "$CONFIG_FEATURE_DNS_RELAY" = "1" ]; then
+			. /etc/rc.d/init.d/dns_relay restart $1
+		fi
+	fi
+    /usr/sbin/status_oper SET "WanPPP${1}_IF_Info" STATUS DISCONNECTED
+fi
+

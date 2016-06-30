@@ -1,0 +1,52 @@
+#!/bin/sh
+
+icmp6_filter()
+{
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 128 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 129 -j RETURN
+	# Destination unreachable
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 1/0 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 1/1 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 1/3 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 1/4 -j RETURN
+	# Time Exceeded
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 3/0 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 3/1 -j RETURN
+	# Packet Too Big
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 2 -j RETURN
+	# Router solicitation/advertisement
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 133 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 134 -j RETURN
+	# Neighbor solicitation/advertisement
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 135 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 136 -j RETURN
+	# Multicast 
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 143 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 130 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 131 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp --icmpv6-type 132 -j RETURN
+	ipt -A icmp_filter -p ipv6-icmp -j DROP
+
+}
+
+icmp6_fw_init()
+{
+	ipt -N icmp_filter
+	icmp6_filter
+}
+
+icmp6_input_init()
+{
+	ipt -A INPUT -p ipv6-icmp -j icmp_filter
+	ipt -A INPUT -p ipv6-icmp -j ACCEPT
+}
+
+icmp6_forward_init()
+{
+	ipt -A lan2wan_forward -p ipv6-icmp -j icmp_filter
+	ipt -A wan2lan_forward -p ipv6-icmp -j icmp_filter
+}
+
+FW_FILTER_INIT=icmp6_fw_init
+FW_FILTER_FORWARD_INIT=icmp6_forward_init
+FW_FILTER_INPUT_INIT=icmp6_input_init

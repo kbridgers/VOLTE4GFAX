@@ -1,0 +1,19 @@
+#!/bin/sh
+
+if [ $# -ne 2 ]; then
+        echo "Syntax: cat <filename> | del_line <search> <filename>"
+else
+	read tmp
+	tmp_file="/tmp/tmpfile"
+	> /tmp/tmpfile
+
+	while [ "$tmp" ]; do
+		if [ ! "`echo "$tmp" | grep "$1"`" ]; then
+			echo $tmp >> $tmp_file
+		fi
+		read tmp
+	done
+
+	mv $tmp_file $2
+fi
+

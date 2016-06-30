@@ -1,0 +1,48 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+print2log DBG "running wave_wlan_sec_modify: args: $*"	
+
+apIndex=$1
+
+timestamp "wave_wlan_sec_modify:$apIndex:begin"
+
+# Get corresponding wlan network interface from mapping file
+wlan=`find_wave_if_from_index $apIndex`
+
+# Optimization: What should be the final state of the interface: (set to IF_DOWN if another script will bring up the interface)
+if_state=$2
+if [ "$if_state" = "" ]
+then
+	if_state=$IF_UP
+fi
+
+# push button stop
+(. $ETC_PATH/mtlk_wps_pbc.sh stop $apIndex)
+
+ifconfig $wlan down
+
+# Config driver params that must be set outside hostapd (WEP, WEP Authentication)
+$ETC_PATH/mtlk_set_driver_params.sh reconfigure $apIndex 'wlan_security|wlan_wep|wlan_wds'
+
+# hostapd reconfigure: create config and (HUP or stop+start)
+(. $ETC_PATH/mtlk_init_hostapd.sh reconfigure $apIndex $if_state)
+
+if [ "$if_state" = "$IF_UP" ]
+then
+	timestamp "wave_wlan_sec_modify:ifconfig_up:$apIndex:begin"
+	ifconfig $wlan up
+	timestamp "wave_wlan_sec_modify:ifconfig_up:$apIndex:done"
+fi
+
+
+# push button start
+(. $ETC_PATH/mtlk_wps_pbc.sh should_run $apIndex) && (. $ETC_PATH/mtlk_wps_pbc.sh start $apIndex)
+
+print2log DBG "wave_wlan_sec_modify done"
+
+timestamp "wave_wlan_sec_modify:$apIndex:done"

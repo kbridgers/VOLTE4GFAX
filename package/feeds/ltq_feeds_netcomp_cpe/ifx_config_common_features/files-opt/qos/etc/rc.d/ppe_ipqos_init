@@ -1,0 +1,100 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+                CONFIGLOADED="1"
+        fi
+fi
+
+# get wan_x_mode from rc.conf.                                                                                                           
+
+cat /flash/rc.conf | grep wan_main_defConn | sed -n 's,wan_main_defConn="WAN,,;1p' > /tmp/test
+defwan_inst=`cat /tmp/test |  sed -n 's,",,;1p'` 
+eval wanmode='$'wan_${defwan_inst}_wanMode                                                                                               
+if [ $wanmode -eq "0" ]; then                                                                                                            
+	echo configuring PPE queues for ATM WAN mode >> /tmp/ipqos_log
+
+	# Following lines will create traffic queues in PPE firmware
+	
+	#create 8 PPE firmware queues
+	# pass 1 for adding queues
+	#i=1
+	#create 8 queues and assign default priority to the queues
+	#prio          :  0  1  2  3  4  5  6  7
+	#pvc 0.35      :  7  6  5  4  3  2  1  0
+ 	
+	cat /flash/rc.conf | grep qos_queue_Count | sed -n 's,qos_queue_Count=",,;1p' > /tmp/test
+        ppe_queue_Count=`cat /tmp/test | sed -n 's,",,;1p'`
+
+	defvcc=`/usr/sbin/status_oper GET IPQoS_Config def_vcc`
+	#theres already a queue on the PVC, need to add only max-1 queues
+	ppe_queue_Count=`expr $ppe_queue_Count - 1`
+
+	# Read RC.CONF and create queues and assign priority
+	i=0
+        while [ $i -lt $ppe_queue_Count ]
+        do
+		
+		eval enable='$'qq_${i}_enable
+		if [ $enable -eq 1 ]; then
+			#add =1,del =0, mod =2, init =3
+		       	
+	                echo Add queues and assign Priority >> /tmp/ipqos_log  
+			sh /etc/rc.d/ppe_ipqos_q_mgmt $i 3 $ppe_queue_Count
+		fi
+		i=`expr $i + 1`
+        done
+	#add 7th prio
+	i=7
+	cd /proc/eth
+	eval PRIO='$'qq_${i}_qPrio
+	PRIO=`expr $PRIO - 1`
+   	echo pvc $defvcc prio $PRIO queue $i > prio
+	cd -
+elif [ $wanmode -eq "1" ];
+then	
+	echo configuring Tantos queues for WAN ETH mii0 mode >> /tmp/ipqos_log
+
+	#enable VPE on port 4. reg: p4BC offset:0x81
+
+	#mem -s 0x1e1080cc -w 0x08008481
+	
+	#VPE=1; reg: P4BC 
+	mem -s 0x1e1080cc -w 0x08008481 -u >> /tmp/ipqos_log
+
+
+	#map priority-CoS-Queue map. reg: 1PPM offset:0xE8
+
+	#Priority - 802.1P - Queue - Register   : Value
+	# 0 	  - CoS 7  -  Q3   - 1PPM.1PPQ7 : 0xc000
+	# 1       - CoS 7  -  Q3   - 1PPM.1PPQ6 : 0x2000
+	# 2	  - CoS 6  -  Q2   - 1PPM.1PPQ5 : 0x2000
+	# 3       - CoS 6  -  Q2   - 1PPM.1PPQ4 : 0x0400
+	# 4	  - CoS 5  -  Q1   - 1PPM.1PPQ3 : 0x0400
+	# 5       - CoS 4  -  Q1   - 1PPM.1PPQ2 : 0x0000
+	# 6       - CoS 3  -  Q0   - 1PPM.1PPQ1 : 0x0000
+	# 7       - CoS 0  -  Q0   - 1ppM.1PPQ0 : 0x0000
+	
+
+
+	/etc/rc.d/ppe_ipqos_mii0cfg &
+
+	
+fi
+
+# ipqos init is completed. Indicate this in file /tmp/ipqos/init_status
+echo "PPE_IPQOS_INIT_STATUS=\"1\"" > /tmp/ipqos_init_status
+
+    # call script to configure iptables rules for web management traffic
+    # remove iptables rules if already present and then configure
+    . /etc/rc.d/ipqos_mgmt_traffic_config web stop
+    . /etc/rc.d/ipqos_mgmt_traffic_config web start
+

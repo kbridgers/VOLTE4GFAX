@@ -1,0 +1,31 @@
+# 20-July-2010: pmcu is added as a separate package and this is no more compiled from ifx_utilities
+# config FEATURE_IFX_PMCU_DEMO
+#	bool 'PMCU Demo'
+#        default y
+#	help
+#	  PMCU Demo
+
+config FEATURE_IFX_UPGRADE_VENDOR_EXT
+        bool 'Vendor extension for upgrade'
+        help
+        Vendor extension for upgrade
+
+config FEATURE_LQ_NEW_UPGRADE
+        bool 'New upgrade mechanism'
+        default y
+        help
+        This mechanism upgrades the firmware/image by mapping the image to
+        virtual address space of a process rather than allocating memory
+
+config FEATURE_LQ_UTILITY_PPACMD
+	bool 'PPACMD Utility'
+        default y
+	help
+	  PPACMD Utility
+
+config FEATURE_LQ_PPA_SESSION_MANAGEMENT
+	bool 'PPA Session Management utility'
+	depends PACKAGE_ppacmd
+	default y
+	help 
+	  PPA Session Management Utility

@@ -1,0 +1,118 @@
+--- a/arch/mips/include/asm/mach-lantiq/falcon/lantiq_soc.h
++++ b/arch/mips/include/asm/mach-lantiq/falcon/lantiq_soc.h
+@@ -36,5 +36,10 @@
+ #define LTQ_WDT_BASE_ADDR	0x1F8803F0
+ #define LTQ_WDT_SIZE		0x10
+ 
++extern int ltq_gpio_request(unsigned int pin, unsigned int alt0,
++			    unsigned int alt1, unsigned int dir,
++			    const char *name);
++extern int ltq_gpio_mux_set(unsigned int pin, unsigned int mux);
++
+ #endif /* CONFIG_SOC_FALCON */
+ #endif /* _LTQ_XWAY_H__ */
+--- a/arch/mips/lantiq/falcon/gpio.c
++++ b/arch/mips/lantiq/falcon/gpio.c
+@@ -46,6 +46,8 @@
+ #define gpio_w32(val, reg)			__raw_writel(val, reg)
+ #define gpio_w32_mask(clear, set, reg)	gpio_w32((gpio_r32(reg) & ~(clear)) | (set), reg)
+ 
++#define MAX_PORTS			5
++#define PINS_PER_PORT			32
+ 
+ /** register structure for padctrl
+     (mainly needed for mux control) */
+@@ -130,6 +132,8 @@
+ 	unsigned int chained_irq;
+ };
+ 
++static struct falcon_gpio_port ltq_gpio_port[MAX_PORTS];
++
+ static int gpio_exported = 0;
+ static int __init gpio_export_setup(char *str)
+ {
+@@ -242,6 +246,46 @@
+ 	gpio_w32(1<<offset, &gpio_port->port->irncr);
+ }
+ 
++int ltq_gpio_mux_set(unsigned int pin, unsigned int mux)
++{
++	int port = pin / 100;
++	int offset = pin % 100;
++	struct falcon_gpio_port *gpio_port;
++
++	if (offset >= PINS_PER_PORT || port >= MAX_PORTS)
++		return -EINVAL;
++
++	gpio_port = &ltq_gpio_port[port];
++	gpio_w32(mux, &gpio_port->pad->muxc[offset]);
++
++	return 0;
++}
++EXPORT_SYMBOL(ltq_gpio_mux_set);
++
++int ltq_gpio_request(unsigned int pin, unsigned int alt0,
++		     unsigned int alt1, unsigned int dir, const char *name)
++{
++	int port = pin / 100;
++	int offset = pin % 100;
++	unsigned int mux = (alt0 & 1) + (alt1 & 1) * 2;
++
++	if (offset >= PINS_PER_PORT || port >= MAX_PORTS)
++		return -EINVAL;
++
++	if (gpio_request(pin, name)) {
++		pr_err("failed to setup lantiq gpio: %s\n", name);
++		return -EBUSY;
++	}
++
++	if (dir)
++		gpio_direction_output(pin, 1);
++	else
++		gpio_direction_input(pin);
++
++	return ltq_gpio_mux_set(pin, mux);
++}
++EXPORT_SYMBOL(ltq_gpio_request);
++
+ static struct irq_chip falcon_gpio_irq_chip;
+ static int falcon_gpio_irq_type(unsigned irq, unsigned int type)
+ {
+@@ -319,16 +363,16 @@
+ 	struct resource *gpiores, *padres;
+ 	int irq;
+ 
++	if (pdev->id >= MAX_PORTS)
++		return -ENODEV;
++
+ 	gpiores = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+ 	padres = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+ 	irq = platform_get_irq(pdev, 0);
+ 	if (!gpiores || !padres)
+ 		return -ENODEV;
+ 
+-	gpio_port = kzalloc(sizeof(*gpio_port), GFP_KERNEL);
+-	if (gpio_port == NULL)
+-		return -ENOMEM;
+-
++	gpio_port = &ltq_gpio_port[pdev->id];
+ 	gpio_port->gpio_chip.label = "falcon-gpio";
+ 	gpio_port->gpio_chip.direction_input = falcon_gpio_direction_input;
+ 	gpio_port->gpio_chip.direction_output = falcon_gpio_direction_output;
+@@ -404,7 +448,6 @@
+ 		iounmap(gpio_port->port);
+ 	if (gpio_port->pad)
+ 		iounmap(gpio_port->pad);
+-	kfree(gpio_port);
+ 	return ret;
+ }
+ 
+@@ -422,8 +465,6 @@
+ 		iounmap(gpio_port->port);
+ 	if (gpio_port->pad)
+ 		iounmap(gpio_port->pad);
+-	if (ret == 0)
+-		kfree(gpio_port);
+ 
+ 	return ret;
+ }

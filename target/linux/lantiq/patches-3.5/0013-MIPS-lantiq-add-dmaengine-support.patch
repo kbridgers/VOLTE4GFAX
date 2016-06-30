@@ -1,0 +1,446 @@
+From 91ec3e9e5c096aa0585b40a1267587742846ea86 Mon Sep 17 00:00:00 2001
+From: John Crispin <blogic@openwrt.org>
+Date: Sun, 20 May 2012 00:36:50 +0200
+Subject: [PATCH 13/22] MIPS: lantiq: add dmaengine support
+
+---
+ arch/mips/Kconfig      |    1 +
+ drivers/dma/Kconfig    |    9 +
+ drivers/dma/Makefile   |    1 +
+ drivers/dma/xway_dma.c |  395 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 406 insertions(+), 0 deletions(-)
+ create mode 100644 drivers/dma/xway_dma.c
+
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -238,6 +238,7 @@ config LANTIQ
+ 	select USE_OF
+ 	select PINCTRL
+ 	select PINCTRL_LANTIQ
++	select HAS_DMA
+ 
+ config LASAT
+ 	bool "LASAT Networks platforms"
+--- a/drivers/dma/Kconfig
++++ b/drivers/dma/Kconfig
+@@ -260,6 +260,15 @@ config DMA_SA11X0
+ 	  SA-1110 SoCs.  This DMA engine can only be used with on-chip
+ 	  devices.
+ 
++config XWAY_DMA
++	tristate "XWAY DMA support"
++	depends on LANTIQ && SOC_TYPE_XWAY
++	select DMA_ENGINE
++	help
++	  Support the DMA engine found on Lantiq XWAY System on Chip
++	  This DMA engine can only be used with on-chip devices such
++	  as Ethernet, SPI and Crypto
++
+ config DMA_ENGINE
+ 	bool
+ 
+--- a/drivers/dma/Makefile
++++ b/drivers/dma/Makefile
+@@ -28,3 +28,4 @@ obj-$(CONFIG_PCH_DMA) += pch_dma.o
+ obj-$(CONFIG_AMBA_PL08X) += amba-pl08x.o
+ obj-$(CONFIG_EP93XX_DMA) += ep93xx_dma.o
+ obj-$(CONFIG_DMA_SA11X0) += sa11x0-dma.o
++obj-$(CONFIG_XWAY_DMA) += xway_dma.o
+--- /dev/null
++++ b/drivers/dma/xway_dma.c
+@@ -0,0 +1,395 @@
++/*
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * Copyright 2012 John Crispin <blogic@openwrt.org>
++ */
++
++#include <linux/init.h>
++#include <linux/types.h>
++#include <linux/mm.h>
++#include <linux/interrupt.h>
++#include <linux/clk.h>
++#include <linux/wait.h>
++#include <linux/sched.h>
++#include <linux/semaphore.h>
++#include <linux/device.h>
++#include <linux/dma-mapping.h>
++#include <linux/slab.h>
++#include <linux/platform_device.h>
++#include <linux/dmaengine.h>
++#include <linux/delay.h>
++#include <linux/module.h>
++
++#include <lantiq_soc.h>
++
++#include "dmaengine.h"
++
++#define DMA_CTRL		0x10
++#define DMA_CPOLL		0x14
++#define DMA_CS			0x18
++#define DMA_CCTRL		0x1C
++#define DMA_CDBA		0x20
++#define DMA_CDLEN		0x24
++#define DMA_CIS			0x28
++#define DMA_CIE			0x2C
++#define DMA_PS			0x40
++#define DMA_PCTRL		0x44
++#define DMA_IRNEN		0xf4
++
++#define DMA_DESCPT		BIT(3)		/* descriptor complete irq */
++#define DMA_TX			BIT(8)		/* TX channel direction */
++#define DMA_CHAN_ON		BIT(0)		/* channel on / off bit */
++#define DMA_PDEN		BIT(6)		/* enable packet drop */
++#define DMA_CHAN_RST		BIT(1)		/* channel on / off bit */
++#define DMA_RESET		BIT(0)		/* channel on / off bit */
++#define DMA_IRQ_ACK		0x7e		/* IRQ status register */
++#define DMA_POLL		BIT(31)		/* turn on channel polling */
++#define DMA_CLK_DIV4		BIT(6)		/* polling clock divider */
++#define DMA_2W_BURST		BIT(1)		/* 2 word burst length */
++#define DMA_ETOP_ENDIANESS	(0xf << 8) /* endianess swap etop channels */
++#define DMA_WEIGHT	(BIT(17) | BIT(16))     /* default channel wheight */
++
++#define DESC_SIZE		0x08		/* each descriptor is 64bit */
++#define DESC_NUM		0x40		/* 64 descriptors / channel */
++#define DMA_MAX_CHANNEL		20		/* the soc has 20 channels */
++
++#define DMA_OWN			BIT(31)		/* owner bit */
++#define DMA_C			BIT(30)		/* complete bit */
++#define DMA_SOP			BIT(29)		/* start of packet */
++#define DMA_EOP			BIT(28)		/* end of packet */
++#define DMA_TX_OFFSET(x)	((x & 0x1f) << 23) /* data bytes offset */
++#define DMA_RX_OFFSET(x)	((x & 0x7) << 23) /* data bytes offset */
++#define DMA_SIZE_MASK		(0xffff)	/* the size field is 16 bit */
++
++#define DMA_CH0_INT		INT_NUM_IM2_IRL0	/* our base IRQ */
++
++
++#define dma_r32(m, x)			ltq_r32(m + (x))
++#define dma_w32(m, x, y)		ltq_w32(x, m + (y))
++#define dma_w32_mask(m, x, y, z)	ltq_w32_mask(x, y, m + (z))
++
++/* our dma descriptors are 64 bit. 32 bit options and 32 bit addr */
++struct xway_desc {
++	u32 ctl;
++	u32 addr;
++};
++
++struct xway_dma_engine;
++
++struct xway_dma_chan {
++	int nr;				/* the channel number */
++	int irq;			/* the mapped irq */
++	int phys;			/* physical addr */
++	int curr;			/* the current descriptor we are on */
++	spinlock_t lock;		/* we need to lock the dma access */
++	struct xway_dma_engine *xdma;	/* pointer to our global struct */
++	struct dma_chan chan;		/* the api channel pointer */
++	struct dma_async_tx_descriptor desc;	/* tx */
++	struct tasklet_struct tasklet;	/* the callback tasklet */
++	enum dma_status	status;		/* the status of the channel */
++	struct xway_desc *desc_base;	/* the descriptor base */
++};
++
++enum {
++	DMA_PORT_ETOP = 0,
++	DMA_PORT_DEU,
++};
++
++#define XWAY_DMA_MAX_CHANNEL		20
++struct xway_dma_engine {
++	void __iomem			*virt;
++	struct clk			*clk;
++	struct dma_device		dma_device;
++	struct device_dma_parameters	dma_parms;
++	struct xway_dma_chan		chans[DMA_MAX_CHANNEL];
++};
++
++static void xway_dma_reset_chan(struct xway_dma_chan *xc)
++{
++	unsigned long flags;
++
++	local_irq_save(flags);
++	dma_w32_mask(xc->xdma->virt, 1 << xc->nr, 0, DMA_IRNEN);
++	dma_w32(xc->xdma->virt, xc->nr, DMA_CS);
++	dma_w32(xc->xdma->virt, DMA_CHAN_RST, DMA_CCTRL);
++	dma_w32(xc->xdma->virt, DMA_POLL | DMA_CLK_DIV4, DMA_CPOLL);
++	xc->curr = 0;
++	local_irq_restore(flags);
++}
++
++static void xway_dma_enable_chan(struct xway_dma_chan *xc)
++{
++	unsigned long flag;
++
++	local_irq_save(flag);
++	dma_w32(xc->xdma->virt, xc->nr, DMA_CS);
++	dma_w32_mask(xc->xdma->virt, 0, DMA_CHAN_ON, DMA_CCTRL);
++	dma_w32_mask(xc->xdma->virt, 0, 1 << xc->nr, DMA_IRNEN);
++	local_irq_restore(flag);
++}
++
++static void xway_dma_disable_chan(struct xway_dma_chan *xc)
++{
++	unsigned long flag;
++
++	local_irq_save(flag);
++	dma_w32(xc->xdma->virt, xc->nr, DMA_CS);
++	dma_w32_mask(xc->xdma->virt, DMA_CHAN_ON, 0, DMA_CCTRL);
++	dma_w32_mask(xc->xdma->virt, 1 << xc->nr, 0, DMA_IRNEN);
++	local_irq_restore(flag);
++}
++
++static struct xway_dma_chan *to_xway_dma_chan(struct dma_chan *dc)
++{
++	return container_of(dc, struct xway_dma_chan, chan);
++}
++
++static dma_cookie_t xway_dma_tx_submit(struct dma_async_tx_descriptor *tx)
++{
++	struct xway_dma_chan *xc = to_xway_dma_chan(tx->chan);
++
++	xway_dma_enable_chan(xc);
++
++	return dma_cookie_assign(tx);
++}
++
++static void xway_dma_tasklet(unsigned long data)
++{
++	struct xway_dma_chan *xc = (struct xway_dma_chan *) data;
++
++	if (xc->desc.callback)
++		xc->desc.callback(xc->desc.callback_param);
++}
++
++static irqreturn_t xway_dma_irq(int irq, void *dev_id)
++{
++	return IRQ_HANDLED;
++}
++
++static void xway_dma_free_chan_resources(struct dma_chan *dc)
++{
++	struct xway_dma_chan *xc = to_xway_dma_chan(dc);
++	if (!xc->desc_base)
++		return;
++
++	xway_dma_disable_chan(xc);
++	free_irq(DMA_CH0_INT + xc->nr, xc);
++	dma_free_coherent(xc->xdma->dma_device.dev, DESC_NUM * DESC_SIZE,
++			xc->desc_base, xc->phys);
++}
++
++static int xway_dma_alloc_chan(struct dma_chan *dc)
++{
++	struct xway_dma_chan *xc = to_xway_dma_chan(dc);
++	unsigned long flags;
++	int ret;
++
++	xc->desc_base = dma_alloc_coherent(xc->xdma->dma_device.dev,
++		DESC_NUM * DESC_SIZE, &xc->phys, GFP_ATOMIC);
++	if (!xc->desc_base) {
++		dev_err(xc->xdma->dma_device.dev,
++			"Failed to allocate memory for channel %d\n", xc->nr);
++		return -ENOMEM;
++	}
++
++	/* make sure the descriptors are amm 0 */
++	memset(xc->desc_base, 0, DESC_NUM * DESC_SIZE);
++
++	/* setup the channel */
++	local_irq_save(flags);
++	dma_w32(xc->xdma->virt, xc->nr, DMA_CS);
++	dma_w32(xc->xdma->virt, xc->phys, DMA_CDBA);
++	dma_w32(xc->xdma->virt, DESC_NUM, DMA_CDLEN);
++	dma_w32_mask(xc->xdma->virt, DMA_CHAN_ON, 0, DMA_CCTRL);
++	wmb();
++	dma_w32_mask(xc->xdma->virt, 0, DMA_CHAN_RST, DMA_CCTRL);
++	while (dma_r32(xc->xdma->virt, DMA_CCTRL) & DMA_CHAN_RST)
++		;
++	dma_w32(xc->xdma->virt, DMA_DESCPT, DMA_CIE);
++	dma_w32_mask(xc->xdma->virt, 0, 1 << xc->nr, DMA_IRNEN);
++	if (xc->nr % 2)
++		dma_w32(xc->xdma->virt, DMA_WEIGHT | DMA_TX, DMA_CCTRL);
++	else
++		dma_w32(xc->xdma->virt, DMA_WEIGHT, DMA_CCTRL);
++	local_irq_restore(flags);
++
++	dma_async_tx_descriptor_init(&xc->desc, dc);
++	xc->desc.tx_submit = xway_dma_tx_submit;
++
++	ret = request_irq(DMA_CH0_INT + xc->nr, xway_dma_irq, IRQF_DISABLED,
++			(xc->nr % 2) ? ("dma tx") : ("dma rx"), xc);
++	if (ret) {
++		xway_dma_free_chan_resources(dc);
++		dev_err(xc->xdma->dma_device.dev,
++			"Failed to allocate irq for channel %d\n", xc->nr);
++	} else {
++		/* the descriptor is ready */
++		async_tx_ack(&xc->desc);
++	}
++
++	return ret;
++}
++
++static struct dma_async_tx_descriptor *xway_dma_prep_slave_sg(
++		struct dma_chan *chan, struct scatterlist *sgl,
++		unsigned int sg_len, enum dma_transfer_direction direction,
++		unsigned long flags, void *context)
++{
++	printk("%s:%s[%d]\n", __FILE__, __func__, __LINE__);
++	return NULL;
++}
++
++static struct dma_async_tx_descriptor *xway_dma_prep_dma_cyclic(
++		struct dma_chan *dc, dma_addr_t addr, size_t len,
++		size_t period_len, enum dma_transfer_direction direction,
++		void *context)
++{
++        struct xway_dma_chan *xc = to_xway_dma_chan(dc);
++	struct xway_desc *desc = &xc->desc_base[xc->curr];
++	unsigned long flags;
++	u32 byte_offset;
++
++	if (len >= DMA_SIZE_MASK)
++		return ERR_PTR(-EINVAL);
++
++	/* dma needs to start on a 16 byte aligned address */
++        byte_offset = CPHYSADDR(addr) % 16;
++
++	/* Get free descriptor */
++	spin_lock_irqsave(&xc->lock, flags);
++	if ((desc[xc->curr].ctl & (DMA_OWN | DMA_C)) == DMA_C)
++		return ERR_PTR(-ENOMEM);
++
++	/* Place descriptor in prepared list */
++	desc->ctl = DMA_OWN | DMA_SOP | DMA_EOP | DMA_TX_OFFSET(byte_offset) |
++			(len & DMA_SIZE_MASK);
++	desc->addr = addr;
++	spin_unlock_irqrestore(&xc->lock, flags);
++
++	return NULL;
++}
++
++static int xway_dma_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
++		unsigned long arg)
++{
++	printk("%s:%s[%d]\n", __FILE__, __func__, __LINE__);
++	return 0;
++}
++
++static enum dma_status xway_dma_tx_status(struct dma_chan *dc,
++			dma_cookie_t cookie, struct dma_tx_state *txstate)
++{
++	struct xway_dma_chan *xc = to_xway_dma_chan(dc);
++	dma_cookie_t last_used;
++
++	last_used = dc->cookie;
++	dma_set_tx_state(txstate, dc->completed_cookie, last_used, 0);
++
++	return xc->status;
++}
++
++static void xway_dma_issue_pending(struct dma_chan *chan)
++{
++	/* Nothing to do. We only have a cyclic buffer. */
++}
++
++static int __init xway_dma_probe(struct platform_device *pdev)
++{
++	struct xway_dma_engine *xdma;
++	struct clk *clk;
++	struct resource *res;
++	int ret, i;
++
++	xdma = kzalloc(sizeof(struct xway_dma_engine), GFP_KERNEL);
++	if (!xdma)
++		panic("Failed to allocate dma_engine memory");
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res)
++		panic("Failed to get dma resource");
++
++	/* remap dma register range */
++	xdma->virt = devm_request_and_ioremap(&pdev->dev, res);
++	if (!xdma->virt)
++		panic("Failed to remap dma resource");
++
++	/* power up and reset the dma engine */
++	clk = clk_get(&pdev->dev, NULL);
++	if (IS_ERR(clk))
++		panic("Failed to get dma clock");
++
++	clk_enable(clk);
++
++	dma_cap_set(DMA_SLAVE, xdma->dma_device.cap_mask);
++	dma_cap_set(DMA_CYCLIC, xdma->dma_device.cap_mask);
++
++	INIT_LIST_HEAD(&xdma->dma_device.channels);
++
++	/* Initialize channel parameters */
++	for (i = 0; i < DMA_MAX_CHANNEL; i++) {
++		struct xway_dma_chan *xc = &xdma->chans[i];
++
++		xc->xdma = xdma;
++		xc->chan.device = &xdma->dma_device;
++		dma_cookie_init(&xc->chan);
++
++		tasklet_init(&xc->tasklet, xway_dma_tasklet,
++			     (unsigned long) xc);
++
++		xway_dma_reset_chan(xc);
++		xway_dma_disable_chan(xc);
++
++		/* Add the channel to mxs_chan list */
++		list_add_tail(&xc->chan.device_node,
++				&xdma->dma_device.channels);
++	}
++
++	/* global reset of dma engine */
++	dma_w32_mask(xdma->virt, 0, DMA_RESET, DMA_CTRL);
++	/* disable all interrupts */
++        dma_w32(xdma->virt, 0, DMA_IRNEN);
++
++	xdma->dma_device.dev = &pdev->dev;
++
++	/* mxs_dma gets 65535 bytes maximum sg size */
++	xdma->dma_device.dev->dma_parms = &xdma->dma_parms;
++	dma_set_max_seg_size(xdma->dma_device.dev, DMA_SIZE_MASK);
++
++	xdma->dma_device.device_alloc_chan_resources = xway_dma_alloc_chan;
++	xdma->dma_device.device_free_chan_resources = xway_dma_free_chan_resources;
++	xdma->dma_device.device_tx_status = xway_dma_tx_status;
++	xdma->dma_device.device_prep_slave_sg = xway_dma_prep_slave_sg;
++	xdma->dma_device.device_prep_dma_cyclic = xway_dma_prep_dma_cyclic;
++	xdma->dma_device.device_control = xway_dma_control;
++	xdma->dma_device.device_issue_pending = xway_dma_issue_pending;
++
++	ret = dma_async_device_register(&xdma->dma_device);
++	if (ret)
++		panic("Unable to register DMA\n");
++
++	dev_info(xdma->dma_device.dev, "initialized\n");
++
++	return 0;
++}
++
++static const struct of_device_id xway_dma_match[] = {
++	{ .compatible = "lantiq,xway-dma-new" },
++	{},
++};
++MODULE_DEVICE_TABLE(of, xway_dma_match);
++
++static struct platform_driver xway_dma_driver = {
++	.driver = {
++		.name		= "xway-dma",
++		.owner		= THIS_MODULE,
++		.of_match_table	= xway_dma_match,
++	},
++};
++
++static int __init xway_dma_module_init(void)
++{
++	return platform_driver_probe(&xway_dma_driver, xway_dma_probe);
++}
++subsys_initcall(xway_dma_module_init);

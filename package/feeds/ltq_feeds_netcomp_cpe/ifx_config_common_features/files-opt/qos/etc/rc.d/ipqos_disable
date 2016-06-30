@@ -1,0 +1,893 @@
+#!/bin/sh
+if [ ! "$ENVLOADED" ]; then
+        if [ -r /etc/rc.conf ]; then
+                 . /etc/rc.conf 2> /dev/null
+		if [ -r /tmp/system_status ]; then
+                	. /tmp/system_status 2> /dev/null
+		fi
+                ENVLOADED="1"
+        fi
+fi
+
+
+if [ ! "$CONFIGLOADED" ]; then
+        if [ -r /etc/rc.d/config.sh ]; then
+                . /etc/rc.d/config.sh 2>/dev/null
+        fi
+        if [ -r /etc/rc.d/config_qos.sh ]; then
+                . /etc/rc.d/config_qos.sh 2>/dev/null
+        fi
+                CONFIGLOADED="1"
+fi
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+#if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ]; then
+if [ "$target" == "ARX3" -a "$wanphy_phymode" == "2" ] || [ "$target" == "GRX3" ]; then
+   chain_selection=0
+else
+   chain_selection=1
+fi
+
+
+# Define interface types
+# NOTE: These values should match with the values in the enum 
+QOS_INTF_LAN=0
+QOS_INTF_LOCAL=7
+QOS_INTF_ALL=13
+QOS_INTF_WAN_ATM=9
+QOS_INTF_WAN_PTM=10
+QOS_INTF_WAN_ETH_0=11
+QOS_INTF_WAN_ETH_1=12
+QOS_INTF_LAN_SPECIFIC=14
+QOS_INTF_WAN=15
+QOS_INTF_WAN_ALL=4
+
+QOS_TYPE_MFC=0
+QOS_TYPE_DSCP=1
+QOS_TYPE_802_1P=2
+
+#INTF_SELECT_MASK=0x80000000
+INTF_SELECT_MASK=0x800
+#WAN_SELECT_MASK=0x40000000
+WAN_SELECT_MASK=0x400
+case "$wanphy_phymode" in
+	0)
+		case "$wanphy_tc" in
+			0)
+				#wan mode is ATM
+				qIfTypeActive=$QOS_INTF_WAN_ATM;
+				;;
+			1)
+				#wan mode is PTM
+				qIfTypeActive=$QOS_INTF_WAN_PTM;
+				;;
+		esac
+		;;
+	1)
+		#wan mode is MII0
+		qIfTypeActive=$QOS_INTF_WAN_ETH_0;
+		;;
+	2)
+		#wan mode is MII1
+		qIfTypeActive=$QOS_INTF_WAN_ETH_1;
+		;;
+	3)
+		#wan mode is PTM
+		qIfTypeActive=$QOS_INTF_WAN_PTM;
+		;;
+esac
+
+#################Disabling Upstream and Downstream QoS##########################################
+
+if [ $qm_USenable -eq 1 ]; then
+	#echo " DISABLING US IPQOS "
+	. /etc/rc.d/ipqos_US_disable
+fi
+if [ $qm_DSenable -eq 1 ]; then
+	#echo " DISABLING DS IPQOS "
+	. /etc/rc.d/ipqos_DS_disable
+fi
+
+###############################################################################################
+
+####################################Upstream Classifiers########################################
+
+if [ "$target" == "GRX2" -o "$target" == "RT2" -o $chain_selection -eq 0 ]; then
+	if [ $qm_defDSCP != "-1" ]; then
+      IPT_CMD="iptables -t mangle -D PREROUTING -j PREROUTE_GLOBAL_DSCP"
+      $IPT_CMD
+	   IPT_CMD="iptables -t mangle -F PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	   IPT_CMD="iptables -t mangle -X PREROUTE_GLOBAL_DSCP"
+	   $IPT_CMD
+	fi
+fi
+
+
+# Flush the chains for default classifier rules
+IPT_CMD="iptables -t mangle -F PREROUTE_US_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -F PREROUTE_DS_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -F PREROUTE_DEFAULT"
+$IPT_CMD
+
+EBT_CMD="ebtables -t filter -F PREROUTE_DEFAULT_US"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -F PREROUTE_DEFAULT_DS"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -F PREROUTE_DEFAULT"
+$EBT_CMD
+
+IPT_CMD="iptables -t mangle -F OUTPUT_DEFAULT"
+$IPT_CMD
+
+# Remove the references to the default classifier chains from PREROUTING and IPQOS_OUTPUT
+IPT_CMD="iptables -t mangle -D PREROUTE_DEFAULT -j PREROUTE_US_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -D PREROUTE_DEFAULT -j PREROUTE_DS_DEFAULT"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -D PREROUTE_DEFAULT -j PREROUTE_DEFAULT_US"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -D PREROUTE_DEFAULT -j PREROUTE_DEFAULT_DS"
+$EBT_CMD
+
+#EBT_CMD="ebtables -t filter -D FORWARD --mark 0x80000000/$INTF_SELECT_MASK -j PREROUTE_DEFAULT"
+EBT_CMD="ebtables -t filter -D FORWARD --mark 0x800/$INTF_SELECT_MASK -j PREROUTE_DEFAULT"
+$EBT_CMD
+#EBT_CMD="ebtables -t filter -D FORWARD --mark 0x40000000/$WAN_SELECT_MASK -j PREROUTE_DEFAULT"
+EBT_CMD="ebtables -t filter -D FORWARD --mark 0x400/$WAN_SELECT_MASK -j PREROUTE_DEFAULT"
+$EBT_CMD
+
+IPT_CMD="iptables -t mangle -D IPQOS_OUTPUT -j OUTPUT_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -D PREROUTING -j PREROUTE_DEFAULT"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -D FORWARD -j PREROUTE_DEFAULT"
+$EBT_CMD
+
+# Flush IPQOS_LAN_ING chain
+#IPT_CMD="iptables -t mangle -F IPQOS_LAN_ING"
+#$IPT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_LAN_ING"
+#$EBT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_WAN_ING"
+#$EBT_CMD
+
+# Flush IPQOS_OUTPUT chain
+IPT_CMD="iptables -t mangle -F IPQOS_OUTPUT"
+$IPT_CMD
+
+# Flush IPQOS_QUEUE_MAP chain
+IPT_CMD="iptables -t mangle -F IPQOS_QUEUE_MAP"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F IPQOS_QUEUE_MAP"
+$EBT_CMD
+
+# Flush IPQOS_LAN_DSCP_ALL chain
+#IPT_CMD="iptables -t mangle -F IPQOS_LAN_DSCP_ALL"
+#$IPT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_LAN_DSCP_ALL"
+#$EBT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_WAN_DSCP_ALL"
+#$EBT_CMD
+
+#Flush IPQOS_LAN_8021P_ALL
+#IPT_CMD="iptables -t mangle -F IPQOS_LAN_8021P_ALL"
+#$IPT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_LAN_8021P_ALL"
+#$EBT_CMD
+#EBT_CMD="ebtables -t filter -F IPQOS_WAN_8021P_ALL"
+#$EBT_CMD
+
+# Flush IPQOS_OUTPUT_DSCP_ALL chain
+IPT_CMD="iptables -t mangle -F IPQOS_OUTPUT_DSCP_ALL"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -F IPQOS_OUTPUT_8021P_ALL"
+$IPT_CMD
+
+# IPV6 START
+
+if [ "$target" != "ARX1" ]; then
+
+	IPT_CMD="ip6tables -t mangle -F PREROUTE_US_DEFAULT"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -F PREROUTE_DEFAULT"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -F OUTPUT_DEFAULT"
+#	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -D PREROUTE_DEFAULT -j PREROUTE_US_DEFAULT"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -D IPQOS_OUTPUT -j OUTPUT_DEFAULT"
+#	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -D PREROUTING -j PREROUTE_DEFAULT"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -F IPQOS_OUTPUT"
+#	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -F IPQOS_QUEUE_MAP"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -F IPQOS_OUTPUT_DSCP_ALL"
+#	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -F IPQOS_OUTPUT_8021P_ALL"
+#	$IPT_CMD
+fi
+
+# IPV6 END
+
+# Setting vconfig egress map to default values 
+. /etc/rc.d/ipqos_common 2 1
+
+OUTPUT_SYSTEM_DELETE=0
+ # Remove chains added for RTP, SIP and TR69 management traffic
+if [ ! -z $CONFIG_PACKAGE_IFX_VOIP ]; then
+	if [ $CONFIG_PACKAGE_IFX_VOIP -eq 1 ]; then
+		# delete chains added for upstream traffic
+		iptables -t mangle -D OUTPUT -j IPQOS_OUTPUT_SYSTEM
+		iptables -t mangle -F IPQOS_OUTPUT_SYSTEM
+		iptables -t mangle -F IPQOS_OUTPUT_RTP
+		iptables -t mangle -F IPQOS_OUTPUT_SIP_MGMT
+		iptables -t mangle -X IPQOS_OUTPUT_SIP_MGMT
+		iptables -t mangle -X IPQOS_OUTPUT_RTP
+		iptables -t mangle -X IPQOS_OUTPUT_SYSTEM
+
+# IPV6 START
+#		if [ "$target" != "ARX1" ]; then
+#			ip6tables -t mangle -D OUTPUT -j IPQOS_OUTPUT_SYSTEM
+#			ip6tables -t mangle -F IPQOS_OUTPUT_SYSTEM
+#			ip6tables -t mangle -F IPQOS_OUTPUT_RTP
+#			ip6tables -t mangle -F IPQOS_OUTPUT_SIP_MGMT
+#			ip6tables -t mangle -X IPQOS_OUTPUT_SIP_MGMT
+#			ip6tables -t mangle -X IPQOS_OUTPUT_RTP
+#			ip6tables -t mangle -X IPQOS_OUTPUT_SYSTEM
+#		fi
+# IPV6 END
+		OUTPUT_SYSTEM_DELETE=1
+	fi
+fi
+
+# Remove the chains added for TR69 management traffic, if it is not deleted	
+if [ $OUTPUT_SYSTEM_DELETE -eq 0 ]; then
+	if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+		if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+			iptables -t mangle -D OUTPUT -j IPQOS_OUTPUT_SYSTEM
+			iptables -t mangle -F IPQOS_OUTPUT_SYSTEM
+			iptables -t mangle -F IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -X IPQOS_OUTPUT_SIP_MGMT
+			iptables -t mangle -X IPQOS_OUTPUT_SYSTEM
+			
+# IPV6 START
+#			if [ "$target" != "ARX1" ]; then
+#				ip6tables -t mangle -D OUTPUT -j IPQOS_OUTPUT_SYSTEM
+#				ip6tables -t mangle -F IPQOS_OUTPUT_SYSTEM
+#				ip6tables -t mangle -F IPQOS_OUTPUT_SIP_MGMT
+#				ip6tables -t mangle -X IPQOS_OUTPUT_SIP_MGMT
+#				ip6tables -t mangle -X IPQOS_OUTPUT_SYSTEM
+#			fi
+# IPV6 END
+		fi
+	fi
+fi
+
+iptables -t mangle -F IPQOS_OUTPUT_MAP
+iptables -t mangle -X IPQOS_OUTPUT_MAP
+
+
+# Flush the INPUT_INTF_CHECK chain
+# TBD: Should be done by system shutdown script if this chain is using for purpose other than QoS
+IPT_CMD="iptables -t mangle -F INPUT_INTF_CHECK"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F INPUT_INTF_CHECK"
+$EBT_CMD
+
+# Flush IPQOS_DS_TARGET
+IPT_CMD="iptables -t mangle -F IPQOS_DS_TARGET"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F IPQOS_DS_TARGET"
+$EBT_CMD
+
+# Remove references to IPQOS_LAN_ING from PREROUTING chain
+#IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x80000000/0x80000000 -j IPQOS_LAN_ING"
+IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x800/0x800 -j IPQOS_LAN_ING"
+$IPT_CMD
+#IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x40000000/0x40000000 -j IPQOS_WAN_ING"
+IPT_CMD="iptables -t mangle -D PREROUTING -m mark --mark 0x400/0x400 -j IPQOS_WAN_ING"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -D FORWARD --mark 0x800/$INTF_SELECT_MASK -j IPQOS_LAN_ING"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -D FORWARD --mark 0x400/$WAN_SELECT_MASK -j IPQOS_WAN_ING"
+$EBT_CMD
+
+# Remove references to IPQOS_OUTPUT from OUTPUT chain
+IPT_CMD="iptables -t mangle -D OUTPUT -j IPQOS_OUTPUT"
+$IPT_CMD
+
+
+# IPV6 START
+if [ "$target" != "ARX1" ]; then
+
+#	ip6tables -t mangle -F IPQOS_OUTPUT_MAP
+#	ip6tables -t mangle -X IPQOS_OUTPUT_MAP
+	IPT_CMD="ip6tables -t mangle -F INPUT_INTF_CHECK"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -D PREROUTING -m mark --mark 0x800/0x800 -j IPQOS_LAN_ING"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -D OUTPUT -j IPQOS_OUTPUT"
+#	$IPT_CMD
+fi
+
+# IPV6 END
+
+#Call the following loop only if US and DS qos is not disabled, this happens when whole of QoS is disabled.
+if [ $IPQOS_DS_DISABLE -eq  0 -o $IPQOS_US_DISABLE -eq 0 ]; then
+i=0
+
+# flush and delete all the chains created for adding the classifier rules
+while [ $i -lt $qos_class_Count ]
+do
+	n=0
+	while [ $n -lt $qos_queue_Count ]
+	do
+		eval qCpeId='$'qq_${n}_cpeId
+		eval cl_qId='$'qcl_${i}_qId
+		if [ $qCpeId -eq $cl_qId ]; then
+			eval qIfType='$'qq_${n}_qIfType	
+			#if [ $qIfType -eq $qIfTypeActive ]; then
+
+				eval QOS_CPEID='$'qcl_${i}_cpeId
+        			eval QOS_TYPE='$'qcl_${i}_type
+				eval QOS_INTFTYPE='$'qcl_${i}_ifType
+				eval QOS_IFTYPE='$'qcl_${i}_classifType
+				eval QOS_L3PROTO='$'qcl_${i}_l3proto
+
+    				# Read QOS Queue ID
+    				eval QOS_QID='$'qcl_${i}_qId
+
+    				# Delete the corresponding queue for this class
+    				eval QOS_RATELMT='$'qcl_${i}_rateLmt
+				eval QOS_RATECTRENBL='$'qcl_${i}_rateCtrlEnbl
+    				if [ $QOS_RATECTRENBL -eq 1 -a $QOS_RATELMT -gt 0 ]; then
+        				queuecfg -x $QOS_QID/$QOS_CPEID
+    				fi
+
+				if [ $QOS_TYPE -eq $QOS_TYPE_MFC ]; then
+					LAN_QOS_CHAIN="LAN_$QOS_CPEID"
+					if [ $QOS_L3PROTO -eq 1 ];then
+						# Flush and delete all classifier chains created for LAN traffic
+						IPT_CMD="iptables -t mangle -F $LAN_QOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="iptables -t mangle -X $LAN_QOS_CHAIN"
+						$IPT_CMD
+					fi
+					if [ $QOS_L3PROTO -eq 2 ];then
+						# Flush and delete all classifier chains created for LAN traffic
+						IPT_CMD="ip6tables -t mangle -F $LAN_QOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="ip6tables -t mangle -X $LAN_QOS_CHAIN"
+						$IPT_CMD
+					fi
+					EBT_CMD="ebtables -t filter -F $LAN_QOS_CHAIN"
+					$EBT_CMD
+					EBT_CMD="ebtables -t filter -X $LAN_QOS_CHAIN"
+					$EBT_CMD
+
+					#QOS_CHAIN="WAN_$QOS_CPEID"
+					#EBT_CMD="ebtables -t filter -F $QOS_CHAIN"
+					#$EBT_CMD
+					#EBT_CMD="ebtables -t filter -X $QOS_CHAIN"
+					#$EBT_CMD
+					
+					# Flush and delete all classifier chains created for Local traffic
+					QOS_CHAIN="OUTPUT_$QOS_CPEID"
+					if [ $QOS_L3PROTO -eq 1 ];then
+						IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+						$IPT_CMD
+					fi
+				#	if [ $QOS_L3PROTO -eq 2 ];then
+				#		IPT_CMD="ip6tables -t mangle -F $QOS_CHAIN"
+				#		$IPT_CMD
+				#		IPT_CMD="ip6tables -t mangle -X $QOS_CHAIN"
+				#		$IPT_CMD
+				#	fi
+
+					WAN_QOS_CHAIN="WAN_$QOS_CPEID"
+					if [ $QOS_L3PROTO -eq 1 ];then
+						# Flush and delete all classifier chains created for LAN traffic
+						IPT_CMD="iptables -t mangle -F $WAN_QOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="iptables -t mangle -X $WAN_QOS_CHAIN"
+						$IPT_CMD
+					fi
+					if [ $QOS_L3PROTO -eq 2 ];then
+						# Flush and delete all classifier chains created for LAN traffic
+						IPT_CMD="ip6tables -t mangle -F $WAN_QOS_CHAIN"
+						$IPT_CMD
+						IPT_CMD="ip6tables -t mangle -X $WAN_QOS_CHAIN"
+						$IPT_CMD
+					fi
+					EBT_CMD="ebtables -t filter -F $WAN_QOS_CHAIN"
+					$EBT_CMD
+					EBT_CMD="ebtables -t filter -X $WAN_QOS_CHAIN"
+					$EBT_CMD
+
+
+				fi
+				if [ $QOS_TYPE -eq $QOS_TYPE_DSCP ]; then
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						LAN_QOS_CHAIN="IPQOS_LAN_DSCP_$QOS_CPEID"
+						if [ $QOS_L3PROTO -eq 1 ];then
+							# Flush and delete all classifier chains created for LAN traffic
+							IPT_CMD="iptables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="iptables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							# Flush and delete all classifier chains created for LAN traffic
+							IPT_CMD="ip6tables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="ip6tables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						EBT_CMD="ebtables -t filter -F $LAN_QOS_CHAIN"
+						$EBT_CMD
+						EBT_CMD="ebtables -t filter -X $LAN_QOS_CHAIN"
+						$EBT_CMD
+						
+						WAN_QOS_CHAIN="IPQOS_WAN_DSCP_$QOS_CPEID"
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPT_CMD="iptables -t mangle -F $WAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="iptables -t mangle -X $WAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPT_CMD="ip6tables -t mangle -F $WAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="ip6tables -t mangle -X $WAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						EBT_CMD="ebtables -t filter -F $WAN_QOS_CHAIN"
+						$EBT_CMD
+						EBT_CMD="ebtables -t filter -X $WAN_QOS_CHAIN"
+						$EBT_CMD
+
+					fi
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						# Flush and delete all classifier chains created for Local traffic
+						LAN_QOS_CHAIN="IPQOS_OUTPUT_DSCP_$QOS_CPEID"
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPT_CMD="iptables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="iptables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+					#	if [ $QOS_L3PROTO -eq 2 ];then
+					#		IPT_CMD="ip6tables -t mangle -F $LAN_QOS_CHAIN"
+					#		$IPT_CMD
+					#		IPT_CMD="ip6tables -t mangle -X $LAN_QOS_CHAIN"
+					#		$IPT_CMD
+					#	fi
+					fi
+				fi
+				if [ $QOS_TYPE -eq $QOS_TYPE_802_1P ]; then
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN -o $QOS_IFTYPE -eq $QOS_INTF_WAN_ALL -o $QOS_IFTYPE -eq $QOS_INTF_LAN_SPECIFIC -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						LAN_QOS_CHAIN="IPQOS_LAN_8021P_$QOS_CPEID"
+
+						EBT_CMD="ebtables -t filter -F $LAN_QOS_CHAIN"
+						$EBT_CMD
+						EBT_CMD="ebtables -t filter -X $LAN_QOS_CHAIN"
+						$EBT_CMD
+						
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPT_CMD="iptables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="iptables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPT_CMD="ip6tables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="ip6tables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						
+						WAN_QOS_CHAIN="IPQOS_WAN_8021P_$QOS_CPEID"
+
+						
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPT_CMD="iptables -t mangle -F $WAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="iptables -t mangle -X $WAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPT_CMD="ip6tables -t mangle -F $WAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="ip6tables -t mangle -X $WAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+
+						EBT_CMD="ebtables -t filter -F $WAN_QOS_CHAIN"
+						$EBT_CMD
+						EBT_CMD="ebtables -t filter -X $WAN_QOS_CHAIN"
+						$EBT_CMD
+					fi
+					if [ $QOS_IFTYPE -eq $QOS_INTF_LOCAL -o $QOS_IFTYPE -eq $QOS_INTF_ALL ]; then
+						#VENU : Need to check if required
+						LAN_QOS_CHAIN="IPQOS_LOCAL_8021P_$QOS_CPEID"
+
+						if [ $QOS_L3PROTO -eq 1 ];then
+							IPT_CMD="iptables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="iptables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+						if [ $QOS_L3PROTO -eq 2 ];then
+							IPT_CMD="ip6tables -t mangle -F $LAN_QOS_CHAIN"
+							$IPT_CMD
+							IPT_CMD="ip6tables -t mangle -X $LAN_QOS_CHAIN"
+							$IPT_CMD
+						fi
+					fi
+				fi
+
+			#fi
+		fi
+		n=$(( $n + 1 ))
+	done
+
+	i=$(( $i + 1 ))
+done
+fi
+
+# IPV6 START
+
+if [ "$target" != "ARX1" ]; then
+
+	QOS_CHAIN="IPQOS_LAN_DSCP_ALL"
+	IPT_CMD="ip6tables -t mangle -F $QOS_CHAIN"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X $QOS_CHAIN"
+	$IPT_CMD
+
+
+	QOS_CHAIN="IPQOS_LAN_8021P_ALL"
+	IPT_CMD="ip6tables -t mangle -F $QOS_CHAIN"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X $QOS_CHAIN"
+	$IPT_CMD
+	
+
+#	QOS_CHAIN="IPQOS_OUTPUT_DSCP_ALL"
+#	IPT_CMD="ip6tables -t mangle -F $QOS_CHAIN"
+#	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -X $QOS_CHAIN"
+#	$IPT_CMD
+
+#	QOS_CHAIN="IPQOS_OUTPUT_8021P_ALL"
+#	IPT_CMD="ip6tables -t mangle -F $QOS_CHAIN"
+#	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -X $QOS_CHAIN"
+#	$IPT_CMD
+fi
+
+# IPV6 END
+
+# Flush and delete IPQOS_LAN_DSCP_ALL
+QOS_CHAIN="IPQOS_LAN_DSCP_ALL"
+IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F $QOS_CHAIN"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X $QOS_CHAIN"
+$EBT_CMD
+
+WQOS_CHAIN="IPQOS_WAN_DSCP_ALL"
+IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+$EBT_CMD
+
+# Flush and delete IPQOS_LAN_8021P_ALL
+QOS_CHAIN="IPQOS_LAN_8021P_ALL"
+IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F $QOS_CHAIN"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X $QOS_CHAIN"
+$EBT_CMD
+
+
+WQOS_CHAIN="IPQOS_WAN_8021P_ALL"
+IPT_CMD="iptables -t mangle -F $WQOS_CHAIN"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X $WQOS_CHAIN"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -F $WQOS_CHAIN"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X $WQOS_CHAIN"
+$EBT_CMD
+
+# Flush and delete IPQOS_OUTPUT_DSCP_ALL
+QOS_CHAIN="IPQOS_OUTPUT_DSCP_ALL"
+IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+$IPT_CMD
+
+# Flush and delete IPQOS_OUTPUT_8021P_ALL
+QOS_CHAIN="IPQOS_OUTPUT_8021P_ALL"
+IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+$IPT_CMD
+
+i=0
+while [ $i -lt $qos_queue_Count ]
+do
+	eval qIfType='$'qq_${i}_qIfType	
+#	if [ $qIfType -eq $qIfTypeActive ]; then
+
+		eval QOS_CPEID='$'qq_${i}_cpeId
+		QOS_CHAIN="IPQOS_QUEUE_$QOS_CPEID"
+		# Flush and delete all queue priority chains
+		IPT_CMD="iptables -t mangle -F $QOS_CHAIN"
+		$IPT_CMD
+		IPT_CMD="iptables -t mangle -X $QOS_CHAIN"
+		$IPT_CMD
+		EBT_CMD="ebtables -t filter -F $QOS_CHAIN"
+		$EBT_CMD
+		EBT_CMD="ebtables -t filter -X $QOS_CHAIN"
+		$EBT_CMD
+		if [ "$target" != "ARX1" ]; then
+			IPT_CMD="ip6tables -t mangle -F $QOS_CHAIN"
+			$IPT_CMD
+			IPT_CMD="ip6tables -t mangle -X $QOS_CHAIN"
+			$IPT_CMD
+		fi
+#	fi
+	i=$(( $i + 1 ))
+done
+
+# Delete the the INPUT_INTF_CHECK chain form the system
+# TBD: Should be done by system shutdown script if this this chain is using for purpose other than QoS
+
+# IPV6 START
+
+if [ "$target" != "ARX1" ]; then
+	IPT_CMD="ip6tables -t mangle -D PREROUTING -j IPQOS_DS_TARGET"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X IPQOS_DS_TARGET"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -D PREROUTING -j INPUT_INTF_CHECK"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X INPUT_INTF_CHECK"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X IPQOS_LAN_ING"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -X IPQOS_OUTPUT"
+#	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X IPQOS_QUEUE_MAP"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -F PREROUTE_US_DEFAULT"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X PREROUTE_US_DEFAULT"
+	$IPT_CMD
+	IPT_CMD="ip6tables -t mangle -X PREROUTE_DEFAULT"
+	$IPT_CMD
+#	IPT_CMD="ip6tables -t mangle -X OUTPUT_DEFAULT"
+#	$IPT_CMD
+fi
+
+# IPV6 END
+
+IPT_CMD="iptables -t mangle -D PREROUTING -j IPQOS_DS_TARGET"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X IPQOS_DS_TARGET"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -D PREROUTING -j INPUT_INTF_CHECK"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X INPUT_INTF_CHECK"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -D FORWARD IPQOS_DS_TARGET"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X INPUT_INTF_CHECK"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -D PREROUTING -j INPUT_INTF_CHECK"
+$EBT_CMD
+
+# Delete IPQOS_LAN_ING chain from the system
+IPT_CMD="iptables -t mangle -X IPQOS_LAN_ING"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -X IPQOS_LAN_ING"
+$EBT_CMD
+IPT_CMD="iptables -t mangle -X IPQOS_WAN_ING"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -X IPQOS_WAN_ING"
+$EBT_CMD
+# Delete IPQOS_OUTPUT chain from the system
+IPT_CMD="iptables -t mangle -X IPQOS_OUTPUT"
+$IPT_CMD
+#Delete IPQOS_QUEUE_MAP chain from the system
+IPT_CMD="iptables -t mangle -X IPQOS_QUEUE_MAP"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -X IPQOS_QUEUE_MAP"
+$EBT_CMD
+
+# Delete default classifier rule chains fom the system
+IPT_CMD="iptables -t mangle -F PREROUTE_US_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -F PREROUTE_DS_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X PREROUTE_US_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X PREROUTE_DS_DEFAULT"
+$IPT_CMD
+IPT_CMD="iptables -t mangle -X PREROUTE_DEFAULT"
+$IPT_CMD
+EBT_CMD="ebtables -t filter -X PREROUTE_DEFAULT"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X PREROUTE_DEFAULT_US"
+$EBT_CMD
+EBT_CMD="ebtables -t filter -X PREROUTE_DEFAULT_DS"
+$EBT_CMD
+IPT_CMD="iptables -t mangle -X OUTPUT_DEFAULT"
+$IPT_CMD
+
+#Disable HW Classifiers
+queuecfg -t 1/0
+queuecfg -t 2/0
+
+i=0
+while [ $i -lt $qos_queue_Count ]
+do
+	eval QOS_ORDER='$'qcl_${i}_order
+	if [ $QOS_ORDER != -1 ]; then
+		nORDER=$(( $QOS_ORDER + 10 ))
+		cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_PCE_RULE_DELETE nIndex=$nORDER"
+		$cmd >> /tmp/ipqos_tmp.log
+	fi
+
+i=$(( $i + 1 ))
+done
+
+platform=${CONFIG_IFX_MODEL_NAME%%_*}
+if [ "$platform" = "DANUBE" -o "$platform" = "AMAZON" -o "$platform" = "TP-VE" -o "$platform" = "GW188" ]; then
+	target=$platform
+else
+	target=`echo $platform | cut -c -4`
+fi
+
+	if [ "$target" == "GRX2" -o "$target" == "RT2" -o "$target" == "VRX2" -o "$target" == "VRX3" ]; then
+
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=5 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=6 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=1 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=0 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=2 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+		switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_ETHSW_QOS_PORT_REMARKING_CFG_SET nPortId=4 eDSCP_IngressRemarkingEnable=0 bDSCP_EgressRemarkingEnable=0 bPCP_IngressRemarkingEnable=0 bPCP_EgressRemarkingEnable=1
+	fi
+
+#delete default rule
+#def_ORDER=63
+#cmd="switch_cli dev=$CONFIG_LTQ_SWITCH_DEVICE_ID IFX_FLOW_PCE_RULE_DELETE nIndex=$def_ORDER"
+#$cmd >> /tmp/ipqos_tmp.log
+####################################Upstream Classifiers########################################
+
+####################################Downstream Classifiers########################################
+
+# delete the chain added for wan traffic
+iptables -t mangle -F IPQOS_PREROUTE_SYSTEM
+iptables -t mangle -X IPQOS_PREROUTE_SYSTEM
+
+if [ "$target" != "ARX1" ]; then
+	ip6tables -t mangle -F IPQOS_PREROUTE_SYSTEM
+	ip6tables -t mangle -X IPQOS_PREROUTE_SYSTEM
+fi
+
+PREROUTE_SYSTEM_DELETE=0
+# Remove chains added for RTP, SIP and TR69 management traffic
+if [ ! -z $CONFIG_PACKAGE_IFX_VOIP ]; then
+	if [ $CONFIG_PACKAGE_IFX_VOIP -eq 1 ]; then
+		# Delete chains added for downstream traffic
+		iptables -t mangle -F IPQOS_PREROUTE_RTP
+		iptables -t mangle -F IPQOS_PREROUTE_SIP_MGMT
+		iptables -t mangle -X IPQOS_PREROUTE_SIP_MGMT
+		iptables -t mangle -X IPQOS_PREROUTE_RTP
+
+		if [ "$target" != "ARX1" ]; then
+			ip6tables -t mangle -F IPQOS_PREROUTE_RTP
+			ip6tables -t mangle -F IPQOS_PREROUTE_SIP_MGMT
+			ip6tables -t mangle -X IPQOS_PREROUTE_SIP_MGMT
+			ip6tables -t mangle -X IPQOS_PREROUTE_RTP
+		fi
+		
+		PREROUTE_SYSTEM_DELETE=1
+	fi
+fi
+# Remove the chains added for TR69 management traffic, if it is not deleted	
+if [ $PREROUTE_SYSTEM_DELETE -eq 0 ]; then
+	if [ ! -z $CONFIG_PACKAGE_IFX_DEVM ]; then
+		if [ $CONFIG_PACKAGE_IFX_DEVM -eq 1 ]; then
+			# Delete chains added for down stream traffic
+			iptables -t mangle -F IPQOS_PREROUTE_SIP_MGMT
+			iptables -t mangle -X IPQOS_PREROUTE_SIP_MGMT
+			
+			if [ "$target" != "ARX1" ]; then
+				ip6tables -t mangle -F IPQOS_PREROUTE_SIP_MGMT
+				ip6tables -t mangle -X IPQOS_PREROUTE_SIP_MGMT
+			fi
+		fi
+	fi
+fi
+
+
+
+####################################Downstream Classifiers########################################
+
+####################################Upstream Queues########################################
+
+	#Disable the queues
+	if [ $qm_USenable -eq 1 ]; then
+		. /etc/rc.d/ipqos_q_disable 1
+	fi
+	if [ $qm_DSenable -eq 1 ]; then
+		. /etc/rc.d/ipqos_q_disable 2
+	fi
+
+	. /etc/rc.d/ipqos_q_disable 
+
+####################################Upstream Queues########################################
+
+####################################Downstream Queues########################################
+# Remove the traffic queues added for SIP, RTP traffic on downstream direction
+tc qdisc del dev imq1 root handle 1: htb
+# make imq1 interface down
+ifconfig imq1 down
+####################################Downstream Queues########################################
+
+####################################Common########################################
+#Remove IMQ Module
+rmmod imq
+
+#Remove Bridge Modules
+#rmmod ebtable_filter
+#rmmod ebtable_broute
+#rmmod ebt_vlan
+#rmmod ebt_pkttype
+#rmmod ebt_mark_m
+#rmmod ebt_mark
+#rmmod ebt_ip
+#rmmod ebt_redirect
+#rmmod ebtables
+
+
+#echo 0 > /proc/sys/net/bridge/bridge-nf-forward-enable
+#echo 0 > /proc/sys/net/bridge/bridge-nf-post-routing-enable
+#echo 0 > /proc/sys/net/bridge/bridge-nf-pre-routing-enable
+#echo 0 > /proc/sys/net/bridge/bridge-nf-local-out-enable
+#echo 0 > /proc/sys/net/bridge/bridge-nf-local-in-enable
+#echo 0 > /proc/sys/net/bridge/bridge-nf-call-iptables
+####################################Common########################################
+
+####################################Post Disabling########################################
+# Mark as qos disabled in /tmp/ipqos_init_status
+echo "IPQOS_INIT_STATUS=\"0\"" > /tmp/ipqos_init_status
+
+

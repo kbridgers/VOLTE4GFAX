@@ -1,0 +1,159 @@
+#!/bin/sh
+
+#set -x
+if [ -r /etc/rc.conf ]; then
+	 . /etc/rc.conf 2> /dev/null
+	ENVLOADED="1"
+fi
+
+if [ -r /etc/rc.d/config.sh ]; then
+	. /etc/rc.d/config.sh 2>/dev/null
+	CONFIGLOADED="1"
+fi
+
+check=${#ADSL_MODE}
+#check=`expr substr $ADSL_MODE 36 1`
+#if [ "$ADSL_MODE" = "" -o "$check" = "" ]; then
+if [ "$ADSL_MODE" = "" -o "$check" -le 35 ]; then
+    ADSL_MODE="AnnexA_1_1_1_1_1_1_0_0_0_0_0_0_0_0_0"
+fi
+#adsl_mode=${ADSL_MODE:7:29}
+#adsl_mode=`expr substr $ADSL_MODE 8 29`
+adsl_mode=${ADSL_MODE#*_}
+
+G992_1_A=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_2=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_3_A=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_5_A=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+T1_413=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_3_L=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_3_I=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_5_I=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_3_M=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_5_M=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_1_B=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_3_B=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_5_B=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_3_J=${adsl_mode%%_*}
+adsl_mode=${adsl_mode#*_}
+G992_5_J=${adsl_mode%%_*}
+
+
+
+xTSE1=0
+if [ "$T1_413" = "1" ]; then
+	xTSE1=$(( $xTSE1 + 1 ))
+fi
+if [ "$G992_1_A" = "1" ]; then
+	xTSE1=$(( $xTSE1 + 4 ))
+fi
+if [ "$G992_1_B" = "1" ]; then
+	xTSE1=$(( $xTSE1 + 16 ))
+fi
+x=$(( $xTSE1 / 16 ))
+y=$(( $xTSE1 % 16 ))
+xTSE1=$x$y
+
+xTSE2=0
+if [ "$G992_2" = "1" ]; then
+	xTSE2=$(( $xTSE2 + 1 ))
+fi
+x=$(( $xTSE2 / 16 ))
+y=$(( $xTSE2 % 16 ))
+xTSE2=$x$y
+
+xTSE3=0
+if [ "$G992_3_A" = "1" ]; then
+	xTSE3=$(( $xTSE3 + 4 ))
+fi
+if [ "$G992_3_B" = "1" ]; then
+	xTSE3=$(( $xTSE3 + 16 ))
+fi
+x=$(( $xTSE3 / 16 ))
+y=$(( $xTSE3 % 16 ))
+xTSE3=$x$y
+
+xTSE4=0
+if [ "$G992_3_I" = "1" ]; then
+	xTSE4=$(( $xTSE4 + 16 ))
+fi
+if [ "$G992_3_J" = "1" ]; then
+	xTSE4=$(( $xTSE4 + 64 ))
+fi
+x=$(( $xTSE4 / 16 ))
+y=$(( $xTSE4 % 16 ))
+xTSE4=$x$y
+
+xTSE5=0
+if [ "$G992_3_L" = "1" ]; then
+	xTSE5=$(( $xTSE5 + 4 ))
+fi
+if [ "$G992_3_M" = "1" ]; then
+	xTSE5=$(( $xTSE5 + 64 ))
+fi
+x=$(( $xTSE5 / 16 ))
+y=$(( $xTSE5 % 16 ))
+xTSE5=$x$y
+
+#xTSE6
+xTSE6=0
+if [ "$G992_5_A" = "1" ]; then
+	xTSE6=$(( $xTSE6 + 1 ))
+fi
+if [ "$G992_5_B" = "1" ]; then
+	xTSE6=$(( $xTSE6 + 4 ))
+fi
+if [ "$G992_5_I" = "1" ]; then
+	xTSE6=$(( $xTSE6 + 64 ))
+fi
+x=$(( $xTSE6 / 16 ))
+y=$(( $xTSE6 % 16 ))
+xTSE6=$x$y
+
+xTSE7=0
+if [ "$G992_5_J" = "1" ]; then
+	xTSE7=$(( $xTSE7 + 1 ))
+fi
+if [ "$G992_5_M" = "1" ]; then
+	xTSE7=$(( $xTSE7 + 4 ))
+fi
+x=$(( $xTSE7 / 16 ))
+y=$(( $xTSE7 % 16 ))
+xTSE7=$x$y
+
+xTSE8="00"
+
+
+xTSE=${xTSE1}_${xTSE2}_${xTSE3}_${xTSE4}_${xTSE5}_${xTSE6}_${xTSE7}_${xTSE8}
+echo $xTSE
+
+if [ -f /usr/sbin/dsl_cpe_control ]; then
+
+    if [ "$DSL_API_DEBUG" = "ENABLE" ]; then
+		#806111.<IFTW-fchang>.removed /usr/sbin/dsl_cpe_control -o -n"/etc/rc.d/init.d/xdslrc.sh" -i${xTSE} &
+		#806111.<IFTW-fchang>.added
+		#/usr/sbin/dsl_cpe_control -o -f /firmware/modemhwe.bin -a /ramdisk/flash/cmv_batch -n"/etc/rc.d/init.d/xdslrc.sh" -i${xTSE} &
+		/usr/sbin/dsl_cpe_control -o -f /firmware/modemhwe.bin -n"/etc/rc.d/init.d/xdslrc.sh" -i${xTSE} &
+
+    else
+		#806111.<IFTW-fchang>.removed /usr/sbin/dsl_cpe_control -n"/etc/rc.d/init.d/xdslrc.sh" -i${xTSE} &
+		#806111.<IFTW-fchang>.added
+		#/usr/sbin/dsl_cpe_control -f /firmware/modemhwe.bin -n"/etc/rc.d/init.d/xdslrc.sh" -i${xTSE} &
+		/usr/sbin/dsl_cpe_control -f /root/AmazonSE_341101.bin -n"/etc/rc.d/init.d/xdslrc.sh" -i${xTSE} &
+
+    fi
+fi
+

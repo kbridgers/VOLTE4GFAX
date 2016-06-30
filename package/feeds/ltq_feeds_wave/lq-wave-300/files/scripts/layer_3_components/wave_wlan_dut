@@ -1,0 +1,66 @@
+#!/bin/sh
+
+# Defines
+if [ ! "$MTLK_INIT_PLATFORM" ]; then			
+	. /tmp/mtlk_init_platform.sh
+fi
+
+command=$1
+
+eeprom_partition=wlanconfig
+eeprom_tar=eeprom.tar.gz
+
+start_dut()
+{
+	return
+}
+
+stop_dut()
+{
+	return
+}
+
+dut_should_run()
+{
+	true
+}
+
+write_to_eeprom()
+{
+	print2log DBG "wave_wlan_dut: write to eeprom"
+	# Create tarball from eeprom bins
+	cd /tmp
+	tar czf $eeprom_tar cal_*.bin
+	if [ $? != 0 ]
+	then
+		print2log ALERT "wave_wlan_dut: failed to create $eeprom_tar"
+		return 1
+	fi
+	cd - > /dev/null
+
+	upgrade /tmp/$eeprom_tar $eeprom_partition 0 0
+	if [ $? != 0 ]
+	then
+		print2log ALERT "wave_wlan_init_eeprom: the partition $eeprom_partition doesn't exist and cannot be created"
+		return 1
+	fi
+	print2log DBG "wave_wlan_dut: Done write to eeprom"
+}
+
+case $command in
+	start )
+		start_dut
+    	;;
+	stop )
+		stop_dut
+	;;
+	should_run )
+		dut_should_run
+	;;
+	write )
+		write_to_eeprom
+	;;
+	* )
+		print2log WARNING "wave_wlan_dut: Unknown command=$command"
+    ;;
+esac

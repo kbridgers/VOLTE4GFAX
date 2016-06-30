@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+START=80
+
+start()
+{
+	insmod /lib/modules/*/autofs4.ko
+	sync
+	echo 1 > /proc/sys/vm/drop_caches
+	sleep 1
+	echo 1 > /proc/sys/vm/scan_unevictable_pages
+	echo 2 > /proc/sys/vm/overcommit_memory
+	echo 95 > /proc/sys/vm/overcommit_ratio
+	/sbin/mountd
+}
+
+stop()
+{
+	killall mountd
+	rmmod ahci
+	umount /ramdisk/usb/.run/mountd || true
+	rmmod autofs4
+}

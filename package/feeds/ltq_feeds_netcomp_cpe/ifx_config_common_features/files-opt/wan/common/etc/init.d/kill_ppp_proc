@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# kill_ppp_proc wan_idx ppp_type
+
+if [ "$2" = "OE" ]; then
+	eval PPP_PROC_FILE="ppp-pppoe-$1"
+else
+	eval PPP_PROC_FILE="ppp-pppoatm-$1"
+fi
+
+	if [ -f /var/run/${PPP_PROC_FILE}.pid ]; then 
+		. /etc/rc.d/killproc ${PPP_PROC_FILE}
+	else
+#		if [ "$2" = "OE" ]; then
+#			PS_PID="`ps |grep pppoe$1`"
+#		else
+#			PS_PID="`ps |grep pppoatm$1`"
+#		fi
+#		PID="`echo $PS_PID |cut -d 'r' -f1`"
+		if [ "$2" = "OE" ]; then
+			PS_PID="pppoe"$1
+		else
+			PS_PID="pppoatm"$1
+		fi
+		ps > /tmp/psf
+		while read line
+		do
+			case $line in
+				*"$PS_PID"*)	break ;;
+				*) line="" ;;
+			esac
+		done < /tmp/psf
+		PID=${line%% [a-z]*}
+		if [ -n "$PID" ]; then
+			kill -TERM $PID
+		fi
+	fi

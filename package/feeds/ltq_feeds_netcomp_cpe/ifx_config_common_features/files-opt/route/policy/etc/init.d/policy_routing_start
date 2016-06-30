@@ -1,0 +1,181 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+mark=123
+prio=200
+
+if [ $# -eq 1 ]; then
+	eval temp='$'route_${1}_isPR
+	if [ "$temp" = "1" ]; then
+		iptable_rule="iptables -A IFX_MANGLE_POLICY_ROUTING -t mangle"
+		eval temp='$'route_${1}_fEnable
+		if [ "$temp" = "1" ]; then
+
+			eval temp='$'route_${1}_srcIp
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -s $temp"
+			fi
+
+			eval temp='$'route_${1}_srcMask
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule/$temp "
+			else
+				iptable_rule="$iptable_rule "
+			fi
+
+			eval temp='$'route_${1}_routeProto
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -p $temp "
+
+				eval temp='$'route_${1}_srcStartPort
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule --sport $temp "
+				fi
+
+				eval temp='$'route_${1}_dstStartPort
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule --dport $temp "
+				fi
+			fi
+		
+			eval temp='$'route_${1}_dstIp
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -d $temp"
+			fi
+
+			eval temp='$'route_${1}_dstMask
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule/$temp "
+			else
+				iptable_rule="$iptable_rule "
+			fi
+
+			eval temp='$'route_${1}_diffserv
+			if [ "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -m dscp --dscp $temp "
+			fi
+
+			eval pr_cpeId='$'route_${1}_cpeId
+			t_prio=`expr $prio + $pr_cpeId`
+			t_mark=`expr $mark + $pr_cpeId`
+			#table and mark are same
+			echo $t_prio t_$t_mark >> /tmp/iproute2/rt_tables
+			ip rule add fwmark 0x$t_mark table t_$t_mark 2> /dev/null
+			eval temp='$'route_${1}_gw
+			if [ "$temp" -a "$temp" != "0.0.0.0" ]; then
+				ip route add default via $temp table t_$t_mark 2> /dev/null
+			else
+				eval temp='$'route_${1}_routeIf
+				ip route add dev $temp table t_$t_mark 2> /dev/null
+			fi
+
+			eval temp='$'route_${1}_routeIf
+			if [ -n "$temp" -a "$temp" != "*" ]; then
+				iptable_rule="$iptable_rule -i ! $temp -j MARK --set-mark 0x$t_mark"
+			else
+				iptable_rule="$iptable_rule -j MARK --set-mark 0x$t_mark"
+			fi
+
+			$iptable_rule 2> /dev/null
+		fi
+	fi
+
+else
+
+	#if [ "$route_STATUS" = "1" ]; then
+		
+		count=0
+		while [ "$count" != "$routing_Count" ]
+		do
+			eval temp='$'route_${count}_isPR
+			if [ "$temp" = "1" ]; then # is a policy route
+				iptable_rule="iptables -A IFX_MANGLE_POLICY_ROUTING -t mangle"
+				eval temp='$'route_${count}_fEnable
+				if [ "$temp" = "1" ]; then
+
+					eval temp='$'route_${count}_srcIp
+					if [ "$temp" != "*" ]; then
+						iptable_rule="$iptable_rule -s $temp"
+					fi
+
+					eval temp='$'route_${count}_srcMask
+					if [ "$temp" != "*" ]; then
+						iptable_rule="$iptable_rule/$temp "
+					else
+						iptable_rule="$iptable_rule "
+					fi
+
+					eval temp='$'route_${count}_routeProto
+					if [ "$temp" != "*" ]; then
+						iptable_rule="$iptable_rule -p $temp "
+
+						eval temp='$'route_${count}_srcStartPort
+						if [ "$temp" != "*" ]; then
+						iptable_rule="$iptable_rule --sport $temp "
+					fi
+
+					eval temp='$'route_${count}_dstStartPort
+					if [ "$temp" != "*" ]; then
+						iptable_rule="$iptable_rule --dport $temp "
+					fi
+				fi
+				
+
+				eval temp='$'route_${count}_dstIp
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule -d $temp"
+				fi
+
+				eval temp='$'route_${count}_dstMask
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule/$temp "
+				else
+					iptable_rule="$iptable_rule "
+				fi
+
+				eval temp='$'route_${count}_diffserv
+				if [ "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule -m dscp --dscp $temp "
+				fi
+
+				eval pr_cpeId='$'route_${count}_cpeId
+				t_prio=`expr $prio + $pr_cpeId`
+				t_mark=`expr $mark + $pr_cpeId`
+				#table and mark are same
+				echo $t_prio t_$t_mark >> /tmp/iproute2/rt_tables
+				ip rule add fwmark 0x$t_mark table t_$t_mark 2> /dev/null
+				eval temp='$'route_${count}_gw
+				if [ "$temp" -a "$temp" != "0.0.0.0" ]; then
+					ip route add default via $temp table t_$t_mark 2> /dev/null
+				else
+					eval temp='$'route_${count}_routeIf
+					ip route add dev $temp table t_$t_mark 2> /dev/null
+				fi
+
+				ip route flush cache
+				eval temp='$'route_${count}_routeIf
+				if [ -n "$temp" -a "$temp" != "*" ]; then
+					iptable_rule="$iptable_rule -i ! $temp -j MARK --set-mark 0x$t_mark"
+				else
+					iptable_rule="$iptable_rule -j MARK --set-mark 0x$t_mark"
+				fi
+				$iptable_rule 2> /dev/null
+			fi
+			fi
+			count=`expr $count + 1`
+		done
+	#fi
+fi

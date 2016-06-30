@@ -1,0 +1,61 @@
+#!/bin/sh
+DATABASEFILE="/tmp/database"
+
+deprecated_prefix_rules()
+{
+	grep "EVENT_SRC=[WANsixrd].*EVENT_TYPE=DOWN" ${DATABASEFILE} | while read ln
+	do
+		eval "$ln" 2>/dev/null
+		route -A inet6 add ${PREFIX} dev ${lan_if} 2>/dev/null
+		ipt -A delegated_prefix  -i ${lan_if} -s ${PREFIX} -j REJECT --reject-with icmp6-invalid-source
+		#ipt -I INPUT  -i ${lan_if} -s ${PREFIX} -j REJECT --reject-with icmp6-invalid-source 
+	done
+}
+
+active_prefix_rules()
+{
+	grep "EVENT_SRC=[WANsixrd].*EVENT_TYPE=UP" ${DATABASEFILE} | while read ln
+	do
+		eval "$ln" 2>/dev/null
+
+		if [ "z${DELEGATED_PREFIX}" != "z" ]; then
+			ipt -A delegated_prefix -i ${lan_if}  ! -o ${lan_if} -s ${PREFIX} ! -d ${DELEGATED_PREFIX} -j RETURN
+		else
+			ipt -A delegated_prefix -i ${lan_if}  ! -o ${lan_if} -s ${PREFIX}  -j RETURN
+		fi
+		ipt -A delegated_prefix ! -i ${lan_if} -d ${PREFIX} -j RETURN
+#		ipt -A delegated_prefix -i ${lan_if} ! -o ${lan_if} -d ${DELEGATED_PREFIX} -j DROP 
+	done
+}
+delegated_prefix_rules()
+{
+	active_prefix_rules
+	deprecated_prefix_rules
+	ipt -A delegated_prefix -i ${lan_if} ! -o ${lan_if} -s fc00::/7 -j DROP
+	ipt -A delegated_prefix -d ff00::/8 -j RETURN
+	ipt -A delegated_prefix -j DROP 
+}
+
+delegated_prefix_init()
+{
+	ipt -N delegated_prefix
+	ipt -A FORWARD  -j delegated_prefix
+	delegated_prefix_rules
+}
+
+if [ "$fwl_config_Enable" != "0" ]; then #Firewall disabled                     
+        FW_FILTER_FORWARD_INIT=delegated_prefix_init                            
+fi   
+
+#case $1 in 
+
+#update)
+#	FW_XTABLE_RESTORE_FLAG=0
+#	unalias ipt 2>/dev/null
+#	alias ipt=/usr/sbin/ip6tables
+#	if [ -x /usr/sbin/ip6tables ]; then
+#		ipt -F delegated_prefix
+#		delegated_prefix_rules 2>/dev/null
+#	fi
+#	;;
+#esac

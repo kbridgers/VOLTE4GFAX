@@ -1,0 +1,744 @@
+#
+#                            Copyright (c) 2009-2012
+#                            Lantiq Deutschland GmbH
+#
+#  For licensing information, see the file 'LICENSE' in the root folder of
+#  this software module.
+#
+#
+
+AC_PREREQ(2.59)
+AC_COPYRIGHT([Copyright (C) 2009-2012, Lantiq Deutschland GmbH
+For licensing information please see the file 'LICENSE' in the root folder of
+this software module.])
+
+AC_INIT([tapidemo - simple TAPI demonstration software],[5.1.1.32],[],[tapidemo])
+AC_CONFIG_SRCDIR([src/tapidemo.c])
+AM_INIT_AUTOMAKE
+
+m4_pattern_allow([^AM_ACLOCAL_INCLUDE$])
+AM_ACLOCAL_INCLUDE(m4)
+
+# save the configure arguments
+# remove the install dir from the distcheck configure line to avoid that the
+# installed binaries are deleted on distcheck. The regex will remove
+# --prefix and all subsequent "non-space" chars from the configure options
+# as well as the internal features.
+# Note: The escaped \' are important.
+# Note: Don't lin* - it would match also --enable-linux-26 (!)
+CONFIGURE_OPTIONS=''
+for c_arg in $ac_configure_args; do
+	case $c_arg in
+		\'--prefix=*)
+			#echo "skipping configure option for distcheck: $c_arg"
+			;;
+		*)
+			CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS $c_arg"
+			;;
+	esac
+done
+AC_SUBST(CONFIGURE_OPTIONS)
+
+
+AC_CONFIG_HEADER(tapidemo_config.h)
+
+AC_PROG_CC
+AM_PROG_CC_C_O
+AC_PROG_RANLIB
+
+AH_TOP(
+[/******************************************************************************
+
+                            Copyright (c) 2009-2012
+                            Lantiq Deutschland GmbH
+
+  For licensing information, see the file 'LICENSE' in the root folder of
+  this software module.
+
+  ****************************************************************************/
+#ifndef _TAPIDEMO_CONFIG_H_
+#define _TAPIDEMO_CONFIG_H_]
+)
+
+AH_BOTTOM([
+#endif /* _TAPIDEMO_CONFIG_H_ */
+])
+
+DISTRIBUTION_TYPE_CHECK
+
+AC_DEFINE_UNQUOTED([TAPIDEMO_CONFIGURE_STR], ["$ac_configure_args"], [configure options string])
+
+KERNEL_2_6_CHECK
+
+KERNEL_INCL_CHECK
+
+# Check for bord name selection
+AC_MSG_CHECKING(for target board)
+
+# m4 definitions required to pass value in to the help message
+m4_define('BOARD_NAMES',"EASY3332|EASY50712|EASY50712_V3|TWINPASS|INCAIP2|EASY3201|EASY3201_EVS|EASY80800|EASY508XX|EASY336|XT16|EASY80910|XWAY_XRX300")
+AC_SUBST([BOARD_NAMES],[m4_defn('BOARD_NAMES')])
+
+AC_ARG_ENABLE(boardname,
+	AS_HELP_STRING(
+		[--enable-boardname=x],
+		[set the target board m4_defn('BOARD_NAMES')]
+	),
+	[BOARD_NAME=$enableval],
+	[
+		# Set System (obsolete, just for compatibility)
+		AC_ARG_WITH(system,,[BOARD_NAME=$withval])
+	])
+
+
+# check if board was specified (with --enable-boardname or --with-system)
+if [[ "x$BOARD_NAME" = "x" ]]; then
+    AC_MSG_ERROR([Set the target board using --enable-boardname or --with-system, available values are $BOARD_NAMES])
+fi
+
+AC_MSG_RESULT([$BOARD_NAME]);
+
+
+AM_CONDITIONAL(SYS_EASY3332, false)
+AM_CONDITIONAL(DEV_VINETIC, false)
+AM_CONDITIONAL(SYS_DANUBE, false)
+AM_CONDITIONAL(SYS_USES_FXO, false)
+AM_CONDITIONAL(SYS_USES_BOARD_DRV, false)
+AM_CONDITIONAL(DEV_DXT, false)
+AM_CONDITIONAL(SYS_EASY3201, false)
+AM_CONDITIONAL(SYS_EASY3201_EVS, false)
+AM_CONDITIONAL(SYS_VINAX, false)
+AM_CONDITIONAL(SYS_AMAZON_S, false)
+AM_CONDITIONAL(SYS_EASY336, false)
+AM_CONDITIONAL(M_WITH_VXT, false)
+AM_CONDITIONAL(SYS_XT16, false)
+AM_CONDITIONAL(SYS_VR9, false)
+AM_CONDITIONAL(SYS_XWAY_XRX300, false)
+
+AC_MSG_CHECKING(for system)
+case $BOARD_NAME in
+ 	EASY3332)
+ 		AC_MSG_RESULT([VINETIC (EASY3332)])
+
+ 		VINETIC_INCL_CHECK(,
+		[
+			AC_DEFINE([HAVE_DRV_VINETIC_HEADERS],[1],[using vinetic driver(drv_vinetic)])
+			AM_CONDITIONAL(DEV_VINETIC, true)
+
+			EASY3332_INCL_CHECK(,
+				[
+					AC_DEFINE([EASY3332],[1],[set system to EASY3332])
+					AC_DEFINE([HAVE_DRV_EASY3332_HEADERS],[1],[using drv_easy3332])
+					AM_CONDITIONAL(SYS_EASY3332, true)
+				],
+				[AC_MSG_ERROR([EASY3332 includes required!])])
+		],
+		[AC_MSG_ERROR([VINETIC includes required!])])
+ 	;;
+ 	EASY50812 | EASY508xx | EASY508XX)
+ 		 AC_MSG_RESULT([VMMC (AR9)])
+ 		 AC_DEFINE([AR9],[1],[set system to AMAZON_S])
+ 		 AC_DEFINE([HAVE_T38_IN_FW],[1],
+ 					  [for this board Protocol Stack in Voice Processing Firmware is available])
+ 		 AM_CONDITIONAL(SYS_AMAZON_S, true)
+ 		 AM_CONDITIONAL(SYS_USES_FXO, true)
+		 with_drv_vmmc=true
+		 with_drv_teredian=true
+		 with_fxo_feature=true
+		 with_slic121_fxo=true
+
+		 EASY3111_EXTENSION_CHECK
+ 		 TD_IPV6_CHECK
+ 	;;
+ 	 XWAY_XRX300)
+ 		 AC_MSG_RESULT([VMMC (XWAY(TM) xRX300)])
+ 		 AC_DEFINE([TD_XWAY_XRX300],[1],[set system to XWAY(TM) XRX300])
+ 		 AC_DEFINE([HAVE_T38_IN_FW],[1],
+ 					  [for this board Protocol Stack in Voice Processing Firmware is available])
+ 		 AM_CONDITIONAL(SYS_XWAY_XRX300, true)
+ 		 AM_CONDITIONAL(SYS_USES_FXO, true)
+		 with_drv_vmmc=true
+		 with_drv_teredian=true
+		 with_fxo_feature=true
+		 with_slic121_fxo=true
+
+		 EASY3111_EXTENSION_CHECK
+ 		 TD_IPV6_CHECK
+ 	;;
+ 	EASY80910)
+ 		 AC_MSG_RESULT([VMMC (VR9)])
+ 		 AC_DEFINE([VR9],[1],[set system to VMMC])
+ 		 AC_DEFINE([HAVE_T38_IN_FW],[1],
+ 					  [for this board Protocol Stack in Voice Processing Firmware is available])
+ 		 AM_CONDITIONAL(SYS_VR9, true)
+ 		 AM_CONDITIONAL(SYS_USES_FXO, true)
+		 with_drv_vmmc=true
+		 with_drv_teredian=true
+		 with_fxo_feature=true
+		 with_slic121_fxo=true
+
+		 EASY3111_EXTENSION_CHECK
+ 		 TD_IPV6_CHECK
+ 	;;
+ 	DANUBE |EASY50712 | TWINPASS | INCAIP2)
+ 		 AC_MSG_RESULT([VMMC (DANUBE)])
+		 AC_DEFINE([INCAIP2],[1],[set system to INCAIP2])
+ 		 AC_DEFINE([DANUBE],[1],[set system to VMMC])
+ 		 AM_CONDITIONAL(SYS_DANUBE, true)
+ 		 AM_CONDITIONAL(SYS_USES_FXO, true)
+		 with_drv_vmmc=true
+
+		 # check for extension
+ 		 VINETIC_INCL_CHECK(,
+		 	[
+				AC_DEFINE([EASY50510],[1],[set system to EASY50510])
+				AC_DEFINE([HAVE_DRV_VINETIC_HEADERS],[1],[using vinetic driver(drv_vinetic)])
+				AM_CONDITIONAL(DEV_VINETIC, true)
+			])
+
+		 with_drv_teredian=true
+		 with_fxo_feature=true
+
+ 		 TD_IPV6_CHECK
+ 	;;
+ 	EASY50712_V3)
+ 		 AC_MSG_RESULT([VMMC (DANUBE v3)])
+ 		 AC_DEFINE([DANUBE],[1],[set system to VMMC])
+ 		 AC_DEFINE([EASY50712_V3],[1],[set system to EASY50712_V3])
+ 		 AM_CONDITIONAL(SYS_DANUBE, true)
+ 		 AM_CONDITIONAL(SYS_USES_FXO, true)
+		 with_drv_vmmc=true
+
+		 # check for extension
+ 		 VINETIC_INCL_CHECK(,
+		 	[
+				AC_DEFINE([EASY50510],[1],[set system to EASY50510])
+				AC_DEFINE([HAVE_DRV_VINETIC_HEADERS],[1],[using vinetic driver(drv_vinetic)])
+				AM_CONDITIONAL(DEV_VINETIC, true)
+			])
+
+		 with_drv_teredian=true
+		 with_fxo_feature=true
+
+ 		 TD_IPV6_CHECK
+ 	;;
+ 	EASY3201)
+ 		 AC_MSG_RESULT([Duslic-xT (EASY3201)])
+ 		 AC_DEFINE([EASY3201],[1],[EASY3201 System is used])
+ 		 DXT_INCL_CHECK(,
+		 	[
+				AC_DEFINE([HAVE_DRV_DUSLICXT_HEADERS],[1],[using drv_duslic_xt])
+				AC_DEFINE([DXT],[1],[Duslic-xT is used])
+				AM_CONDITIONAL(DEV_DXT, true)
+
+				EASY3201_INCL_CHECK(,
+					[AC_DEFINE([HAVE_DRV_EASY3201_HEADERS],[1],[using drv_easy3201])
+                                         AM_CONDITIONAL(SYS_EASY3201, true)],
+					[AC_MSG_ERROR([EASY3201 includes required!])])
+			],
+			[AC_MSG_ERROR([DUSLICXT includes required!])])
+ 	;;
+ 	EASY3201_EVS)
+ 	    AC_MSG_RESULT([Duslic-xT (EASY3201_EVS)])
+            AC_DEFINE([EASY3201_EVS],[1],[EASY3201_EVS System is used])
+            DXT_INCL_CHECK(,
+                        [
+                           AC_DEFINE([HAVE_DRV_DUSLICXT_HEADERS],[1],[using drv_duslic_xt])
+                           AC_DEFINE([DXT],[1],[Duslic-xT is used])
+                           AM_CONDITIONAL(DEV_DXT, true)
+
+                           BOARD_INCL_CHECK(,
+                              [AC_DEFINE([TD_HAVE_DRV_BOARD_HEADERS],[1],[using drv_board])
+                               AM_CONDITIONAL(SYS_EASY3201_EVS, true)
+                               AM_CONDITIONAL(SYS_USES_BOARD_DRV, true)],
+                              [AC_MSG_ERROR([board driver includes required!])])
+                        ],
+                        [AC_MSG_ERROR([DUSLICXT includes required!])])
+        ;;
+ 	EASY80800)
+ 		 AC_MSG_RESULT([VMMC (VINAX)])
+ 		 AC_DEFINE([VINAX],[1],[VINAX system is used])
+ 		 AM_CONDITIONAL(SYS_VINAX, true)
+ 		 AM_CONDITIONAL(SYS_USES_FXO, true)
+ 		 AC_MSG_RESULT(WARNING: UNTESTED AFTER RECENT BUILD SYSTEM IMPROVMENTS)
+		 with_drv_vmmc=true
+
+		 with_drv_teredian=true
+		 with_fxo_feature=true
+ 	;;
+ 	EASY336)
+ 		AC_MSG_RESULT([EASY336])
+ 		AC_DEFINE([EASY336],[1],[EASY336 System is used])
+ 		AC_DEFINE([HAVE_T38_IN_FW],[1],
+ 					 [for this board Protocol Stack in Voice Processing Firmware is available])
+ 		AM_CONDITIONAL(SYS_EASY336, true)
+
+ 		SVIP_INCL_CHECK(,
+ 			[AC_DEFINE([HAVE_DRV_SVIP_HEADERS],[1],[using drv_svip])],
+ 			[AC_MSG_ERROR([SVIP includes required!])]
+ 		)
+
+ 		LIBSVIP_INCL_CHECK(,,[AC_MSG_ERROR([SuperVIP library includes required!])])
+ 		LIBSVIP_LIB_CHECK
+
+		# check for FXO support
+		AC_MSG_CHECKING(for xT16 extension)
+		with_vxt_extension='no'
+		AC_ARG_WITH(vxt, AS_HELP_STRING([--with-vxt],[enable xT16 extension for EASY336]),
+			[with_vxt_extension=$withval])
+		AC_MSG_RESULT([$with_vxt_extension])
+		if test "x$with_vxt_extension" = "xyes"; then
+			VXT_INCL_CHECK(,
+				[
+					AC_DEFINE([HAVE_DRV_VXT_HEADERS],[1],[using drv_vxt])
+					AC_DEFINE(WITH_VXT,1,[Use Vinetic-xT driver])
+					AM_CONDITIONAL(M_WITH_VXT, true)
+				],[AC_MSG_ERROR([xT16 includes required!])])
+		fi
+		TD_IPV6_CHECK
+	;;
+ 	XT16)
+ 		AC_MSG_RESULT([XT16])
+ 		AC_DEFINE([XT16],[1],[XT16 System is used])
+ 		AM_CONDITIONAL(SYS_XT16, true)
+
+ 		VXT_INCL_CHECK(,
+ 			[AC_DEFINE([HAVE_DRV_VXT_HEADERS],[1],[using drv_vxt])],
+ 			[AC_MSG_ERROR([xT16 includes required!])]
+ 		)
+    BOARD_INCL_CHECK(,
+      [AC_DEFINE([TD_HAVE_DRV_BOARD_HEADERS],[1],[using drv_board])
+       AM_CONDITIONAL(SYS_USES_BOARD_DRV, true)])
+ 		;;
+ 	*)
+ 	;;
+esac
+
+AM_CONDITIONAL(M_TERIDIAN_FXO, false)
+if test "x$with_drv_teredian" = "xtrue"; then
+	TERIDIAN_INCL_CHECK(,
+		[
+			AM_CONDITIONAL(M_TERIDIAN_FXO, true)
+			AC_DEFINE([HAVE_DRV_TERIDIAN_HEADERS],[1],[using drv_ter1x66])
+			AC_DEFINE([TERIDIAN_FXO],[1],[Teridian FXO])
+		])
+fi
+
+AM_CONDITIONAL(DEV_VMMC, [test "x$with_drv_vmmc" = "xtrue"])
+if test "x$with_drv_vmmc" = "xtrue"; then
+	VMMC_INCL_CHECK(,
+		[AC_DEFINE([HAVE_DRV_VMMC_HEADERS],[1],[using drv_vmmc])],
+		[AC_MSG_ERROR([VMMC includes required!])])
+fi
+
+# Checking if driver drv_tapi exists
+DRVTAPI_INCL_CHECK(,
+	[AC_DEFINE([HAVE_DRV_TAPI_HEADERS],[1],[using TAPI driver])
+    # Enable QOS Mode
+    TD_QOS_CHECK([disable])],
+	[AC_MSG_ERROR([TAPI includes required!])]
+)
+
+# Enable DuSLIC FXO usage for EASY50712 board.
+AC_MSG_CHECKING(for DuSLIC FXO)
+AC_ARG_ENABLE(duslic-fxo,
+	AS_HELP_STRING(
+		[--enable-duslic-fxo],
+		[enable DuSLIC fxo - only EASY50712 board]
+	),
+	[
+		if [[ "x$enableval" = "xyes" ]]; then
+			# Checking if driver drv_duslic exists
+			DUSLIC_INCL_CHECK(,
+				[
+					AC_DEFINE([HAVE_DRV_DUSLIC_HEADERS],[1],[using drv_duslic])
+
+					DAA_INCL_CHECK(,
+						[
+							AC_DEFINE([HAVE_DRV_DAA_HEADERS],[1],[using drv_daa])
+							with_duslic_fxo=true
+						])
+				]
+			)
+		fi
+	]
+)
+AM_CONDITIONAL(M_DUSLIC_FXO, [test "x$with_duslic_fxo" = "xtrue"])
+if test "x$with_duslic_fxo" = "xtrue"; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([DUSLIC_FXO],[1],[DuSLIC FXO])
+	with_fxo_feature=true
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# check for FXO support
+AC_MSG_CHECKING(for FXO support)
+AM_CONDITIONAL(M_FXO, [test "x$with_fxo_feature" = "xtrue"])
+if test "x$with_fxo_feature" = "xtrue"; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([FXO],[1],[enable FXO support])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# check for SLIC 121 FXO
+AC_MSG_CHECKING(for SLIC 121 FXO support)
+AM_CONDITIONAL(M_SLIC121_FXO, [test "x$with_slic121_fxo" = "xtrue"])
+if test "x$with_slic121_fxo" = "xtrue"; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([SLIC121_FXO],[1],[SLIC 121 FXO])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+LIBIFXOS_CHECK_CONFIG
+EVENT_LOGGER_CHECK_CONFIG
+
+# Enable T.38 fax test functionality - only EASY508XX boards
+AC_MSG_CHECKING(for T.38 fax test functionality)
+AC_ARG_ENABLE(fax-test,
+    AS_HELP_STRING(
+        [--enable-fax-test],
+        [enable T.38 fax test functionality - only EASY508XX boards]
+    ),
+    [test "x$enableval" = "xyes" && with_fax_test=true]
+)
+AM_CONDITIONAL(M_TD_T38_FAX_TEST, [test "x$with_fax_test" = "xtrue"])
+if test "x$with_fax_test" = "xtrue"; then
+	AC_MSG_RESULT([enabled])
+	AC_DEFINE([TD_T38_FAX_TEST],[1],[enable T.38 fax test functionality - only EASY508XX boards])
+	#enable T.38 fax relay functionality
+	with_fax_modem=true
+	with_fax_t38=true
+else
+	AC_MSG_RESULT([disabled])
+fi
+
+# Enable transparent fax/modem transmission and "T.38 in firmware".
+AC_MSG_CHECKING(for T.38 in firmware)
+AC_ARG_ENABLE(fax-t38,
+	AS_HELP_STRING(
+		[--enable-fax-t38],
+		[enable transparent fax/modem transmission and fax T.38 transmission]
+	),
+	[test "x$enableval" = "xyes" && with_fax_t38=true]
+	[
+		# Enable Voice Band Data (VBD) for fax, modem transmissions - This is obsolete option
+		AC_ARG_ENABLE(vbd,
+			AS_HELP_STRING(
+				[--enable-vbd],
+				[this option is obsolete --enable-fax-modem or --enable-fax-t38 should be used]
+			),
+			[test "x$enableval" = "xyes" && with_fax_t38=true]
+		)
+	]
+)
+AM_CONDITIONAL(M_TD_FAX_T38, [test "x$with_fax_t38" = "xtrue"])
+if test "x$with_fax_t38" = "xtrue"; then
+	AC_MSG_RESULT([enabled])
+	AC_DEFINE([TD_FAX_T38],[1],[enable fax T.38 transmissions])
+	# in force enable fax/modem transmission
+	with_fax_modem=true
+else
+	AC_MSG_RESULT([disabled])
+fi
+
+# Enable transparent fax/modem transmission.
+AC_MSG_CHECKING(for transparent fax/modem support)
+AC_ARG_ENABLE(fax-modem,
+    AS_HELP_STRING(
+        [--enable-fax-modem],
+        [enable transparent fax/modem transmission - not needed when --enable-fax-t38 is used]
+    ),
+    [test "x$enableval" = "xyes" && with_fax_modem=true]
+)
+AM_CONDITIONAL(M_TD_FAX_MODEM, [test "x$with_fax_modem" = "xtrue"])
+if test "x$with_fax_modem" = "xtrue"; then
+	AC_MSG_RESULT([enabled])
+	AC_DEFINE([TD_FAX_MODEM],[1],[enable transparent fax/modem transmission])
+else
+	AC_MSG_RESULT([disabled])
+fi
+
+# Enable board initialization with IFX_TAPI_CH_INIT
+AC_MSG_CHECKING(for TAPI device initialization mode)
+AC_ARG_ENABLE(channel-init,
+    AS_HELP_STRING(
+        [--enable-channel-init],
+        [enable use of channel init to initialize board]
+    ),
+    [test "x$enableval" = "xyes" && with_tapi_ch_init=true]
+)
+if [[ "x$with_tapi_ch_init" = "xtrue" ]]; then
+	#use channel init
+	AC_DEFINE([TD_USE_CHANNEL_INIT],[1],[using tapi channel init])
+	AC_MSG_RESULT([IFX_TAPI_CH_INIT])
+else
+	#use device start
+	AC_MSG_RESULT([IFX_TAPI_DEV_START])
+fi
+
+# Enable Phone Plug Detection (PPD) support
+AC_MSG_CHECKING(for FXS Phone Plug Detection support)
+AC_ARG_ENABLE(ppd,
+    AS_HELP_STRING(
+        [--enable-ppd],
+        [enable the FXS Phone Plug Detection functionality.]
+    ),
+    [test "x$enableval" = "xyes" && with_fxs_ppd=true],
+    [
+	 	#enable by default
+	 	with_fxs_ppd=true
+    ]
+)
+if [[ "x$with_fxs_ppd" = "xtrue" ]]; then
+	#enable automatically the FXS Phone Plug Detection functionality
+	AC_DEFINE([TD_PPD],[1],[enable FXS Phone Plug Detection])
+	AC_MSG_RESULT(enabled)
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# Enable DECT support
+AC_MSG_CHECKING(for DECT support)
+AC_ARG_ENABLE(dect,
+   AS_HELP_STRING(
+      [--enable-dect],
+      [enable DECT]
+   ),
+   [
+		with_dect=true
+      AC_DEFINE([TD_DECT],[1],[enable DECT])
+      AC_MSG_RESULT(enabled)
+
+      # set DECT include directory path
+		TD_DECT_INCL_CHECK
+
+      # set DECT library directory path
+		TD_DECT_LIB_CHECK
+    ],
+	 [
+      AC_MSG_RESULT(disabled)
+	 ])
+AM_CONDITIONAL(M_TD_DECT, [test "x$with_dect" = "xtrue"])
+
+AM_CONDITIONAL(M_TD_VOIP_COMMON, false)
+if test "x$with_dect" = "xtrue"; then
+
+	# set voip-common include directory path
+	TD_VOIP_COMMON_INCL_CHECK
+
+	# set voip-common library directory path
+	TD_VOIP_COMMON_LIB_CHECK
+
+	AM_CONDITIONAL(M_TD_VOIP_COMMON, true)
+	AC_DEFINE([TD_TIMER],[1],[enable Timer])
+fi
+
+# Enable compiling for stream 1.1
+AC_MSG_CHECKING(for stream 1.1)
+AC_ARG_ENABLE(old_stream,
+	AS_HELP_STRING(
+		[--enable-old_stream],
+		[enable compiling for stream 1.1]
+	),
+	[test "x$enableval" = "xyes" && with_old_strwam=true]
+)
+AM_CONDITIONAL(STREAM_1_1, [test "x$with_old_strwam" = "xtrue"])
+if test "x$with_old_strwam" = "xtrue"; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([STREAM_1_1],[1],[enable compiling for stream 1])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# Disable support of 3 CPTDs for 1 channel - backward compatibility option
+AC_ARG_ENABLE(3CPTD,
+   AS_HELP_STRING(
+      [--disable-3CPTD],
+      [disable multiple CPTDs for 1 channel support (enabled by default)]
+   ), [
+   if [test "x$enableval" = "xno" ]; then
+      AC_DEFINE([TD_3_CPTD_SUPPORT_DISABLED],[1],
+                [disable multiple CPTDs for one channel support])
+      AC_MSG_NOTICE(multiple CPTDs for one channel support disabled)
+   fi
+   ]
+)
+
+# Enable debugging mode
+DEBUG_CHECK
+
+WARNINGS_CHECK([CFLAGS="$CFLAGS -Wunused -Wpointer-arith"])
+
+# Enables file system support
+AC_MSG_CHECKING(for filesystem support)
+AC_ARG_ENABLE(fs,
+   AS_HELP_STRING(
+      [--enable-fs],
+      [enable filesystem support]
+   ),
+   [test "x$enableval" = "xyes" && with_fs_support=true]
+)
+if [[ "x$with_fs_support" = "xtrue" ]]; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([USE_FILESYSTEM],[1],[enable filesystem support])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# Enables debug traces
+TRACE_CHECK
+
+# enable warnings as error
+WERROR_CHECK
+
+# Enables event counters
+EVENT_COUNTER_CHECK
+
+# Enable old BSP
+AC_MSG_CHECKING(for old BSP support)
+AC_ARG_ENABLE(old-bsp,
+    AS_HELP_STRING(
+        [--enable-old-bsp],
+        [enable old BSP]
+   ),
+   [test "x$enableval" = "xyes" && with_old_bsb_support=true]
+)
+if [[ "x$with_old_bsb_support" = "xtrue" ]]; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([OLD_BSP],[1],[enable old BSP])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# Enable workaround for external calls
+AC_MSG_CHECKING(for external call workaround)
+AC_ARG_ENABLE(ext-call-workaround,
+    AS_HELP_STRING(
+        [--enable-ext-call-workaround],
+        [enable external call workaround]
+   ),
+   [test "x$enableval" = "xyes" && with_ext_cal_wa=true]
+)
+if [[ "x$with_ext_cal_wa" = "xtrue" ]]; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([TD_USE_EXT_CALL_WORKAROUND_EASY508XX],[1],
+		[enable external call workaround])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# Enable additional debug for RM (resource counting)
+AC_MSG_CHECKING(for RM debugging)
+AC_ARG_ENABLE(rm-debug,
+    AS_HELP_STRING(
+        [--enable-rm-debug],
+        [enable additional debug for RM (resource counting)]
+   ),
+   [test "x$enableval" = "xyes" && with_rm_debug=true]
+)
+if [[ "x$with_rm_debug" = "xtrue" ]]; then
+	AC_MSG_RESULT(enabled)
+	AC_DEFINE([TD_RM_DEBUG],[1],[enable additional debug for RM (resource counting)])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+# Enable BackWard compatibility for DECT Stack
+AC_MSG_CHECKING(for DECT Stack BackWard compatibility)
+AC_ARG_ENABLE(dect-bw-comp,
+    AS_HELP_STRING(
+        [--enable-dect-bw-comp],
+        [use DECT Stack toolkit BackWard compatibility]
+   ),
+   [test "x$enableval" = "xyes" && with_dect_bwc=true]
+)
+if [[ "x$with_dect_bwc" = "xtrue" ]]; then
+	AC_MSG_RESULT(enabled)
+	# using interface according to ifx_stack_toolkit CHANGELOG
+	AC_DEFINE([TD_DECT_BW_COMP_BEFORE_3_1_1_3],[1],
+		[using ifx_stack_toolkit version before 3.1.1.3])
+else
+	AC_MSG_RESULT(disabled)
+fi
+
+dnl overwrite default FW file name for vmmc
+AC_ARG_ENABLE(fw-file,
+   AS_HELP_STRING(
+      [--enable-fw-file=val],
+      [overwrite default FW file name for vmmc]
+   ),
+   [
+      AC_MSG_CHECKING(for firmware file name for vmmc)
+      AC_MSG_RESULT([$enableval])
+      AC_DEFINE_UNQUOTED([TD_FW_FILE], ["$enableval"], [using firmware file])
+   ]
+)
+
+dnl overwrite default BBD file name for vmmc
+AC_ARG_ENABLE(bbd-file,
+   AS_HELP_STRING(
+      [--enable-bbd-file=val],
+      [overwrite default BBD file name for vmmc]
+   ),
+   [
+      AC_MSG_CHECKING(for BBD file name for vmmc)
+      AC_MSG_RESULT([$enableval])
+      AC_DEFINE_UNQUOTED([TD_BBD_FILE], ["$enableval"], [using BBD file])
+   ]
+)
+
+# set additional (device specific) CFLAGS
+WITH_CFLAGS_CHECK
+
+# Compile application as library
+AC_MSG_CHECKING(for library mode)
+AM_CONDITIONAL(TAPIDEMO_LIBRARY, false)
+AC_ARG_ENABLE(library-mode,
+   AS_HELP_STRING(
+      [--enable-library-mode],
+      [compile application as library]
+   ),
+   [
+      if test "x$enableval" = "xyes"; then
+         AC_MSG_RESULT([enabled])
+         AM_CONDITIONAL(TAPIDEMO_LIBRARY, true)
+         AC_DEFINE([TAPIDEMO_LIBRARY],[1],[compile application as library])
+      else
+         AC_MSG_RESULT([disabled])
+      fi
+   ],[
+       AC_MSG_RESULT([disabled (default)])
+   ]
+)
+
+AC_MSG_CHECKING(for deprecated options)
+AC_ARG_WITH(drvincl,,
+	[AC_MSG_ERROR([The '--with-drvincl' deprecated, use the target specified options '--with-<target>-incl' instead])])
+AC_ARG_ENABLE(svip-include,,
+	[AC_MSG_ERROR([The '--enable-svip-include' deprecated, use '--with-libsvip-incl' instead])])
+AC_ARG_ENABLE(svip-library,,
+	[AC_MSG_ERROR([The '--enable-svip-library' deprecated, use '--with-libsvip-lib' instead])])
+AC_MSG_RESULT([ok])
+
+AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([src/Makefile])
+
+AC_OUTPUT
+
+echo \
+"------------------------------------------------------------------------
+Configuration:
+
+  Source code location: ${srcdir}
+  System path:          ${KERNEL_INCL_PATH}
+  Compiler:             ${CC}
+  Compiler flags:       ${CFLAGS}
+  Host System Type:     ${host}
+  Install path:         ${prefix}
+  Target board:         ${BOARD_NAME}
+------------------------------------------------------------------------"
+
+

@@ -1,0 +1,54 @@
+menu "Configuration"
+	depends on PACKAGE_ifx-dsl-cpe-mei-vrx
+
+	choice
+		prompt "Device selection"
+		default ifx-dsl-cpe-mei-vrx_DEVICE_VR9
+		help
+		  Selection of a device.
+
+	config ifx-dsl-cpe-mei-vrx_DEVICE_VR9
+		bool "VRX200"
+		help
+		  Actiavtes build for VRX200 Family.
+
+	config ifx-dsl-cpe-mei-vrx_DEVICE_VR10
+		bool "VRX300"
+		help
+		  Actiavtes build for VRX300 Family.
+	endchoice
+
+	config IFX_VRX_MAX_DEVICE
+		string
+		prompt "Max. number of devices"
+		default "1"
+		help
+		  Defines the max. number of VRX devices used.
+		  Set it to 2 for activating OFF-chip bonding.
+
+	config IFX_VRX_LINES_PER_DEVICE
+		string
+		prompt "Lines per device"
+		default "1"
+		help
+		  Defines the number of lines used per VRX devices.
+		  Set it to 2 for activating ON-chip bonding.
+	
+        config ifx-dsl-cpe-mei-vrx_USE_KERNEL_BUILD_IN
+                bool "Use kernel build-in"
+                default n
+
+        config ifx-dsl-cpe-mei-vrx_USE_PCI_SLAVE_DOWNLOAD
+                bool "Use PCI Slave firmware download"
+                default n
+
+	choice
+		depends on ifx-dsl-cpe-mei-vrx_USE_PCI_SLAVE_DOWNLOAD
+		prompt "PCI Slave address range"
+		default ifx-dsl-cpe-mei-vrx_USE_PCI_SLAVE_ADDR_RANGE_ADTRAN
+	config ifx-dsl-cpe-mei-vrx_USE_PCI_SLAVE_ADDR_RANGE_ADTRAN
+		bool "ADTRAN"
+	config ifx-dsl-cpe-mei-vrx_USE_PCI_SLAVE_ADDR_RANGE_BONDING
+		bool "BONDING"
+    	endchoice
+endmenu

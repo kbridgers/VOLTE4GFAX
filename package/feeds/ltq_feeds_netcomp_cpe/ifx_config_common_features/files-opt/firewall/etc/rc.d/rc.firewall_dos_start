@@ -1,0 +1,132 @@
+#!/bin/sh
+
+#510251:sumedh For configuration of DoS attacks
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+         . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ $DOS_ENABLE -a $DOS_ENABLE = "1" ]; then
+	/usr/sbin/naptcfg --DOS_ENABLE 1
+else
+	/usr/sbin/naptcfg --DOS_ENABLE 0
+fi
+
+if [ $WINNUKE_STATUS -a  $WINNUKE_STATUS = "1" ]; then
+	arg=1":"$OLD_WINNUKE_PORTS":"$WINNUKE_PORTS	
+	/usr/sbin/naptcfg --Winnuke $arg
+else
+	arg=0":"$OLD_WINNUKE_PORTS":"$WINNUKE_PORTS
+	/usr/sbin/naptcfg --Winnuke $arg
+fi
+if [ $TCPSYNFLOOD_STATUS -a $TCPSYNFLOOD_STATUS = "1" ]; then
+	arg=1":"$OLD_TCPSYNFLOOD_LIMIT":"$OLD_TCPSYNFLOOD_BURST":"$TCPSYNFLOOD_LIMIT":"$TCPSYNFLOOD_BURST	
+	/usr/sbin/naptcfg --Tcpsynflood $arg
+else
+	arg=0":"$OLD_TCPSYNFLOOD_LIMIT":"$OLD_TCPSYNFLOOD_BURST":"$TCPSYNFLOOD_LIMIT":"$TCPSYNFLOOD_BURST	
+	/usr/sbin/naptcfg --Tcpsynflood $arg
+fi
+if [ $XMAS_STATUS -a $XMAS_STATUS = "1" ]; then
+	/usr/sbin/naptcfg --Xmas 1
+else
+	/usr/sbin/naptcfg --Xmas 0
+fi
+if [ $TCPHIJACKING_STATUS -a $TCPHIJACKING_STATUS = "1" ]; then
+	/usr/sbin/naptcfg --Tcphijacking 1
+else
+	/usr/sbin/naptcfg --Tcphijacking 0
+fi
+if [ $HOTSYNC_STATUS -a $HOTSYNC_STATUS = "1" ]; then
+	arg=1":"$OLD_HOTSYNC_PORT":"$HOTSYNC_PORT
+	/usr/sbin/naptcfg --Hotsync $arg
+else
+	arg=0":"$OLD_HOTSYNC_PORT":"$HOTSYNC_PORT
+	/usr/sbin/naptcfg --Hotsync $arg
+fi
+if [ $YAHOO_STATUS -a $YAHOO_STATUS = "1" ]; then
+	arg=1":"$OLD_YAHOO_PORT":"$YAHOO_PORT
+	/usr/sbin/naptcfg --Yahoo $arg
+else
+	arg=0":"$OLD_YAHOO_PORT":"$YAHOO_PORT
+	/usr/sbin/naptcfg --Yahoo $arg
+fi
+if [ $PORTSCAN_STATUS -a $PORTSCAN_STATUS = "1" ]; then
+	arg=1":"$OLD_LOPORT_WEIGHT":"$OLD_HIPORT_WEIGHT":"$OLD_DELAY_THRESHOLD":"$OLD_WEIGHT_THRESHOLD":"$LOPORT_WEIGHT":"$HIPORT_WEIGHT":"$DELAY_THRESHOLD":"$WEIGHT_THRESHOLD
+	/usr/sbin/naptcfg --Portscan $arg
+else
+	arg=0":"$OLD_LOPORT_WEIGHT":"$OLD_HIPORT_WEIGHT":"$OLD_DELAY_THRESHOLD":"$OLD_WEIGHT_THRESHOLD":"$LOPORT_WEIGHT":"$HIPORT_WEIGHT":"$DELAY_THRESHOLD":"$WEIGHT_THRESHOLD
+	/usr/sbin/naptcfg --Portscan $arg
+fi
+if [ $MIME_STATUS -a $MIME_STATUS = "1" ]; then
+	arg=1":"$OLD_MIME_PORT":"$MIME_PORT
+	/usr/sbin/naptcfg --Mime $arg
+else
+	arg=0":"$OLD_MIME_PORT":"$MIME_PORT
+	/usr/sbin/naptcfg --Mime $arg
+fi
+if [ $CODERED2_STATUS -a $CODERED2_STATUS = "1" ]; then
+	arg=1":"$OLD_WEB_PORT":"$WEB_PORT
+	/usr/sbin/naptcfg --Codered2 $arg
+else
+	arg=0":"$OLD_WEB_PORT":"$WEB_PORT
+	/usr/sbin/naptcfg --Codered2 $arg
+fi
+if [ $CODERED_STATUS -a $CODERED_STATUS = "1" ]; then
+	arg=1":"$OLD_WEB_PORT":"$WEB_PORT
+	/usr/sbin/naptcfg --Codered $arg
+else
+	arg=0":"$OLD_WEB_PORT":"$WEB_PORT
+	/usr/sbin/naptcfg --Codered $arg
+fi
+if [ $FTPPORTRESTRICTED_STATUS -a $FTPPORTRESTRICTED_STATUS = "1" ]; then
+	/usr/sbin/naptcfg --FtpPR 1
+else
+	/usr/sbin/naptcfg --FtpPR 0
+fi
+if [ $LAND_STATUS -a $LAND_STATUS = "1" ]; then
+	/usr/sbin/naptcfg --Land 1
+else
+	/usr/sbin/naptcfg --Land 0
+fi
+if [ $UDPPORTLOOPBACK_STATUS -a $UDPPORTLOOPBACK_STATUS = "1" ]; then
+	arg=1":"$OLD_LOOPBACK_PORTS":"$LOOPBACK_PORTS
+	/usr/sbin/naptcfg --Loopback $arg
+else
+	arg=0":"$OLD_LOOPBACK_PORTS":"$LOOPBACK_PORTS
+	/usr/sbin/naptcfg --Loopback $arg
+fi
+if [ $FRAGGLE_STATUS -a $FRAGGLE_STATUS = "1" ]; then
+	arg=1":"$OLD_LOOPBACK_PORTS":"$LOOPBACK_PORTS":"$OLD_FRAGGLE_RATE":"$FRAGGLE_RATE
+	/usr/sbin/naptcfg --Fraggle $arg
+else
+	arg=0":"$OLD_LOOPBACK_PORTS":"$LOOPBACK_PORTS":"$OLD_FRAGGLE_RATE":"$FRAGGLE_RATE
+	/usr/sbin/naptcfg --Fraggle $arg
+fi
+if [ $UDPBOMB_STATUS -a $UDPBOMB_STATUS = "1" ]; then
+	/usr/sbin/naptcfg --Bomb 1
+else
+	/usr/sbin/naptcfg --Bomb 0
+fi
+if [ $ICQ_STATUS -a $ICQ_STATUS = "1" ]; then
+	arg=1":"$OLD_WEB_PORT":"$WEB_PORT
+	/usr/sbin/naptcfg --Icq $arg
+else
+	arg=0":"$OLD_WEB_PORT":"$WEB_PORT
+	/usr/sbin/naptcfg --Icq $arg
+fi
+
+if [ $PING_GW -a $PING_GW = "1" ]; then
+	/usr/sbin/naptcfg --PING_GW 1
+else
+	/usr/sbin/naptcfg --PING_GW 0
+fi
+
+if [ $PING_FORWARD -a $PING_FORWARD = "1" ]; then
+	/usr/sbin/naptcfg --PING_FORWARD 1
+else
+	/usr/sbin/naptcfg --PING_FORWARD 0
+fi
+

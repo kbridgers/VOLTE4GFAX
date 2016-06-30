@@ -1,0 +1,50 @@
+--- a/arch/mips/include/asm/mach-lantiq/falcon/irq.h
++++ b/arch/mips/include/asm/mach-lantiq/falcon/irq.h
+@@ -24,7 +24,7 @@
+ 
+ #include <falcon_irq.h>
+ 
+-#define NR_IRQS 264
++#define NR_IRQS 328
+ 
+ #include_next <irq.h>
+ 
+--- a/arch/mips/lantiq/falcon/devices.c
++++ b/arch/mips/lantiq/falcon/devices.c
+@@ -199,6 +199,7 @@ void __init falcon_register_wdt(void)
+ }
+ 
+ /* gpio */
++#define REGISTER_ALL_GPIO_PORTS
+ #define DECLARE_GPIO_RES(port) \
+ static struct resource falcon_gpio ## port ## _resources[] = { \
+ 	MEM_RES("gpio"#port,GPON_GPIO ## port ## _BASE,GPON_GPIO ## port ## _END), \
+@@ -210,7 +211,7 @@ DECLARE_GPIO_RES(1);
+ DECLARE_GPIO_RES(2);
+ #ifdef REGISTER_ALL_GPIO_PORTS
+ #if NR_IRQS < 328
+-#error NR_IRQS to low for all gpio irqs
++#warning NR_IRQS to low for all gpio irqs
+ #endif
+ DECLARE_GPIO_RES(3);
+ DECLARE_GPIO_RES(4);
+--- /dev/null
++++ b/arch/mips/include/asm/mach-lantiq/falcon/gpio.h
+@@ -0,0 +1,17 @@
++/*
++ *   arch/mips/include/asm/mach-ifxmips/falcon/gpio.h
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++*/
++
++#ifndef __FALCON_GPIO_H
++#define __FALCON_GPIO_H
++
++/* Max number of gpio's is 5 ports (0-4 * 100) with 32 pins */
++#define ARCH_NR_GPIOS 432
++
++#include <asm/mach-generic/gpio.h>
++
++#endif /* __FALCON_GPIO_H */

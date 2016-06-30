@@ -1,0 +1,49 @@
+#!/bin/sh
+
+if [ ! "$ENVLOADED" ]; then
+	if [ -r /etc/rc.conf ]; then
+		 . /etc/rc.conf 2> /dev/null
+		ENVLOADED="1"
+	fi
+fi
+
+if [ ! "$CONFIGLOADED" ]; then
+	if [ -r /etc/rc.d/config.sh ]; then
+		. /etc/rc.d/config.sh 2>/dev/null
+		CONFIGLOADED="1"
+	fi
+fi
+
+case "$1" in
+	start)
+		shift
+		if [ $# -eq 1 ]; then
+			. /etc/rc.d/init.d/policy_routing_start $@ > /dev/console
+		else
+			. /etc/rc.d/init.d/policy_routing_start > /dev/console
+		fi
+		;;
+	stop)
+		shift
+		if [ $# -eq 1 ]; then
+			. /etc/rc.d/init.d/policy_routing_stop $@ > /dev/console
+		else
+			. /etc/rc.d/init.d/policy_routing_stop > /dev/console
+		fi
+		;;
+	restart)
+		shift
+		if [ $# -eq 1 ]; then
+			#stop
+			. /etc/init.d/policy_routing_stop $@ > /dev/console #510251:sumedh
+			#start
+			. /etc/init.d/policy_routing_start $@ > /dev/console #510251:sumedh
+		else
+			#stop
+			. /etc/init.d/policy_routing_stop > /dev/console #510251:sumedh
+			#start
+			. /etc/init.d/policy_routing_start > /dev/console #510251:sumedh
+		fi
+		;;
+esac
+#exit $?
