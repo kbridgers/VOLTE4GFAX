@@ -1,4 +1,21 @@
 deps_config := \
+	package/uboot-lantiq/Config.in \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/common/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/lib/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vbg400/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar10/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/hn1/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vr9/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/amazon_se/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/danube/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar9/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/scripts_platform/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/Kconfig \
+	package/hostapd/Config.in \
+	package/feeds/open_applications/samba3/Config.in \
+	package/feeds/ltq_feeds_upnpdm/upnpdm/config/Config.in \
+	package/ltq-tapidemo/Config.in \
+	package/kexec-tools/Config.in \
 	package/madwifi/Config.in \
 	package/ltq-vmmc/Config.in \
 	package/ltq-tapi/Config.in \
@@ -57,23 +74,6 @@ deps_config := \
 	package/feeds/ltq_gpon_onu/gpon-flow-api/config/Config.in \
 	package/feeds/ltq_gpon_onu/gpon-dti-agent/config/Config.in \
 	package/feeds/ltq_common/lib-cli/config/Config.in \
-	package/hostapd/Config.in \
-	package/feeds/open_applications/samba3/Config.in \
-	package/feeds/ltq_feeds_upnpdm/upnpdm/config/Config.in \
-	package/ltq-tapidemo/Config.in \
-	package/kexec-tools/Config.in \
-	package/uboot-lantiq/Config.in \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/common/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/lib/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vbg400/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar10/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/hn1/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vr9/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/amazon_se/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/danube/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar9/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/scripts_platform/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/Kconfig \
 	package/udev/Config.in \
 	package/feeds/open_applications/busybox/config/sysklogd/Config.src \
 	package/feeds/open_applications/busybox/config/shell/Config.src \
