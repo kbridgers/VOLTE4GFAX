@@ -1,27 +1,4 @@
 deps_config := \
-	package/uboot-lantiq/Config.in \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/common/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/lib/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vbg400/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar10/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/hn1/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vr9/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/amazon_se/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/danube/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar9/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/scripts_platform/Kconfig \
-	package/feeds/ltq_feeds_uboot/open_uboot/config/Kconfig \
-	package/hostapd/Config.in \
-	package/feeds/open_applications/samba3/Config.in \
-	package/feeds/ltq_feeds_upnpdm/upnpdm/config/Config.in \
-	package/ltq-tapidemo/Config.in \
-	package/kexec-tools/Config.in \
-	package/madwifi/Config.in \
-	package/ltq-vmmc/Config.in \
-	package/ltq-tapi/Config.in \
-	package/compcache/Config.in \
-	package/ar7-atm/Config.in \
-	package/ltq-dsl/Config.in \
 	package/libpcap/Config.in \
 	package/feeds/open_multimedia/ffmpeg/Config.in \
 	package/feeds/open_applications/openssl/Config.in \
@@ -74,6 +51,29 @@ deps_config := \
 	package/feeds/ltq_gpon_onu/gpon-flow-api/config/Config.in \
 	package/feeds/ltq_gpon_onu/gpon-dti-agent/config/Config.in \
 	package/feeds/ltq_common/lib-cli/config/Config.in \
+	package/uboot-lantiq/Config.in \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/common/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/lib/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vbg400/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar10/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/hn1/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/vr9/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/amazon_se/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/danube/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/board/ar9/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/scripts_platform/Kconfig \
+	package/feeds/ltq_feeds_uboot/open_uboot/config/Kconfig \
+	package/kexec-tools/Config.in \
+	package/madwifi/Config.in \
+	package/ltq-vmmc/Config.in \
+	package/ltq-tapi/Config.in \
+	package/compcache/Config.in \
+	package/ar7-atm/Config.in \
+	package/ltq-dsl/Config.in \
+	package/hostapd/Config.in \
+	package/feeds/open_applications/samba3/Config.in \
+	package/feeds/ltq_feeds_upnpdm/upnpdm/config/Config.in \
+	package/ltq-tapidemo/Config.in \
 	package/udev/Config.in \
 	package/feeds/open_applications/busybox/config/sysklogd/Config.src \
 	package/feeds/open_applications/busybox/config/shell/Config.src \
@@ -120,7 +120,7 @@ deps_config := \
 	target/linux/ltqcpe/image/Config.in \
 	tmp/.config-target.in \
 	target/Config.in \
-	/home/vince/VOLTE-code/trunk/Config.in.temp
+	/home/vince/VOLTE-repo/VOLTE4GFAX/Config.in.temp
 
 include/config/auto.conf: \
 	$(deps_config)
